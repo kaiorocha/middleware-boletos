@@ -46,6 +46,8 @@ func runMigrations(db *sql.DB) error {
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
 			email TEXT NOT NULL,
 			name TEXT,
+			status TEXT NOT NULL DEFAULT 'ACTIVE',
+			external_id TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			deleted_at TIMESTAMPTZ
@@ -56,6 +58,8 @@ func runMigrations(db *sql.DB) error {
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
 			document TEXT,
+			status TEXT NOT NULL DEFAULT 'ACTIVE',
+			external_id TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			deleted_at TIMESTAMPTZ
@@ -65,7 +69,9 @@ func runMigrations(db *sql.DB) error {
 			id UUID PRIMARY KEY,
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
-			config JSONB,
+			status TEXT NOT NULL DEFAULT 'ACTIVE',
+			external_id TEXT,
+			config TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			deleted_at TIMESTAMPTZ
@@ -92,7 +98,7 @@ func runMigrations(db *sql.DB) error {
 			id UUID PRIMARY KEY,
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
 			type TEXT NOT NULL,
-			payload JSONB,
+			payload TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);`,
 
@@ -101,9 +107,18 @@ func runMigrations(db *sql.DB) error {
 			tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
 			user_id UUID,
 			action TEXT NOT NULL,
-			metadata JSONB,
+			metadata TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVE';`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS external_id TEXT;`,
+		`ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVE';`,
+		`ALTER TABLE customers ADD COLUMN IF NOT EXISTS external_id TEXT;`,
+		`ALTER TABLE providers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ACTIVE';`,
+		`ALTER TABLE providers ADD COLUMN IF NOT EXISTS external_id TEXT;`,
+		`ALTER TABLE providers ADD COLUMN IF NOT EXISTS config TEXT;`,
+		`ALTER TABLE boletos ADD COLUMN IF NOT EXISTS external_id TEXT;`,
+		`ALTER TABLE boletos ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'CREATED';`,
 	}
 
 	for _, s := range stmts {

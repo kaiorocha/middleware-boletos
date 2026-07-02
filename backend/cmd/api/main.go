@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"log"
 	"net/http"
 
@@ -21,14 +20,25 @@ func main() {
 
 	// repos
 	tenantRepo := repository.NewTenantRepo(db)
+	userRepo := repository.NewUserRepo(db)
 	custRepo := repository.NewCustomerRepo(db)
+	providerRepo := repository.NewProviderRepo(db)
 	boletoRepo := repository.NewBoletoRepo(db)
 
 	// services
 	tenantSvc := service.NewTenantService(tenantRepo)
-	boletoSvc := service.NewBoletoService(boletoRepo, custRepo)
+	userSvc := service.NewUserService(userRepo)
+	customerSvc := service.NewCustomerService(custRepo)
+	providerSvc := service.NewProviderService(providerRepo)
+	boletoSvc := service.NewBoletoService(boletoRepo)
 
-	app := &App{TenantSvc: tenantSvc, BoletoSvc: boletoSvc, CustRepo: custRepo}
+	app := &App{
+		TenantSvc:   tenantSvc,
+		UserSvc:     userSvc,
+		CustomerSvc: customerSvc,
+		ProviderSvc: providerSvc,
+		BoletoSvc:   boletoSvc,
+	}
 
 	h := app.routes()
 	log.Printf("starting server on :%s", cfg.Port)
