@@ -1,4 +1,4 @@
-module github.com/kaiorocha/middleware-boletos/backend
+module github.com/kaiorocha/middleware-boletos
 
 go 1.21
 
