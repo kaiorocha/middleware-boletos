@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: middleware
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ../backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://dev:dev@db:5432/middleware?sslmode=disable
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ../frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    name: middleware_postgres_data

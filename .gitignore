@@ -1,0 +1,12 @@
+# Node
+node_modules
+.next
+
+# Go
+/bin
+
+# Env
+.env
+
+# Docker
+docker-compose.override.yml
