@@ -4,5 +4,5 @@ go 1.21
 
 require (
 	github.com/google/uuid v1.4.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/lib/pq v1.10.4
 )
