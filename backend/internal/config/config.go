@@ -1,0 +1,31 @@
+package config
+
+import (
+	"os"
+)
+
+// Config holds application configuration
+type Config struct {
+	Port        string
+	DatabaseURL string
+	RedisURL    string
+	Env         string
+}
+
+// Load reads configuration from environment with sensible defaults
+func Load() *Config {
+	cfg := &Config{
+		Port:        getEnv("PORT", "8080"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/middleware?sslmode=disable"),
+		RedisURL:    getEnv("REDIS_URL", "redis://redis:6379/0"),
+		Env:         getEnv("BACKEND_ENV", "development"),
+	}
+	return cfg
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
