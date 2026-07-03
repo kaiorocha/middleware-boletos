@@ -135,3 +135,69 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
 
 - O boleto na Etapa 2 é apenas persistência e ciclo inicial (`CREATED`/`PENDING`).
 - Emissão real com banco/provedor será implementada na **Etapa 3**.
+
+## Testes (Etapa 2)
+
+Testes unitários cobrem validações e regras de negócio dos services:
+
+### Cobertura
+
+- **Health Check** (`cmd/api/health_test.go`)
+  - Verifica que `GET /health` retorna status `ok`
+
+- **TenantService** (validações)
+  - Rejeita nome vazio
+  - Cria tenant válido
+
+- **UserService** (validações)
+  - Rejeita tenant_id inválido (não-UUID)
+  - Rejeita email inválido
+  - Rejeita email vazio
+  - Cria usuário válido
+
+- **CustomerService** (validações)
+  - Rejeita tenant_id inválido (não-UUID)
+  - Rejeita nome vazio
+  - Cria cliente válido
+
+- **ProviderService** (validações)
+  - Rejeita tenant_id inválido (não-UUID)
+  - Rejeita nome vazio
+  - Cria provedor válido
+
+- **BoletoService** (validações extensas)
+  - Rejeita tenant_id inválido
+  - Rejeita customer_id inválido
+  - Rejeita provider_id inválido (se fornecido)
+  - Rejeita amount_cents zero
+  - Rejeita amount_cents negativo
+  - Rejeita due_date vazia
+  - Rejeita status inválido (apenas `CREATED` e `PENDING` permitidos)
+  - Cria boleto válido com status `CREATED`
+  - Cria boleto válido com status `PENDING`
+  - Cria boleto válido com provider opcional
+
+### Executar testes
+
+Dentro do container:
+```bash
+docker-compose up backend --build
+```
+
+Ou manualmente (requer Go 1.21):
+```bash
+cd backend
+go test ./...
+```
+
+Esperado:
+```
+ok      github.com/kaiorocha/middleware-boletos/backend/cmd/api            0.008s
+ok      github.com/kaiorocha/middleware-boletos/backend/internal/service   0.013s
+```
+
+### Estrutura de testes
+
+- Testes unitários com mocks de repositories (não requerem banco de dados)
+- Foco em validações de entrada e regras de negócio
+- Testes de integração com banco planados para **Etapa 3+**
