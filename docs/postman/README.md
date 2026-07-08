@@ -33,6 +33,8 @@ http://localhost:8080
 6. Provider Health
 7. Provider Balance
 8. Provider Webhook
+9. Invalid Webhook - 400
+10. Duplicate Mock Provider - 409
 
 Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
 
@@ -50,6 +52,9 @@ Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento ma
 
 ## Validações negativas
 
-A pasta `Validation Errors` contém requests esperados com HTTP `400`, cobrindo payloads inválidos e validando a presença do campo `error` na resposta.
+A collection da Etapa 3 inclui requests esperados com HTTP `400` e `409`:
 
-A pasta `Duplicate Validation` contém requests esperados com HTTP `409`, cobrindo duplicidades por tenant e validando `error.code = DUPLICATE_RESOURCE`.
+- `Invalid Webhook - 400` valida `error.code = WEBHOOK_VALIDATION_ERROR`.
+- `Duplicate Mock Provider - 409` valida `error.code = DUPLICATE_RESOURCE`.
+
+A collection da Etapa 2 mantém as pastas históricas `Validation Errors` e `Duplicate Validation`.

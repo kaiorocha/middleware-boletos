@@ -290,22 +290,6 @@ func (a *App) handleTenantProviders(w http.ResponseWriter, r *http.Request, tena
 		return
 	}
 
-	if len(tail) == 2 && tail[1] == "emit" && r.Method == http.MethodPost {
-		id := tail[0]
-		if !service.IsValidUUID(id) {
-			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid boleto id")
-			return
-		}
-		ctx := service.WithRequestID(r.Context(), requestID(r))
-		item, err := a.BoletoSvc.Emit(ctx, tenantID, id)
-		if err != nil {
-			writeServiceError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, item)
-		return
-	}
-
 	writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 }
 
@@ -480,6 +464,22 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 		}
+		return
+	}
+
+	if len(tail) == 2 && tail[1] == "emit" && r.Method == http.MethodPost {
+		id := tail[0]
+		if !service.IsValidUUID(id) {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid boleto id")
+			return
+		}
+		ctx := service.WithRequestID(r.Context(), requestID(r))
+		item, err := a.BoletoSvc.Emit(ctx, tenantID, id)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
 		return
 	}
 
