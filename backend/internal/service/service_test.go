@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -9,43 +10,67 @@ import (
 
 type tenantRepoMock struct{ created bool }
 
-func (m *tenantRepoMock) Create(*domain.Tenant) error                    { m.created = true; return nil }
-func (m *tenantRepoMock) FindByID(string) (*domain.Tenant, error)        { return &domain.Tenant{}, nil }
-func (m *tenantRepoMock) List() ([]domain.Tenant, error)                 { return nil, nil }
-func (m *tenantRepoMock) Update(*domain.Tenant) error                    { return nil }
-func (m *tenantRepoMock) Delete(string) error                            { return nil }
+func (m *tenantRepoMock) Create(*domain.Tenant) error             { m.created = true; return nil }
+func (m *tenantRepoMock) FindByID(string) (*domain.Tenant, error) { return &domain.Tenant{}, nil }
+func (m *tenantRepoMock) List() ([]domain.Tenant, error)          { return nil, nil }
+func (m *tenantRepoMock) Update(*domain.Tenant) error             { return nil }
+func (m *tenantRepoMock) Delete(string) error                     { return nil }
 
-type userRepoMock struct{ created bool }
+type userRepoMock struct {
+	created bool
+	err     error
+	last    *domain.User
+}
 
-func (m *userRepoMock) Create(*domain.User) error                        { m.created = true; return nil }
-func (m *userRepoMock) FindByID(string) (*domain.User, error)            { return &domain.User{}, nil }
-func (m *userRepoMock) ListByTenant(string) ([]domain.User, error)       { return nil, nil }
-func (m *userRepoMock) Update(*domain.User) error                        { return nil }
-func (m *userRepoMock) Delete(string, string) error                      { return nil }
+func (m *userRepoMock) Create(u *domain.User) error                { m.created = true; m.last = u; return m.err }
+func (m *userRepoMock) FindByID(string) (*domain.User, error)      { return &domain.User{}, nil }
+func (m *userRepoMock) ListByTenant(string) ([]domain.User, error) { return nil, nil }
+func (m *userRepoMock) Update(*domain.User) error                  { return nil }
+func (m *userRepoMock) Delete(string, string) error                { return nil }
 
-type customerRepoMock struct{ created bool }
+type customerRepoMock struct {
+	created bool
+	err     error
+	last    *domain.Customer
+}
 
-func (m *customerRepoMock) Create(*domain.Customer) error                { m.created = true; return nil }
-func (m *customerRepoMock) FindByID(string) (*domain.Customer, error)    { return &domain.Customer{}, nil }
+func (m *customerRepoMock) Create(c *domain.Customer) error {
+	m.created = true
+	m.last = c
+	return m.err
+}
+func (m *customerRepoMock) FindByID(string) (*domain.Customer, error)      { return &domain.Customer{}, nil }
 func (m *customerRepoMock) ListByTenant(string) ([]domain.Customer, error) { return nil, nil }
-func (m *customerRepoMock) Update(*domain.Customer) error                { return nil }
-func (m *customerRepoMock) Delete(string, string) error                  { return nil }
+func (m *customerRepoMock) Update(c *domain.Customer) error                { m.last = c; return m.err }
+func (m *customerRepoMock) Delete(string, string) error                    { return nil }
 
-type providerRepoMock struct{ created bool }
+type providerRepoMock struct {
+	created bool
+	err     error
+	last    *domain.Provider
+}
 
-func (m *providerRepoMock) Create(*domain.Provider) error                { m.created = true; return nil }
-func (m *providerRepoMock) FindByID(string) (*domain.Provider, error)    { return &domain.Provider{}, nil }
+func (m *providerRepoMock) Create(p *domain.Provider) error {
+	m.created = true
+	m.last = p
+	return m.err
+}
+func (m *providerRepoMock) FindByID(string) (*domain.Provider, error)      { return &domain.Provider{}, nil }
 func (m *providerRepoMock) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
-func (m *providerRepoMock) Update(*domain.Provider) error                { return nil }
-func (m *providerRepoMock) Delete(string, string) error                  { return nil }
+func (m *providerRepoMock) Update(p *domain.Provider) error                { m.last = p; return m.err }
+func (m *providerRepoMock) Delete(string, string) error                    { return nil }
 
-type boletoRepoMock struct{ created bool }
+type boletoRepoMock struct {
+	created bool
+	err     error
+	last    *domain.Boleto
+}
 
-func (m *boletoRepoMock) Create(*domain.Boleto) error                    { m.created = true; return nil }
-func (m *boletoRepoMock) FindByID(string) (*domain.Boleto, error)        { return &domain.Boleto{}, nil }
-func (m *boletoRepoMock) ListByTenant(string) ([]domain.Boleto, error)   { return nil, nil }
-func (m *boletoRepoMock) Update(*domain.Boleto) error                    { return nil }
-func (m *boletoRepoMock) Delete(string, string) error                    { return nil }
+func (m *boletoRepoMock) Create(b *domain.Boleto) error                { m.created = true; m.last = b; return m.err }
+func (m *boletoRepoMock) FindByID(string) (*domain.Boleto, error)      { return &domain.Boleto{}, nil }
+func (m *boletoRepoMock) ListByTenant(string) ([]domain.Boleto, error) { return nil, nil }
+func (m *boletoRepoMock) Update(b *domain.Boleto) error                { m.last = b; return m.err }
+func (m *boletoRepoMock) Delete(string, string) error                  { return nil }
 
 // ========== TenantService Tests ==========
 
@@ -126,6 +151,35 @@ func TestUserServiceCreateValid(t *testing.T) {
 	}
 }
 
+func TestUserServiceNormalizesEmail(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &userRepoMock{}
+	svc := NewUserService(repo)
+	err := svc.Create(&domain.User{
+		TenantID: validUUID,
+		Email:    "  TESTE@EMAIL.COM  ",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.last.Email != "teste@email.com" {
+		t.Fatalf("expected normalized email, got %q", repo.last.Email)
+	}
+}
+
+func TestUserServicePropagatesDuplicateError(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &userRepoMock{err: NewDuplicateResource("duplicated")}
+	svc := NewUserService(repo)
+	err := svc.Create(&domain.User{
+		TenantID: validUUID,
+		Email:    "user@example.com",
+	})
+	if !errors.Is(err, ErrDuplicateResource) {
+		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
 // ========== CustomerService Tests ==========
 
 func TestCustomerServiceRejectInvalidTenantID(t *testing.T) {
@@ -169,6 +223,55 @@ func TestCustomerServiceCreateValid(t *testing.T) {
 	}
 }
 
+func TestCustomerServiceNormalizesDocument(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	document := "123.456.789-00"
+	repo := &customerRepoMock{}
+	svc := NewCustomerService(repo)
+	err := svc.Create(&domain.Customer{
+		TenantID: validUUID,
+		Name:     "Customer Name",
+		Document: &document,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.last.Document == nil || *repo.last.Document != "12345678900" {
+		t.Fatalf("expected normalized document, got %v", repo.last.Document)
+	}
+}
+
+func TestCustomerServiceEmptyDocumentBecomesNil(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	document := " - ./ "
+	repo := &customerRepoMock{}
+	svc := NewCustomerService(repo)
+	err := svc.Create(&domain.Customer{
+		TenantID: validUUID,
+		Name:     "Customer Name",
+		Document: &document,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.last.Document != nil {
+		t.Fatalf("expected nil document, got %v", repo.last.Document)
+	}
+}
+
+func TestCustomerServicePropagatesDuplicateError(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &customerRepoMock{err: NewDuplicateResource("duplicated")}
+	svc := NewCustomerService(repo)
+	err := svc.Create(&domain.Customer{
+		TenantID: validUUID,
+		Name:     "Customer Name",
+	})
+	if !errors.Is(err, ErrDuplicateResource) {
+		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
 // ========== ProviderService Tests ==========
 
 func TestProviderServiceRejectInvalidTenantID(t *testing.T) {
@@ -209,6 +312,35 @@ func TestProviderServiceCreateValid(t *testing.T) {
 	}
 	if !repo.created {
 		t.Fatal("expected provider to be created")
+	}
+}
+
+func TestProviderServiceNormalizesName(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &providerRepoMock{}
+	svc := NewProviderService(repo)
+	err := svc.Create(&domain.Provider{
+		TenantID: validUUID,
+		Name:     "  Banco Demo  ",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.last.Name != "Banco Demo" {
+		t.Fatalf("expected trimmed provider name, got %q", repo.last.Name)
+	}
+}
+
+func TestProviderServicePropagatesDuplicateError(t *testing.T) {
+	validUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &providerRepoMock{err: NewDuplicateResource("duplicated")}
+	svc := NewProviderService(repo)
+	err := svc.Create(&domain.Provider{
+		TenantID: validUUID,
+		Name:     "Banco Demo",
+	})
+	if !errors.Is(err, ErrDuplicateResource) {
+		t.Fatalf("expected duplicate error, got %v", err)
 	}
 }
 
@@ -401,5 +533,76 @@ func TestBoletoServiceCreateWithValidProvider(t *testing.T) {
 	}
 	if !repo.created {
 		t.Fatal("expected boleto to be created")
+	}
+}
+
+func TestBoletoServiceTrimsExternalIDAndOurNumber(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	externalID := "  ext-123  "
+	ourNumber := "  nosso-456  "
+	repo := &boletoRepoMock{}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+		ExternalID:  &externalID,
+		OurNumber:   &ourNumber,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.last.ExternalID == nil || *repo.last.ExternalID != "ext-123" {
+		t.Fatalf("expected trimmed external_id, got %v", repo.last.ExternalID)
+	}
+	if repo.last.OurNumber == nil || *repo.last.OurNumber != "nosso-456" {
+		t.Fatalf("expected trimmed our_number, got %v", repo.last.OurNumber)
+	}
+}
+
+func TestBoletoServiceEmptyExternalIDAndOurNumberBecomeNil(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	externalID := "   "
+	ourNumber := "   "
+	repo := &boletoRepoMock{}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+		ExternalID:  &externalID,
+		OurNumber:   &ourNumber,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.last.ExternalID != nil {
+		t.Fatalf("expected nil external_id, got %v", repo.last.ExternalID)
+	}
+	if repo.last.OurNumber != nil {
+		t.Fatalf("expected nil our_number, got %v", repo.last.OurNumber)
+	}
+}
+
+func TestBoletoServicePropagatesDuplicateError(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	repo := &boletoRepoMock{err: NewDuplicateResource("duplicated")}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	})
+	if !errors.Is(err, ErrDuplicateResource) {
+		t.Fatalf("expected duplicate error, got %v", err)
 	}
 }

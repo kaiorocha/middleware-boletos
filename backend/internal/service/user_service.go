@@ -23,6 +23,7 @@ func NewUserService(repo userRepo) *UserService {
 }
 
 func (s *UserService) Create(u *domain.User) error {
+	u.Email = NormalizeEmail(u.Email)
 	if !IsValidUUID(u.TenantID) {
 		return ErrValidation
 	}

@@ -16,8 +16,8 @@ func (r *BoletoRepo) Create(b *domain.Boleto) error {
 	if b.ID == "" {
 		b.ID = uuid.New().String()
 	}
-	_, err := r.db.Exec(`INSERT INTO boletos (id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())`, b.ID,b.TenantID,b.CustomerID,b.ProviderID,b.AmountCents,b.DueDate,b.Status,b.ExternalID,b.Barcode,b.DigitableLine,b.OurNumber)
-	return err
+	_, err := r.db.Exec(`INSERT INTO boletos (id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())`, b.ID, b.TenantID, b.CustomerID, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber)
+	return translatePostgresError(err)
 }
 
 func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
@@ -106,7 +106,7 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 
 func (r *BoletoRepo) Update(b *domain.Boleto) error {
 	_, err := r.db.Exec(`UPDATE boletos SET provider_id = $1, amount_cents = $2, due_date = $3, status = $4, external_id = $5, barcode = $6, digitable_line = $7, our_number = $8, updated_at = now() WHERE id = $9 AND tenant_id = $10 AND deleted_at IS NULL`, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.ID, b.TenantID)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *BoletoRepo) Delete(id string, tenantID string) error {

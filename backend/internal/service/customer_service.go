@@ -23,9 +23,11 @@ func NewCustomerService(repo customerRepo) *CustomerService {
 }
 
 func (s *CustomerService) Create(c *domain.Customer) error {
+	c.Document = NormalizeDocument(c.Document)
 	if !IsValidUUID(c.TenantID) {
 		return ErrValidation
 	}
+	c.Name = strings.TrimSpace(c.Name)
 	if strings.TrimSpace(c.Name) == "" {
 		return ErrValidation
 	}
@@ -50,9 +52,11 @@ func (s *CustomerService) ListByTenant(tenantID string) ([]domain.Customer, erro
 }
 
 func (s *CustomerService) Update(c *domain.Customer) error {
+	c.Document = NormalizeDocument(c.Document)
 	if !IsValidUUID(c.ID) || !IsValidUUID(c.TenantID) {
 		return ErrValidation
 	}
+	c.Name = strings.TrimSpace(c.Name)
 	if strings.TrimSpace(c.Name) == "" {
 		return ErrValidation
 	}

@@ -20,7 +20,7 @@ func (r *CustomerRepo) Create(c *domain.Customer) error {
 		c.Status = "ACTIVE"
 	}
 	_, err := r.db.Exec(`INSERT INTO customers (id,tenant_id,name,document,status,external_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())`, c.ID, c.TenantID, c.Name, c.Document, c.Status, c.ExternalID)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *CustomerRepo) FindByID(id string) (*domain.Customer, error) {
@@ -79,7 +79,7 @@ func (r *CustomerRepo) ListByTenant(tenantID string) ([]domain.Customer, error) 
 
 func (r *CustomerRepo) Update(c *domain.Customer) error {
 	_, err := r.db.Exec(`UPDATE customers SET name = $1, document = $2, status = $3, external_id = $4, updated_at = now() WHERE id = $5 AND tenant_id = $6 AND deleted_at IS NULL`, c.Name, c.Document, c.Status, c.ExternalID, c.ID, c.TenantID)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *CustomerRepo) Delete(id string, tenantID string) error {

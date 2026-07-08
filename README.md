@@ -48,6 +48,14 @@ curl -s -X POST http://localhost:8080/api/v1/tenants \
   -d '{"name":"Tenant Demo"}'
 ```
 
+## Postman Collection
+
+A collection Postman da Etapa 2 está disponível em:
+
+`docs/postman/middleware-boletos-etapa-2.postman_collection.json`
+
+Ela pode ser importada no Postman para validar as APIs implementadas na Etapa 2.
+
 ## Rotas disponíveis (Etapa 2)
 
 ### Health
@@ -95,6 +103,27 @@ Erro:
   }
 }
 ```
+
+Duplicidade:
+```json
+{
+  "error": {
+    "code": "DUPLICATE_RESOURCE",
+    "message": "Já existe um recurso com estes dados neste tenant."
+  }
+}
+```
+
+## Unicidade por tenant
+
+A API bloqueia duplicidade apenas dentro do mesmo tenant, mantendo isolamento multi-tenant. A mesma informação pode existir em tenants diferentes.
+
+- Usuários ativos não podem repetir e-mail no mesmo tenant. A comparação é case-insensitive e o e-mail é salvo normalizado com trim e lowercase.
+- Clientes ativos não podem repetir documento no mesmo tenant. O documento é salvo sem máscara; documentos vazios ou nulos não bloqueiam duplicidade.
+- Provedores ativos não podem repetir nome no mesmo tenant. A comparação é case-insensitive.
+- Boletos ativos não podem repetir `external_id` ou `our_number` no mesmo tenant quando esses campos forem informados. Valores vazios são tratados como nulos.
+
+Violação de unicidade retorna HTTP `409 Conflict` com `error.code = "DUPLICATE_RESOURCE"`.
 
 ## Exemplos de request
 

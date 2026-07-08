@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -27,6 +28,18 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
+}
+
+func writeServiceError(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrDuplicateResource) {
+		writeError(w, http.StatusConflict, "DUPLICATE_RESOURCE", err.Error())
+		return
+	}
+	if errors.Is(err, service.ErrValidation) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "unexpected error")
 }
 
 func (a *App) routes() http.Handler {
@@ -56,7 +69,7 @@ func (a *App) handleTenants(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.TenantSvc.Create(&in); err != nil {
-			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+			writeServiceError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, in)
@@ -83,7 +96,7 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.UserSvc.Create(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		writeServiceError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, in)
@@ -174,7 +187,7 @@ func (a *App) handleTenantCustomers(w http.ResponseWriter, r *http.Request, tena
 			}
 			in.TenantID = tenantID
 			if err := a.CustomerSvc.Create(&in); err != nil {
-				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+				writeServiceError(w, err)
 				return
 			}
 			writeJSON(w, http.StatusCreated, in)
@@ -214,7 +227,7 @@ func (a *App) handleTenantCustomers(w http.ResponseWriter, r *http.Request, tena
 			in.ID = id
 			in.TenantID = tenantID
 			if err := a.CustomerSvc.Update(&in); err != nil {
-				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+				writeServiceError(w, err)
 				return
 			}
 			writeJSON(w, http.StatusOK, in)
@@ -238,7 +251,7 @@ func (a *App) handleTenantProviders(w http.ResponseWriter, r *http.Request, tena
 			}
 			in.TenantID = tenantID
 			if err := a.ProviderSvc.Create(&in); err != nil {
-				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+				writeServiceError(w, err)
 				return
 			}
 			writeJSON(w, http.StatusCreated, in)
@@ -278,15 +291,15 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 		switch r.Method {
 		case http.MethodPost:
 			var in struct {
-				CustomerID   string  `json:"customer_id"`
-				ProviderID   *string `json:"provider_id"`
-				AmountCents  int64   `json:"amount_cents"`
-				DueDate      string  `json:"due_date"`
-				Status       string  `json:"status"`
-				ExternalID   *string `json:"external_id"`
-				Barcode      *string `json:"barcode"`
+				CustomerID    string  `json:"customer_id"`
+				ProviderID    *string `json:"provider_id"`
+				AmountCents   int64   `json:"amount_cents"`
+				DueDate       string  `json:"due_date"`
+				Status        string  `json:"status"`
+				ExternalID    *string `json:"external_id"`
+				Barcode       *string `json:"barcode"`
 				DigitableLine *string `json:"digitable_line"`
-				OurNumber    *string `json:"our_number"`
+				OurNumber     *string `json:"our_number"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
@@ -310,7 +323,7 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 				OurNumber:     in.OurNumber,
 			}
 			if err := a.BoletoSvc.Create(&item); err != nil {
-				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+				writeServiceError(w, err)
 				return
 			}
 			writeJSON(w, http.StatusCreated, item)

@@ -24,6 +24,8 @@ func NewBoletoService(repo boletoRepo) *BoletoService {
 }
 
 func (s *BoletoService) Create(b *domain.Boleto) error {
+	b.ExternalID = NormalizeOptionalString(b.ExternalID)
+	b.OurNumber = NormalizeOptionalString(b.OurNumber)
 	if !IsValidUUID(b.TenantID) || !IsValidUUID(b.CustomerID) {
 		return ErrValidation
 	}

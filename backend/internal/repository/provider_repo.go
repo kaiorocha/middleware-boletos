@@ -20,7 +20,7 @@ func (r *ProviderRepo) Create(p *domain.Provider) error {
 		p.Status = "ACTIVE"
 	}
 	_, err := r.db.Exec(`INSERT INTO providers (id,tenant_id,name,status,external_id,config,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())`, p.ID, p.TenantID, p.Name, p.Status, p.ExternalID, p.Config)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *ProviderRepo) FindByID(id string) (*domain.Provider, error) {
@@ -80,7 +80,7 @@ func (r *ProviderRepo) ListByTenant(tenantID string) ([]domain.Provider, error) 
 
 func (r *ProviderRepo) Update(p *domain.Provider) error {
 	_, err := r.db.Exec(`UPDATE providers SET name = $1, status = $2, external_id = $3, config = $4, updated_at = now() WHERE id = $5 AND tenant_id = $6 AND deleted_at IS NULL`, p.Name, p.Status, p.ExternalID, p.Config, p.ID, p.TenantID)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *ProviderRepo) Delete(id string, tenantID string) error {

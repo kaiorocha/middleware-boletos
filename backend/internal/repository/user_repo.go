@@ -20,7 +20,7 @@ func (r *UserRepo) Create(u *domain.User) error {
 		u.Status = "ACTIVE"
 	}
 	_, err := r.db.Exec(`INSERT INTO users (id,tenant_id,email,name,status,external_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())`, u.ID, u.TenantID, u.Email, u.Name, u.Status, u.ExternalID)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *UserRepo) FindByID(id string) (*domain.User, error) {
@@ -70,7 +70,7 @@ func (r *UserRepo) ListByTenant(tenantID string) ([]domain.User, error) {
 
 func (r *UserRepo) Update(u *domain.User) error {
 	_, err := r.db.Exec(`UPDATE users SET email = $1, name = $2, status = $3, external_id = $4, updated_at = now() WHERE id = $5 AND tenant_id = $6 AND deleted_at IS NULL`, u.Email, u.Name, u.Status, u.ExternalID, u.ID, u.TenantID)
-	return err
+	return translatePostgresError(err)
 }
 
 func (r *UserRepo) Delete(id string, tenantID string) error {

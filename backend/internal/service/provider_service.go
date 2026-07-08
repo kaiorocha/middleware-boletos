@@ -26,6 +26,7 @@ func (s *ProviderService) Create(p *domain.Provider) error {
 	if !IsValidUUID(p.TenantID) {
 		return ErrValidation
 	}
+	p.Name = strings.TrimSpace(p.Name)
 	if strings.TrimSpace(p.Name) == "" {
 		return ErrValidation
 	}
