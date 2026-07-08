@@ -31,6 +31,14 @@ type Customer struct {
 	TenantID   string     `json:"tenant_id"`
 	Name       string     `json:"name"`
 	Document   *string    `json:"document,omitempty"`
+	Email      *string    `json:"email,omitempty"`
+	Address    *string    `json:"address,omitempty"`
+	Number     *string    `json:"number,omitempty"`
+	Complement *string    `json:"complement,omitempty"`
+	District   *string    `json:"district,omitempty"`
+	City       *string    `json:"city,omitempty"`
+	State      *string    `json:"state,omitempty"`
+	PostalCode *string    `json:"postal_code,omitempty"`
 	Status     string     `json:"status"`
 	ExternalID *string    `json:"external_id,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`

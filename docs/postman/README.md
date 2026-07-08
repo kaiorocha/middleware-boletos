@@ -30,13 +30,15 @@ http://localhost:8080
 3. Create Mock Provider
 4. Create Moncalieri Provider
 5. Create Boleto
-6. Emit Boleto
-7. Provider Health
-8. Moncalieri Provider Health
-9. Provider Balance
-10. Provider Webhook
-11. Invalid Webhook - 400
-12. Duplicate Mock Provider - 409
+6. Create Moncalieri Boleto
+7. Emit Boleto
+8. Emit Moncalieri Boleto
+9. Provider Health
+10. Moncalieri Provider Health
+11. Provider Balance
+12. Provider Webhook
+13. Invalid Webhook - 400
+14. Duplicate Mock Provider - 409
 
 Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
 
@@ -45,6 +47,7 @@ Os requests de criação capturam automaticamente os IDs retornados em `data.id`
 - `providerId`
 - `boletoId`
 - `moncalieriProviderId`
+- `moncalieriBoletoId`
 - `moncalieriApiKey` usa o placeholder `REPLACE_WITH_SECRET`; substitua apenas localmente.
 
 Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento manual.

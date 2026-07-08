@@ -36,3 +36,18 @@ func NormalizeOptionalString(value *string) *string {
 	}
 	return &v
 }
+
+func NormalizeOptionalEmail(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	v := NormalizeEmail(*value)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func NormalizePostalCode(value *string) *string {
+	return NormalizeDocument(value)
+}

@@ -21,7 +21,7 @@
       "request": {
         "method": "POST",
         "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Cliente Demo\",\n  \"document\": \"12345678900\"\n}", "options": { "raw": { "language": "json" } } },
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Cliente Demo\",\n  \"document\": \"12345678900\",\n  \"email\": \"cliente@example.com\",\n  \"address\": \"Rua Um\",\n  \"number\": \"123\",\n  \"complement\": \"Apto 4\",\n  \"district\": \"Centro\",\n  \"city\": \"Sao Paulo\",\n  \"state\": \"SP\",\n  \"postal_code\": \"12345-678\"\n}", "options": { "raw": { "language": "json" } } },
         "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/customers"
       },
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('customerId', json.data.id);"] } }]
@@ -57,6 +57,16 @@
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('boletoId', json.data.id);"] } }]
     },
     {
+      "name": "Create Moncalieri Boleto",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{moncalieriProviderId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('moncalieriBoletoId', json.data.id);"] } }]
+    },
+    {
       "name": "Emit Boleto",
       "request": {
         "method": "POST",
@@ -64,6 +74,15 @@
         "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{boletoId}}/emit"
       },
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.status).to.eql('ISSUED');", "pm.expect(json.data).to.have.property('barcode');", "pm.expect(json.data).to.have.property('digitable_line');", "pm.expect(json.data).to.have.property('our_number');"] } }]
+    },
+    {
+      "name": "Emit Moncalieri Boleto",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "X-Request-ID", "value": "postman-moncalieri" }],
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{moncalieriBoletoId}}/emit"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('requires real Moncalieri credentials', function () {", "  pm.expect([200, 400, 502]).to.include(pm.response.code);", "});"] } }]
     },
     {
       "name": "Provider Health",
@@ -130,6 +149,7 @@
     { "key": "providerId", "value": "" },
     { "key": "boletoId", "value": "" },
     { "key": "moncalieriProviderId", "value": "" },
+    { "key": "moncalieriBoletoId", "value": "" },
     { "key": "moncalieriApiKey", "value": "REPLACE_WITH_SECRET" }
   ]
 }

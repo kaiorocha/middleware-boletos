@@ -33,6 +33,7 @@ func main() {
 	providerSvc := service.NewProviderService(providerRepo)
 	providerFactory := factory.NewProviderFactory()
 	boletoSvc := service.NewBoletoService(boletoRepo).
+		WithCustomerRepository(custRepo).
 		WithProviderRepository(providerRepo).
 		WithProviderFactory(providerFactory)
 

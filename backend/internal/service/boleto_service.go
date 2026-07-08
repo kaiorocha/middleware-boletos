@@ -21,14 +21,21 @@ type boletoRepo interface {
 }
 
 type BoletoService struct {
-	repo      boletoRepo
-	providers providerRepo
-	factory   contracts.ProviderFactory
-	logger    *slog.Logger
+	repo         boletoRepo
+	customers    customerRepo
+	providers    providerRepo
+	factory      contracts.ProviderFactory
+	payerBuilder base.PayerBuilder
+	logger       *slog.Logger
 }
 
 func NewBoletoService(repo boletoRepo) *BoletoService {
-	return &BoletoService{repo: repo, logger: slog.Default()}
+	return &BoletoService{repo: repo, payerBuilder: base.NewDefaultPayerBuilder(), logger: slog.Default()}
+}
+
+func (s *BoletoService) WithCustomerRepository(repo customerRepo) *BoletoService {
+	s.customers = repo
+	return s
 }
 
 func (s *BoletoService) WithProviderRepository(repo providerRepo) *BoletoService {
@@ -38,6 +45,13 @@ func (s *BoletoService) WithProviderRepository(repo providerRepo) *BoletoService
 
 func (s *BoletoService) WithProviderFactory(factory contracts.ProviderFactory) *BoletoService {
 	s.factory = factory
+	return s
+}
+
+func (s *BoletoService) WithPayerBuilder(builder base.PayerBuilder) *BoletoService {
+	if builder != nil {
+		s.payerBuilder = builder
+	}
 	return s
 }
 
@@ -93,7 +107,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if !IsValidUUID(tenantID) || !IsValidUUID(boletoID) {
 		return nil, ErrValidation
 	}
-	if s.providers == nil || s.factory == nil {
+	if s.customers == nil || s.providers == nil || s.factory == nil || s.payerBuilder == nil {
 		return nil, ErrValidation
 	}
 
@@ -120,6 +134,18 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 
 	if !base.CanTransition(types.BoletoStatus(boleto.Status), types.StatusProcessing) {
 		return nil, ErrValidation
+	}
+
+	customer, err := s.customers.FindByID(boleto.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	if customer.TenantID != tenantID {
+		return nil, ErrValidation
+	}
+	payer, err := s.payerBuilder.Build(*customer)
+	if err != nil {
+		return nil, err
 	}
 
 	provider, err := s.providers.FindByID(*boleto.ProviderID)
@@ -151,6 +177,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		ExternalID:  optionalStringValue(boleto.ExternalID),
 		AmountCents: boleto.AmountCents,
 		DueDate:     boleto.DueDate,
+		Payer:       payer,
 	})
 	if err != nil {
 		boleto.Status = string(types.StatusFailed)

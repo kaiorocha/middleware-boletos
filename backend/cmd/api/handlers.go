@@ -49,7 +49,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	var providerErr *providererrors.ProviderError
 	if errors.As(err, &providerErr) {
 		switch providerErr.Code {
-		case "INVALID_REQUEST", "INVALID_PROVIDER_CONFIG", "PROVIDER_VALIDATION_ERROR":
+		case "INVALID_REQUEST", "INVALID_PAYER", "INVALID_PROVIDER_CONFIG", "PROVIDER_VALIDATION_ERROR":
 			writeError(w, http.StatusBadRequest, providerErr.Code, providerErr.Message)
 		case "UNSUPPORTED_OPERATION":
 			writeError(w, http.StatusNotImplemented, providerErr.Code, providerErr.Message)

@@ -143,7 +143,18 @@ curl -s -X POST http://localhost:8080/api/v1/tenants \
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/customers \
   -H "Content-Type: application/json" \
-  -d '{"name":"Cliente 1","document":"12345678900"}'
+  -d '{
+    "name":"Cliente 1",
+    "document":"12345678900",
+    "email":"cliente@example.com",
+    "address":"Rua Um",
+    "number":"123",
+    "complement":"Apto 4",
+    "district":"Centro",
+    "city":"Sao Paulo",
+    "state":"SP",
+    "postal_code":"12345-678"
+  }'
 ```
 
 ### Criar Provider Mock
@@ -182,7 +193,8 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoI
 ## Observações
 
 - A Etapa 3 mantém `MockProvider` e adiciona o adapter real `MoncalieriProvider`.
-- A emissão Moncalieri exige dados completos do sacado em `types.IssueRequest.Payer`; a API da aplicação ainda precisa evoluir para buscar/enriquecer esses dados a partir de `Customer`.
+- A emissão Moncalieri exige dados completos do sacado. O `BoletoService` busca o `Customer` e usa `DefaultPayerBuilder` para montar `types.IssueRequest.Payer`.
+- Toda regra de tradução `Customer -> Payer` fica em `backend/internal/providers/base/payer_builder.go`.
 - A chave `api_key` da Moncalieri nunca deve ser commitada.
 - Status de boleto seguem a máquina `CREATED -> PROCESSING -> ISSUED -> PAID` ou `FAILED`/`CANCELLED`, com `PARTIAL` e `EXPIRED` após emissão.
 
@@ -234,6 +246,7 @@ Testes unitários cobrem validações e regras de negócio dos services:
   - Factory do `MoncalieriProvider`
   - `MockProvider` para issue, health e webhook validation
   - `MoncalieriProvider` para config, issue, get, cancel, status mapping e erros HTTP
+  - `DefaultPayerBuilder` para normalização e validação de pagador
   - Máquina de estados
 
 ### Executar testes

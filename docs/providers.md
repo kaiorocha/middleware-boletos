@@ -12,6 +12,7 @@ A integração bancária fica isolada em `backend/internal/providers`. O restant
 - `mock`: adapter usado em desenvolvimento e nesta etapa.
 - `moncalieri`: adapter real para Moncalieri Capital.
 - `base`: máquina de estados de boleto.
+- `base/payer_builder.go`: conversão reutilizável de `domain.Customer` para `types.Payer`.
 - `events`: eventos internos estruturados.
 - `webhooks`: infraestrutura para receber, validar e converter webhooks.
 - `validators`: validações compartilhadas de requests/events.
@@ -22,9 +23,37 @@ A integração bancária fica isolada em `backend/internal/providers`. O restant
 1. O boleto é criado com status `CREATED` e um `provider_id`.
 2. A API chama `POST /api/v1/tenants/:tenantId/boletos/:id/emit`.
 3. `BoletoService` valida tenant, boleto, provider e estado.
-4. A factory recebe `provider.name` e retorna o adapter.
-5. O adapter executa `IssueBoleto`.
-6. O service persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
+4. `BoletoService` busca o `Customer`.
+5. `DefaultPayerBuilder` converte `Customer` para `types.Payer`.
+6. A factory recebe `provider.name` e retorna o adapter.
+7. O adapter executa `IssueBoleto`.
+8. O service persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
+
+## PayerBuilder
+
+Toda regra de pagador fica centralizada em `base.PayerBuilder`.
+
+`DefaultPayerBuilder` valida e normaliza:
+
+- `Name`
+- `Document`
+- `Email`
+- `Address`
+- `District`
+- `City`
+- `State`
+- `PostalCode`
+
+Normalizações aplicadas:
+
+- documento sem máscara;
+- CEP sem máscara;
+- UF em uppercase;
+- email com trim e lowercase;
+- endereço, bairro e cidade com trim;
+- endereço completo montado com endereço, número e complemento.
+
+Se faltar dado obrigatório, retorna erro estruturado `INVALID_PAYER`. Novos providers não devem implementar conversões próprias de `Customer`; eles devem receber apenas `types.IssueRequest`.
 
 ## Estados
 
@@ -102,19 +131,22 @@ Nunca commitar `api_key` real. Use variáveis de ambiente, secret manager ou con
 - `RegisterWebhook`: retorna `UNSUPPORTED_OPERATION`.
 - `ValidateWebhook`: retorna `UNSUPPORTED_OPERATION`.
 
-### Dados Obrigatórios do Sacado
+### Dados obrigatórios do pagador
 
-`IssueBoleto` exige dados do sacado em `types.IssueRequest.Payer`:
+`IssueBoleto` recebe dados do pagador em `types.IssueRequest.Payer`. O `DefaultPayerBuilder` monta esse objeto a partir de `domain.Customer`.
+
+Campos usados:
 
 - `Document`
 - `Name`
+- `Email`
 - `Address`
 - `District`
 - `City`
 - `PostalCode`
 - `State`
 
-Hoje o endpoint de emissão da aplicação ainda monta `IssueRequest` a partir do boleto persistido, e o domínio atual de `Customer` não possui endereço completo. Por isso, a emissão Moncalieri via API da aplicação está preparada arquiteturalmente, mas requer evolução futura para buscar/enriquecer dados do sacado antes de chamar o adapter. Quando os dados não estiverem presentes, o adapter retorna `INVALID_REQUEST` de forma explícita.
+Campos obrigatórios para emissão real: `Name`, `Document`, `Address`, `District`, `City`, `State` e `PostalCode`. `Email` é normalizado quando informado, mas não bloqueia emissão se ausente. Se o customer não tiver endereço completo, o fluxo retorna `INVALID_PAYER` antes de chamar o provider.
 
 ### Mapeamento de Status
 

@@ -95,6 +95,18 @@ func (r *apiProviderRepo) ListByTenant(string) ([]domain.Provider, error) { retu
 func (r *apiProviderRepo) Update(*domain.Provider) error                  { return nil }
 func (r *apiProviderRepo) Delete(string, string) error                    { return nil }
 
+type apiCustomerRepo struct {
+	item *domain.Customer
+}
+
+func (r *apiCustomerRepo) Create(*domain.Customer) error { return nil }
+func (r *apiCustomerRepo) FindByID(string) (*domain.Customer, error) {
+	return r.item, nil
+}
+func (r *apiCustomerRepo) ListByTenant(string) ([]domain.Customer, error) { return nil, nil }
+func (r *apiCustomerRepo) Update(*domain.Customer) error                  { return nil }
+func (r *apiCustomerRepo) Delete(string, string) error                    { return nil }
+
 type apiBoletoRepo struct {
 	item    *domain.Boleto
 	updated int
@@ -111,6 +123,27 @@ func (r *apiBoletoRepo) Update(b *domain.Boleto) error {
 	return nil
 }
 func (r *apiBoletoRepo) Delete(string, string) error { return nil }
+
+func completeAPICustomer(tenantID string) *domain.Customer {
+	return &domain.Customer{
+		ID:         "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:   tenantID,
+		Name:       "Cliente Demo",
+		Document:   apiStringPtr("123.456.789-00"),
+		Email:      apiStringPtr("cliente@example.com"),
+		Address:    apiStringPtr("Rua Um"),
+		Number:     apiStringPtr("123"),
+		District:   apiStringPtr("Centro"),
+		City:       apiStringPtr("Sao Paulo"),
+		State:      apiStringPtr("SP"),
+		PostalCode: apiStringPtr("12345-678"),
+		Status:     "ACTIVE",
+	}
+}
+
+func apiStringPtr(value string) *string {
+	return &value
+}
 
 func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 	validTenantID := "550e8400-e29b-41d4-a716-446655440000"
@@ -200,6 +233,7 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 	app := &App{
 		ProviderSvc: service.NewProviderService(providerRepo),
 		BoletoSvc: service.NewBoletoService(boletoRepo).
+			WithCustomerRepository(&apiCustomerRepo{item: completeAPICustomer(validTenantID)}).
 			WithProviderRepository(providerRepo).
 			WithProviderFactory(providerFactory),
 		Factory: providerFactory,

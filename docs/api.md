@@ -4,7 +4,7 @@ Documentação das rotas REST implementadas até a **Etapa 3 — Arquitetura de 
 
 Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
 
-> Observação: esta etapa mantém `MockProvider` e adiciona o primeiro adapter real, `MoncalieriProvider`. A emissão Moncalieri exige dados completos do sacado no request interno do provider; a API pública ainda precisa evoluir o domínio de `Customer` para preencher esses dados automaticamente.
+> Observação: esta etapa mantém `MockProvider` e adiciona o primeiro adapter real, `MoncalieriProvider`. A emissão usa os dados do `Customer` para montar o pagador por meio do `DefaultPayerBuilder`.
 
 ## Base URL local
 
@@ -156,9 +156,30 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/customers \
   -H "Content-Type: application/json" \
   -d '{
     "name":"Cliente 1",
-    "document":"12345678900"
+    "document":"12345678900",
+    "email":"cliente@example.com",
+    "address":"Rua Um",
+    "number":"123",
+    "complement":"Apto 4",
+    "district":"Centro",
+    "city":"Sao Paulo",
+    "state":"SP",
+    "postal_code":"12345-678"
   }'
 ```
+
+Campos opcionais aceitos em customer:
+
+| Campo | Observação |
+|---|---|
+| `email` | Validado quando informado. |
+| `address` | Obrigatório para emissão real via providers que exigem pagador. |
+| `number` | Usado na composição do endereço completo. |
+| `complement` | Usado na composição do endereço completo. |
+| `district` | Obrigatório para emissão real. |
+| `city` | Obrigatório para emissão real. |
+| `state` | UF com 2 caracteres; normalizada para uppercase. |
+| `postal_code` | CEP; máscara removida e validado com 8 dígitos quando informado. |
 
 ### GET /api/v1/tenants/:tenantId/customers
 
@@ -330,7 +351,7 @@ Campos persistidos após emissão:
 | `our_number` | Nosso número fake |
 | `issued_at` | Timestamp da emissão simulada |
 
-Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado (`document`, `name`, endereço, bairro, cidade, CEP e UF) em `types.IssueRequest.Payer`; enquanto esses dados não existirem no domínio/API pública, o adapter retorna `INVALID_REQUEST`.
+Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado no customer (`document`, `name`, endereço, bairro, cidade, CEP e UF). Se faltar algum campo obrigatório, a API retorna `INVALID_PAYER`.
 
 ## Validações implementadas
 
@@ -341,6 +362,7 @@ Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel`
 - Vencimento obrigatório para boleto.
 - Status de boleto restrito aos estados padronizados.
 - Transições de boleto validadas pela máquina de estados.
+- Customer valida email, documento, UF e CEP quando esses campos são informados.
 
 ## Limitações conhecidas da Etapa 2
 
