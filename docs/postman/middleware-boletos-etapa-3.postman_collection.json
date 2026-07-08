@@ -37,6 +37,16 @@
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('providerId', json.data.id);"] } }]
     },
     {
+      "name": "Create Moncalieri Provider",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Moncalieri Capital\",\n  \"config\": \"{\\\"base_url\\\":\\\"https://dev.moncaliericapital.com.br\\\",\\\"api_key\\\":\\\"{{moncalieriApiKey}}\\\",\\\"codigo_canal\\\":0,\\\"codigo_cliente\\\":0,\\\"timeout_seconds\\\":30,\\\"instrucoes\\\":\\\"Pagar ate o vencimento.\\\"}\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/providers"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('moncalieriProviderId', json.data.id);"] } }]
+    },
+    {
       "name": "Create Boleto",
       "request": {
         "method": "POST",
@@ -61,6 +71,15 @@
         "method": "GET",
         "header": [],
         "url": "{{baseUrl}}/api/v1/providers/health?tenant_id={{tenantId}}&provider_id={{providerId}}"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.status).to.eql('ONLINE');"] } }]
+    },
+    {
+      "name": "Moncalieri Provider Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/providers/health?tenant_id={{tenantId}}&provider_id={{moncalieriProviderId}}"
       },
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.status).to.eql('ONLINE');"] } }]
     },
@@ -109,6 +128,8 @@
     { "key": "tenantId", "value": "" },
     { "key": "customerId", "value": "" },
     { "key": "providerId", "value": "" },
-    { "key": "boletoId", "value": "" }
+    { "key": "boletoId", "value": "" },
+    { "key": "moncalieriProviderId", "value": "" },
+    { "key": "moncalieriApiKey", "value": "REPLACE_WITH_SECRET" }
   ]
 }

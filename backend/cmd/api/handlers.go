@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
+	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/webhooks"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
@@ -43,6 +44,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, service.ErrValidation) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	var providerErr *providererrors.ProviderError
+	if errors.As(err, &providerErr) {
+		switch providerErr.Code {
+		case "INVALID_REQUEST", "INVALID_PROVIDER_CONFIG", "PROVIDER_VALIDATION_ERROR":
+			writeError(w, http.StatusBadRequest, providerErr.Code, providerErr.Message)
+		case "UNSUPPORTED_OPERATION":
+			writeError(w, http.StatusNotImplemented, providerErr.Code, providerErr.Message)
+		default:
+			writeError(w, http.StatusBadGateway, providerErr.Code, providerErr.Message)
+		}
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "unexpected error")

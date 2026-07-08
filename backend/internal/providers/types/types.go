@@ -23,11 +23,25 @@ type ProviderConfig struct {
 }
 
 type IssueRequest struct {
-	TenantID    string
-	BoletoID    string
-	CustomerID  string
-	AmountCents int64
-	DueDate     time.Time
+	TenantID     string
+	BoletoID     string
+	CustomerID   string
+	ExternalID   string
+	AmountCents  int64
+	DueDate      time.Time
+	Payer        *Payer
+	Instructions string
+}
+
+type Payer struct {
+	Document   string
+	Name       string
+	Address    string
+	District   string
+	City       string
+	PostalCode string
+	State      string
+	Email      string
 }
 
 type IssueResponse struct {
@@ -49,6 +63,9 @@ type GetRequest struct {
 type ListRequest struct {
 	TenantID   string
 	ProviderID string
+	DateFrom   *time.Time
+	DateTo     *time.Time
+	Status     string
 }
 
 type CancelRequest struct {

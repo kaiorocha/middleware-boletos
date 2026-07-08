@@ -27,3 +27,20 @@ func TestFactoryRejectsUnknownProvider(t *testing.T) {
 		t.Fatal("expected error for unknown provider")
 	}
 }
+
+func TestFactoryBuildsMoncalieriProvider(t *testing.T) {
+	adapter, err := NewProviderFactory().Build(types.ProviderConfig{
+		Name:   "Moncalieri Capital",
+		Config: `{"base_url":"https://example.com","api_key":"secret","codigo_canal":0,"codigo_cliente":0}`,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	health, err := adapter.Health(context.Background())
+	if err != nil {
+		t.Fatalf("expected health, got %v", err)
+	}
+	if health.Status != types.HealthOnline {
+		t.Fatalf("expected online health, got %q", health.Status)
+	}
+}

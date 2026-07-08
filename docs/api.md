@@ -4,7 +4,7 @@ Documentação das rotas REST implementadas até a **Etapa 3 — Arquitetura de 
 
 Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
 
-> Observação: esta etapa não integra bancos reais. Toda emissão usa `MockProvider` através da mesma arquitetura que será usada por bancos reais.
+> Observação: esta etapa mantém `MockProvider` e adiciona o primeiro adapter real, `MoncalieriProvider`. A emissão Moncalieri exige dados completos do sacado no request interno do provider; a API pública ainda precisa evoluir o domínio de `Customer` para preencher esses dados automaticamente.
 
 ## Base URL local
 
@@ -204,6 +204,17 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
   }'
 ```
 
+Exemplo para Moncalieri Capital, sem credencial real:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Moncalieri Capital",
+    "config":"{\"base_url\":\"https://dev.moncaliericapital.com.br\",\"api_key\":\"REPLACE_WITH_SECRET\",\"codigo_canal\":0,\"codigo_cliente\":0,\"timeout_seconds\":30,\"instrucoes\":\"Pagar ate o vencimento.\"}"
+  }'
+```
+
 ### GET /api/v1/tenants/:tenantId/providers
 
 Lista provedores por tenant.
@@ -232,6 +243,8 @@ curl -s "http://localhost:8080/api/v1/providers/health?tenant_id=<tenantId>&prov
 
 Consulta saldo padronizado do provider.
 
+Para Moncalieri, retorna `UNSUPPORTED_OPERATION`, pois a especificação enviada não possui endpoint de saldo.
+
 ```bash
 curl -s "http://localhost:8080/api/v1/providers/balance?tenant_id=<tenantId>&provider_id=<providerId>"
 ```
@@ -239,6 +252,8 @@ curl -s "http://localhost:8080/api/v1/providers/balance?tenant_id=<tenantId>&pro
 ### POST /api/v1/providers/webhook
 
 Recebe, valida e converte webhook do provider.
+
+Para Moncalieri, retorna `UNSUPPORTED_OPERATION`, pois a especificação enviada não descreve webhooks.
 
 ```bash
 curl -s -X POST "http://localhost:8080/api/v1/providers/webhook?tenant_id=<tenantId>&provider_id=<providerId>" \
@@ -297,7 +312,7 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>
 
 ### POST /api/v1/tenants/:tenantId/boletos/:id/emit
 
-Emite o boleto usando o provider vinculado ao boleto. Nesta etapa, o provider deve ser `Mock`.
+Emite o boleto usando o provider vinculado ao boleto.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>/emit \
@@ -314,6 +329,8 @@ Campos persistidos após emissão:
 | `digitable_line` | Linha digitável fake |
 | `our_number` | Nosso número fake |
 | `issued_at` | Timestamp da emissão simulada |
+
+Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado (`document`, `name`, endereço, bairro, cidade, CEP e UF) em `types.IssueRequest.Payer`; enquanto esses dados não existirem no domínio/API pública, o adapter retorna `INVALID_REQUEST`.
 
 ## Validações implementadas
 

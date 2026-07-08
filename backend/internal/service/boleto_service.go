@@ -148,6 +148,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		TenantID:    boleto.TenantID,
 		BoletoID:    boleto.ID,
 		CustomerID:  boleto.CustomerID,
+		ExternalID:  optionalStringValue(boleto.ExternalID),
 		AmountCents: boleto.AmountCents,
 		DueDate:     boleto.DueDate,
 	})
@@ -215,4 +216,11 @@ func stringPtr(s string) *string {
 	}
 	v := s
 	return &v
+}
+
+func optionalStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }

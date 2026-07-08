@@ -6,6 +6,7 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
 	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/mock"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/moncalieri"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
 
@@ -19,6 +20,8 @@ func (f *ProviderFactory) Build(cfg types.ProviderConfig) (contracts.ProviderAda
 	switch normalize(cfg.Name) {
 	case "mock":
 		return mock.New(cfg), nil
+	case "moncalieri", "moncaliericapital":
+		return moncalieri.New(cfg), nil
 	case "bancox", "bancoy":
 		return nil, providererrors.New("PROVIDER_NOT_IMPLEMENTED", "provider adapter is not implemented yet", cfg.Name, false)
 	default:

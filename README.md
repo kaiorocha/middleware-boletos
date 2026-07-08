@@ -1,7 +1,7 @@
 # middleware-boletos
 
 Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
-**Status atual:** Etapa 3 (Arquitetura de provedores) implementada com mock provider, factory, máquina de estados, emissão simulada, webhooks preparados e health/balance por provider.
+**Status atual:** Etapa 3 (Arquitetura de provedores) implementada com mock provider, primeiro adapter real Moncalieri Capital, factory, máquina de estados, emissão simulada, webhooks preparados e health/balance por provider.
 
 ## Stack
 
@@ -55,7 +55,7 @@ A collection Postman da Etapa 3 está disponível em:
 
 `docs/postman/middleware-boletos-etapa-3.postman_collection.json`
 
-Ela pode ser importada no Postman para validar criação de recursos, emissão simulada, health, balance e webhook com `MockProvider`.
+Ela pode ser importada no Postman para validar criação de recursos, emissão simulada, health, balance, webhook com `MockProvider` e configuração/health do provider Moncalieri sem credencial real.
 
 ## Rotas disponíveis
 
@@ -153,6 +153,16 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
   -d '{"name":"Mock","config":"{\"delay_ms\":0}"}'
 ```
 
+### Criar Provider Moncalieri
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Moncalieri Capital",
+    "config":"{\"base_url\":\"https://dev.moncaliericapital.com.br\",\"api_key\":\"REPLACE_WITH_SECRET\",\"codigo_canal\":0,\"codigo_cliente\":0,\"timeout_seconds\":30}"
+  }'
+```
+
 ### Criar e emitir Boleto com MockProvider
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
@@ -171,8 +181,9 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoI
 
 ## Observações
 
-- A Etapa 3 usa somente `MockProvider`; nenhum banco real foi integrado.
-- Bancos reais devem ser adicionados como novos adapters em `backend/internal/providers`.
+- A Etapa 3 mantém `MockProvider` e adiciona o adapter real `MoncalieriProvider`.
+- A emissão Moncalieri exige dados completos do sacado em `types.IssueRequest.Payer`; a API da aplicação ainda precisa evoluir para buscar/enriquecer esses dados a partir de `Customer`.
+- A chave `api_key` da Moncalieri nunca deve ser commitada.
 - Status de boleto seguem a máquina `CREATED -> PROCESSING -> ISSUED -> PAID` ou `FAILED`/`CANCELLED`, com `PARTIAL` e `EXPIRED` após emissão.
 
 ## Testes
@@ -220,7 +231,9 @@ Testes unitários cobrem validações e regras de negócio dos services:
 
 - **Providers**
   - Factory do `MockProvider`
+  - Factory do `MoncalieriProvider`
   - `MockProvider` para issue, health e webhook validation
+  - `MoncalieriProvider` para config, issue, get, cancel, status mapping e erros HTTP
   - Máquina de estados
 
 ### Executar testes

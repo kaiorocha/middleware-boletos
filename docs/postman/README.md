@@ -28,13 +28,15 @@ http://localhost:8080
 1. Create Tenant
 2. Create Customer
 3. Create Mock Provider
-4. Create Boleto
-5. Emit Boleto
-6. Provider Health
-7. Provider Balance
-8. Provider Webhook
-9. Invalid Webhook - 400
-10. Duplicate Mock Provider - 409
+4. Create Moncalieri Provider
+5. Create Boleto
+6. Emit Boleto
+7. Provider Health
+8. Moncalieri Provider Health
+9. Provider Balance
+10. Provider Webhook
+11. Invalid Webhook - 400
+12. Duplicate Mock Provider - 409
 
 Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
 
@@ -42,12 +44,14 @@ Os requests de criação capturam automaticamente os IDs retornados em `data.id`
 - `customerId`
 - `providerId`
 - `boletoId`
+- `moncalieriProviderId`
+- `moncalieriApiKey` usa o placeholder `REPLACE_WITH_SECRET`; substitua apenas localmente.
 
 Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento manual.
 
 ## Collections disponíveis
 
-- `middleware-boletos-etapa-3.postman_collection.json`: arquitetura de provedores, MockProvider, emissão simulada, health, balance e webhook.
+- `middleware-boletos-etapa-3.postman_collection.json`: arquitetura de provedores, MockProvider, MoncalieriProvider, emissão simulada, health, balance e webhook.
 - `middleware-boletos-etapa-2.postman_collection.json`: histórico da etapa anterior.
 
 ## Validações negativas
