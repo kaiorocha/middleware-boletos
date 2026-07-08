@@ -1,7 +1,7 @@
 # middleware-boletos
 
 Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
-**Status atual:** Etapa 2 (Backend e API) implementada com persistência PostgreSQL, migrations automáticas na inicialização, services, repositories e rotas REST base.
+**Status atual:** Etapa 3 (Arquitetura de provedores) implementada com mock provider, factory, máquina de estados, emissão simulada, webhooks preparados e health/balance por provider.
 
 ## Stack
 
@@ -20,6 +20,7 @@ Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.
 - `backend/internal/domain`: entidades de domínio
 - `backend/internal/repository`: acesso a dados
 - `backend/internal/service`: regras de negócio e validações
+- `backend/internal/providers`: contratos, factory, adapters, tipos, eventos e validações de integração bancária
 - `frontend`: aplicação web inicial
 
 ## Rodar localmente
@@ -50,13 +51,13 @@ curl -s -X POST http://localhost:8080/api/v1/tenants \
 
 ## Postman Collection
 
-A collection Postman da Etapa 2 está disponível em:
+A collection Postman da Etapa 3 está disponível em:
 
-`docs/postman/middleware-boletos-etapa-2.postman_collection.json`
+`docs/postman/middleware-boletos-etapa-3.postman_collection.json`
 
-Ela pode ser importada no Postman para validar as APIs implementadas na Etapa 2.
+Ela pode ser importada no Postman para validar criação de recursos, emissão simulada, health, balance e webhook com `MockProvider`.
 
-## Rotas disponíveis (Etapa 2)
+## Rotas disponíveis
 
 ### Health
 - `GET /health`
@@ -81,11 +82,15 @@ Ela pode ser importada no Postman para validar as APIs implementadas na Etapa 2.
 - `POST /api/v1/tenants/:tenantId/providers`
 - `GET /api/v1/tenants/:tenantId/providers`
 - `GET /api/v1/tenants/:tenantId/providers/:id`
+- `GET /api/v1/providers/health`
+- `GET /api/v1/providers/balance`
+- `POST /api/v1/providers/webhook`
 
 ### Boletos
 - `POST /api/v1/tenants/:tenantId/boletos`
 - `GET /api/v1/tenants/:tenantId/boletos`
 - `GET /api/v1/tenants/:tenantId/boletos/:id`
+- `POST /api/v1/tenants/:tenantId/boletos/:id/emit`
 
 ## Padrão de resposta
 
@@ -141,14 +146,14 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/customers \
   -d '{"name":"Cliente 1","document":"12345678900"}'
 ```
 
-### Criar Provider
+### Criar Provider Mock
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
   -H "Content-Type: application/json" \
-  -d '{"name":"Banco X"}'
+  -d '{"name":"Mock","config":"{\"delay_ms\":0}"}'
 ```
 
-### Criar Boleto (intenção)
+### Criar e emitir Boleto com MockProvider
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
   -H "Content-Type: application/json" \
@@ -160,12 +165,17 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
   }'
 ```
 
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>/emit
+```
+
 ## Observações
 
-- O boleto na Etapa 2 é apenas persistência e ciclo inicial (`CREATED`/`PENDING`).
-- Emissão real com banco/provedor será implementada na **Etapa 3**.
+- A Etapa 3 usa somente `MockProvider`; nenhum banco real foi integrado.
+- Bancos reais devem ser adicionados como novos adapters em `backend/internal/providers`.
+- Status de boleto seguem a máquina `CREATED -> PROCESSING -> ISSUED -> PAID` ou `FAILED`/`CANCELLED`, com `PARTIAL` e `EXPIRED` após emissão.
 
-## Testes (Etapa 2)
+## Testes
 
 Testes unitários cobrem validações e regras de negócio dos services:
 
@@ -194,17 +204,24 @@ Testes unitários cobrem validações e regras de negócio dos services:
   - Rejeita nome vazio
   - Cria provedor válido
 
-- **BoletoService** (validações extensas)
+- **BoletoService** (validações e emissão)
   - Rejeita tenant_id inválido
   - Rejeita customer_id inválido
   - Rejeita provider_id inválido (se fornecido)
   - Rejeita amount_cents zero
   - Rejeita amount_cents negativo
   - Rejeita due_date vazia
-  - Rejeita status inválido (apenas `CREATED` e `PENDING` permitidos)
+  - Rejeita status inválido
   - Cria boleto válido com status `CREATED`
-  - Cria boleto válido com status `PENDING`
+  - Cria boleto válido com status `PROCESSING`
   - Cria boleto válido com provider opcional
+  - Emite boleto via factory/provider
+  - Garante idempotência quando o boleto já foi emitido
+
+- **Providers**
+  - Factory do `MockProvider`
+  - `MockProvider` para issue, health e webhook validation
+  - Máquina de estados
 
 ### Executar testes
 

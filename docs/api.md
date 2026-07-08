@@ -1,10 +1,10 @@
-# API — Etapa 2
+# API — Etapa 3
 
-Documentação das rotas REST implementadas na **Etapa 2 — Backend e API**.
+Documentação das rotas REST implementadas até a **Etapa 3 — Arquitetura de provedores**.
 
 Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
 
-> Observação: a emissão real de boletos com bancos/provedores ainda não faz parte desta etapa. O boleto criado aqui representa uma intenção de emissão, com status inicial `CREATED` ou `PENDING`.
+> Observação: esta etapa não integra bancos reais. Toda emissão usa `MockProvider` através da mesma arquitetura que será usada por bancos reais.
 
 ## Base URL local
 
@@ -199,8 +199,8 @@ Cria um provedor bancário/gateway vinculado ao tenant.
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
   -H "Content-Type: application/json" \
   -d '{
-    "name":"Banco X",
-    "config":"{}"
+    "name":"Mock",
+    "config":"{\"delay_ms\":0}"
   }'
 ```
 
@@ -220,11 +220,42 @@ Busca provedor por ID dentro do tenant.
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers/<providerId>
 ```
 
+### GET /api/v1/providers/health
+
+Consulta o health do provider. Sem parâmetros, usa `MockProvider`; com `tenant_id` e `provider_id`, carrega o provider persistido.
+
+```bash
+curl -s "http://localhost:8080/api/v1/providers/health?tenant_id=<tenantId>&provider_id=<providerId>"
+```
+
+### GET /api/v1/providers/balance
+
+Consulta saldo padronizado do provider.
+
+```bash
+curl -s "http://localhost:8080/api/v1/providers/balance?tenant_id=<tenantId>&provider_id=<providerId>"
+```
+
+### POST /api/v1/providers/webhook
+
+Recebe, valida e converte webhook do provider.
+
+```bash
+curl -s -X POST "http://localhost:8080/api/v1/providers/webhook?tenant_id=<tenantId>&provider_id=<providerId>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type":"boleto.paid",
+    "external_id":"mock-ext",
+    "our_number":"MOCK123",
+    "status":"PAID"
+  }'
+```
+
 ## Boletos
 
 ### POST /api/v1/tenants/:tenantId/boletos
 
-Cria uma intenção de boleto. A emissão real com banco/provedor será implementada na Etapa 3.
+Cria uma intenção de boleto.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
@@ -246,7 +277,7 @@ Campos principais:
 | `provider_id` | Não | UUID do provedor. Opcional nesta etapa. |
 | `amount_cents` | Sim | Valor em centavos. Deve ser maior que zero. |
 | `due_date` | Sim | Data no formato `YYYY-MM-DD`. |
-| `status` | Não | Aceita `CREATED` ou `PENDING`. Se vazio, assume `CREATED`. |
+| `status` | Não | Se vazio, assume `CREATED`. |
 
 ### GET /api/v1/tenants/:tenantId/boletos
 
@@ -264,6 +295,26 @@ Busca boleto por ID dentro do tenant.
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>
 ```
 
+### POST /api/v1/tenants/:tenantId/boletos/:id/emit
+
+Emite o boleto usando o provider vinculado ao boleto. Nesta etapa, o provider deve ser `Mock`.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>/emit \
+  -H "X-Request-ID: req-demo-1"
+```
+
+Campos persistidos após emissão:
+
+| Campo | Origem |
+|---|---|
+| `status` | Retorno padronizado do provider (`ISSUED` no mock) |
+| `external_id` | Identificador externo fake |
+| `barcode` | Código de barras fake |
+| `digitable_line` | Linha digitável fake |
+| `our_number` | Nosso número fake |
+| `issued_at` | Timestamp da emissão simulada |
+
 ## Validações implementadas
 
 - UUID válido para parâmetros e campos relacionais.
@@ -271,11 +322,11 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>
 - E-mail válido para user.
 - Valor do boleto maior que zero.
 - Vencimento obrigatório para boleto.
-- Status de boleto restrito a `CREATED` ou `PENDING`.
+- Status de boleto restrito aos estados padronizados.
+- Transições de boleto validadas pela máquina de estados.
 
 ## Limitações conhecidas da Etapa 2
 
 - Ainda não há autenticação/autorização real.
 - Ainda não há integração bancária real.
-- Ainda não há emissão, cancelamento ou consulta real de boleto junto a provedor.
-- Webhooks reais ficam para a etapa de integração bancária.
+- Cancelamento e consulta real junto a provedores reais ficam para etapas posteriores.

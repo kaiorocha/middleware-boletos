@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 )
 
 type tenantRepoMock struct{ created bool }
@@ -48,6 +50,7 @@ type providerRepoMock struct {
 	created bool
 	err     error
 	last    *domain.Provider
+	found   *domain.Provider
 }
 
 func (m *providerRepoMock) Create(p *domain.Provider) error {
@@ -55,7 +58,12 @@ func (m *providerRepoMock) Create(p *domain.Provider) error {
 	m.last = p
 	return m.err
 }
-func (m *providerRepoMock) FindByID(string) (*domain.Provider, error)      { return &domain.Provider{}, nil }
+func (m *providerRepoMock) FindByID(string) (*domain.Provider, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.Provider{}, m.err
+}
 func (m *providerRepoMock) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
 func (m *providerRepoMock) Update(p *domain.Provider) error                { m.last = p; return m.err }
 func (m *providerRepoMock) Delete(string, string) error                    { return nil }
@@ -64,13 +72,24 @@ type boletoRepoMock struct {
 	created bool
 	err     error
 	last    *domain.Boleto
+	found   *domain.Boleto
+	updates int
 }
 
-func (m *boletoRepoMock) Create(b *domain.Boleto) error                { m.created = true; m.last = b; return m.err }
-func (m *boletoRepoMock) FindByID(string) (*domain.Boleto, error)      { return &domain.Boleto{}, nil }
+func (m *boletoRepoMock) Create(b *domain.Boleto) error { m.created = true; m.last = b; return m.err }
+func (m *boletoRepoMock) FindByID(string) (*domain.Boleto, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.Boleto{}, m.err
+}
 func (m *boletoRepoMock) ListByTenant(string) ([]domain.Boleto, error) { return nil, nil }
-func (m *boletoRepoMock) Update(b *domain.Boleto) error                { m.last = b; return m.err }
-func (m *boletoRepoMock) Delete(string, string) error                  { return nil }
+func (m *boletoRepoMock) Update(b *domain.Boleto) error {
+	m.updates++
+	m.last = b
+	return m.err
+}
+func (m *boletoRepoMock) Delete(string, string) error { return nil }
 
 // ========== TenantService Tests ==========
 
@@ -492,7 +511,7 @@ func TestBoletoServiceCreateValidWithCREATED(t *testing.T) {
 	}
 }
 
-func TestBoletoServiceCreateValidWithPENDING(t *testing.T) {
+func TestBoletoServiceCreateValidWithPROCESSING(t *testing.T) {
 	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
 	validDueDate := time.Now().AddDate(0, 0, 7)
@@ -503,13 +522,91 @@ func TestBoletoServiceCreateValidWithPENDING(t *testing.T) {
 		CustomerID:  validCustomerUUID,
 		AmountCents: 75000,
 		DueDate:     validDueDate,
-		Status:      "PENDING",
+		Status:      "PROCESSING",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if !repo.created {
 		t.Fatal("expected boleto to be created")
+	}
+}
+
+func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	providerName := "Mock"
+
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}}
+	providerRepo := &providerRepoMock{found: &domain.Provider{
+		ID:       validProviderUUID,
+		TenantID: validTenantUUID,
+		Name:     providerName,
+		Status:   "ACTIVE",
+	}}
+
+	svc := NewBoletoService(boletoRepo).
+		WithProviderRepository(providerRepo).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.Status != "ISSUED" {
+		t.Fatalf("expected ISSUED, got %q", got.Status)
+	}
+	if got.ExternalID == nil || got.Barcode == nil || got.DigitableLine == nil || got.OurNumber == nil || got.IssuedAt == nil {
+		t.Fatalf("expected provider fields to be persisted: %+v", got)
+	}
+	if boletoRepo.updates != 2 {
+		t.Fatalf("expected processing and issued updates, got %d", boletoRepo.updates)
+	}
+}
+
+func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	externalID := "ext-123"
+	ourNumber := "our-123"
+
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "ISSUED",
+		ExternalID:  &externalID,
+		OurNumber:   &ourNumber,
+	}}
+
+	svc := NewBoletoService(boletoRepo).
+		WithProviderRepository(&providerRepoMock{}).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.ExternalID == nil || *got.ExternalID != externalID {
+		t.Fatalf("expected existing boleto, got %+v", got)
+	}
+	if boletoRepo.updates != 0 {
+		t.Fatalf("expected no provider call/update for idempotent emit, got %d updates", boletoRepo.updates)
 	}
 }
 

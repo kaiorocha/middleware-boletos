@@ -16,20 +16,21 @@ func (r *BoletoRepo) Create(b *domain.Boleto) error {
 	if b.ID == "" {
 		b.ID = uuid.New().String()
 	}
-	_, err := r.db.Exec(`INSERT INTO boletos (id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())`, b.ID, b.TenantID, b.CustomerID, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber)
+	_, err := r.db.Exec(`INSERT INTO boletos (id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),now())`, b.ID, b.TenantID, b.CustomerID, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.IssuedAt)
 	return translatePostgresError(err)
 }
 
 func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
-	row := r.db.QueryRow(`SELECT id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,created_at,updated_at,deleted_at FROM boletos WHERE id = $1 AND deleted_at IS NULL`, id)
+	row := r.db.QueryRow(`SELECT id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE id = $1 AND deleted_at IS NULL`, id)
 	var b domain.Boleto
 	var providerID sql.NullString
 	var external sql.NullString
 	var barcode sql.NullString
 	var digitable sql.NullString
 	var ourNumber sql.NullString
+	var issuedAt sql.NullTime
 	var deleted *time.Time
-	if err := row.Scan(&b.ID, &b.TenantID, &b.CustomerID, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
+	if err := row.Scan(&b.ID, &b.TenantID, &b.CustomerID, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &issuedAt, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
 		return nil, err
 	}
 	if providerID.Valid {
@@ -52,6 +53,10 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 		v := ourNumber.String
 		b.OurNumber = &v
 	}
+	if issuedAt.Valid {
+		v := issuedAt.Time
+		b.IssuedAt = &v
+	}
 	if deleted != nil {
 		b.DeletedAt = deleted
 	}
@@ -59,7 +64,7 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 }
 
 func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
-	rows, err := r.db.Query(`SELECT id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,created_at,updated_at,deleted_at FROM boletos WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
+	rows, err := r.db.Query(`SELECT id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -72,8 +77,9 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 		var barcode sql.NullString
 		var digitable sql.NullString
 		var ourNumber sql.NullString
+		var issuedAt sql.NullTime
 		var deleted *time.Time
-		if err := rows.Scan(&b.ID, &b.TenantID, &b.CustomerID, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
+		if err := rows.Scan(&b.ID, &b.TenantID, &b.CustomerID, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &issuedAt, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
 			return nil, err
 		}
 		if providerID.Valid {
@@ -96,6 +102,10 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 			v := ourNumber.String
 			b.OurNumber = &v
 		}
+		if issuedAt.Valid {
+			v := issuedAt.Time
+			b.IssuedAt = &v
+		}
 		if deleted != nil {
 			b.DeletedAt = deleted
 		}
@@ -105,7 +115,7 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 }
 
 func (r *BoletoRepo) Update(b *domain.Boleto) error {
-	_, err := r.db.Exec(`UPDATE boletos SET provider_id = $1, amount_cents = $2, due_date = $3, status = $4, external_id = $5, barcode = $6, digitable_line = $7, our_number = $8, updated_at = now() WHERE id = $9 AND tenant_id = $10 AND deleted_at IS NULL`, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.ID, b.TenantID)
+	_, err := r.db.Exec(`UPDATE boletos SET provider_id = $1, amount_cents = $2, due_date = $3, status = $4, external_id = $5, barcode = $6, digitable_line = $7, our_number = $8, issued_at = $9, updated_at = now() WHERE id = $10 AND tenant_id = $11 AND deleted_at IS NULL`, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.IssuedAt, b.ID, b.TenantID)
 	return translatePostgresError(err)
 }
 

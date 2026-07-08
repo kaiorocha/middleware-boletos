@@ -64,6 +64,7 @@ type Boleto struct {
 	Barcode       *string    `json:"barcode,omitempty"`
 	DigitableLine *string    `json:"digitable_line,omitempty"`
 	OurNumber     *string    `json:"our_number,omitempty"`
+	IssuedAt      *time.Time `json:"issued_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
@@ -80,10 +81,10 @@ type WebhookEvent struct {
 
 // AuditLog stores auditable actions
 type AuditLog struct {
-	ID        string     `json:"id"`
-	TenantID  string     `json:"tenant_id"`
-	UserID    *string    `json:"user_id,omitempty"`
-	Action    string     `json:"action"`
-	Metadata  *string    `json:"metadata,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id"`
+	UserID    *string   `json:"user_id,omitempty"`
+	Action    string    `json:"action"`
+	Metadata  *string   `json:"metadata,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
