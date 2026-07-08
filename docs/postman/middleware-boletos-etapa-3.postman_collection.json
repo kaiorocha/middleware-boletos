@@ -1,0 +1,114 @@
+{
+  "info": {
+    "_postman_id": "3cdd4ae2-cf76-4d15-9582-146fa992f3b0",
+    "name": "middleware-boletos - Etapa 3",
+    "description": "Collection para validar MockProvider, emissão simulada, health, balance e webhook.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create Tenant",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Tenant Demo\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('tenantId', json.data.id);"] } }]
+    },
+    {
+      "name": "Create Customer",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Cliente Demo\",\n  \"document\": \"12345678900\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/customers"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('customerId', json.data.id);"] } }]
+    },
+    {
+      "name": "Create Mock Provider",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Mock\",\n  \"config\": \"{\\\"delay_ms\\\":0}\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/providers"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('providerId', json.data.id);"] } }]
+    },
+    {
+      "name": "Create Boleto",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(201);", "const json = pm.response.json();", "pm.collectionVariables.set('boletoId', json.data.id);"] } }]
+    },
+    {
+      "name": "Emit Boleto",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "X-Request-ID", "value": "postman-etapa-3" }],
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{boletoId}}/emit"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.status).to.eql('ISSUED');", "pm.expect(json.data).to.have.property('barcode');", "pm.expect(json.data).to.have.property('digitable_line');", "pm.expect(json.data).to.have.property('our_number');"] } }]
+    },
+    {
+      "name": "Provider Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/providers/health?tenant_id={{tenantId}}&provider_id={{providerId}}"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.status).to.eql('ONLINE');"] } }]
+    },
+    {
+      "name": "Provider Balance",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/v1/providers/balance?tenant_id={{tenantId}}&provider_id={{providerId}}"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.currency).to.eql('BRL');"] } }]
+    },
+    {
+      "name": "Provider Webhook",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"type\": \"boleto.paid\",\n  \"external_id\": \"mock-ext\",\n  \"our_number\": \"MOCK123\",\n  \"status\": \"PAID\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/providers/webhook?tenant_id={{tenantId}}&provider_id={{providerId}}"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(200);", "const json = pm.response.json();", "pm.expect(json.data.type).to.eql('boleto.paid');"] } }]
+    },
+    {
+      "name": "Invalid Webhook - 400",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/providers/webhook?tenant_id={{tenantId}}&provider_id={{providerId}}"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(400);", "const json = pm.response.json();", "pm.expect(json.error.code).to.eql('WEBHOOK_VALIDATION_ERROR');"] } }]
+    },
+    {
+      "name": "Duplicate Mock Provider - 409",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Mock\",\n  \"config\": \"{\\\"delay_ms\\\":0}\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/providers"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.response.to.have.status(409);", "const json = pm.response.json();", "pm.expect(json.error.code).to.eql('DUPLICATE_RESOURCE');"] } }]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "tenantId", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "providerId", "value": "" },
+    { "key": "boletoId", "value": "" }
+  ]
+}
