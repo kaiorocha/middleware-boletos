@@ -959,6 +959,46 @@
           ]
         },
         {
+          "name": "Seed Boleto With External ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\",\n  \"external_id\": \"external-demo-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create Duplicate Boleto With Same External ID",
           "request": {
             "method": "POST",
@@ -993,6 +1033,46 @@
                   "pm.test(\"response has duplicate error\", function () {",
                   "  pm.expect(json).to.have.property(\"error\");",
                   "  pm.expect(json.error).to.have.property(\"code\", \"DUPLICATE_RESOURCE\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Seed Boleto With Our Number",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\",\n  \"our_number\": \"nosso-numero-demo-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
                   "});"
                 ]
               }

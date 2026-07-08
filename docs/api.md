@@ -33,6 +33,38 @@ http://localhost:8080
 }
 ```
 
+## Unicidade por tenant
+
+A API garante isolamento entre tenants. Recursos podem existir com os mesmos dados em tenants diferentes, porém não podem ser duplicados dentro do mesmo tenant.
+
+Regras implementadas:
+
+- Usuários ativos não podem repetir e-mail no mesmo tenant.
+- Clientes ativos não podem repetir documento no mesmo tenant.
+- Provedores ativos não podem repetir nome no mesmo tenant.
+- Boletos ativos não podem repetir `external_id` nem `our_number` quando esses campos forem informados.
+
+Os seguintes campos são normalizados antes da persistência:
+
+- email: trim + lowercase
+- documento: somente números
+- nome do provider: trim
+- external_id: trim; string vazia vira null
+- our_number: trim; string vazia vira null
+
+Quando ocorre violação de unicidade, a API retorna:
+
+HTTP `409 Conflict`
+
+```json
+{
+  "error": {
+    "code": "DUPLICATE_RESOURCE",
+    "message": "Descrição específica da duplicidade."
+  }
+}
+```
+
 ## Health Check
 
 ### GET /health
