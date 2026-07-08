@@ -3,9 +3,11 @@ WORKDIR /src
 COPY go.mod .
 COPY . .
 RUN apk add --no-cache git
-RUN go build -o /bin/server ./cmd/api
+RUN go mod tidy && go test ./... && go build -o /bin/server ./cmd/api
 
 FROM alpine:3.18
 COPY --from=builder /bin/server /bin/server
+COPY --from=builder /src/internal/storage/migrations /app/migrations
+WORKDIR /app
 EXPOSE 8080
 CMD ["/bin/server"]
