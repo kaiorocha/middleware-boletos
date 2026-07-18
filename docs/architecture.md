@@ -26,8 +26,25 @@ Docker Compose
 - Estrutura facilita reprodução do ambiente de desenvolvimento para toda a equipe.
 
 Preparação para múltiplos provedores
-- Abstração de Provider na camada de domínio com configurações por Tenant.
-- Estratégia: adaptadores por provedor (pattern Adapter/Strategy) para isolar contratos específicos de cada banco.
+- A camada `backend/internal/providers` isola integrações bancárias por contrato.
+- `contracts.ProviderAdapter` define as operações comuns: emissão, consulta, listagem, cancelamento, webhook, saldo e health.
+- `factory.ProviderFactory` é o único ponto de seleção de adapter por `provider.name`.
+- Services consomem apenas interfaces e tipos padronizados; nenhum service conhece contratos específicos de bancos.
+- `mock.Provider` é o adapter operacional desta etapa e simula emissão sem banco real.
+
+Fluxo de emissão
+- API recebe `POST /api/v1/tenants/:tenantId/boletos/:id/emit`.
+- `BoletoService` valida tenant/boleto/provider, verifica idempotência, consulta o provider, monta o adapter na factory e chama `IssueBoleto`.
+- O retorno padronizado persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
+- Logs estruturados registram tenant, provider, request id, boleto id, latência e resultado.
+
+Estados de boleto
+- Status suportados: `CREATED`, `PROCESSING`, `ISSUED`, `FAILED`, `CANCELLED`, `PARTIAL`, `PAID`, `EXPIRED`.
+- Transições inválidas são bloqueadas pela máquina de estados em `providers/base`.
+
+Webhooks
+- `providers/webhooks.Receive` valida e converte payloads usando o adapter.
+- Nesta etapa o `MockProvider` desserializa eventos padronizados e prepara a geração de eventos internos.
 
 Estratégia de failover (futuro)
 - Retry e fallback para provedores: implementar circuit breakers e filas para requisições a provedores.

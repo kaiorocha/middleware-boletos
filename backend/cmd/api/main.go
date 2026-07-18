@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/kaiorocha/middleware-boletos/backend/internal/config"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/repository"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/storage"
@@ -30,7 +31,11 @@ func main() {
 	userSvc := service.NewUserService(userRepo)
 	customerSvc := service.NewCustomerService(custRepo)
 	providerSvc := service.NewProviderService(providerRepo)
-	boletoSvc := service.NewBoletoService(boletoRepo)
+	providerFactory := factory.NewProviderFactory()
+	boletoSvc := service.NewBoletoService(boletoRepo).
+		WithCustomerRepository(custRepo).
+		WithProviderRepository(providerRepo).
+		WithProviderFactory(providerFactory)
 
 	app := &App{
 		TenantSvc:   tenantSvc,
@@ -38,6 +43,7 @@ func main() {
 		CustomerSvc: customerSvc,
 		ProviderSvc: providerSvc,
 		BoletoSvc:   boletoSvc,
+		Factory:     providerFactory,
 	}
 
 	h := app.routes()

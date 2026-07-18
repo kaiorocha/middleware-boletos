@@ -3,10 +3,16 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
+	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/webhooks"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
 )
 
@@ -16,6 +22,7 @@ type App struct {
 	CustomerSvc *service.CustomerService
 	ProviderSvc *service.ProviderService
 	BoletoSvc   *service.BoletoService
+	Factory     contracts.ProviderFactory
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -39,6 +46,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
+	var providerErr *providererrors.ProviderError
+	if errors.As(err, &providerErr) {
+		switch providerErr.Code {
+		case "INVALID_REQUEST", "INVALID_PAYER", "INVALID_PROVIDER_CONFIG", "PROVIDER_VALIDATION_ERROR":
+			writeError(w, http.StatusBadRequest, providerErr.Code, providerErr.Message)
+		case "UNSUPPORTED_OPERATION":
+			writeError(w, http.StatusNotImplemented, providerErr.Code, providerErr.Message)
+		default:
+			writeError(w, http.StatusBadGateway, providerErr.Code, providerErr.Message)
+		}
+		return
+	}
 	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "unexpected error")
 }
 
@@ -46,6 +65,7 @@ func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", a.handleHealth)
 	mux.HandleFunc("/api/v1/tenants", a.handleTenants)
+	mux.HandleFunc("/api/v1/providers/", a.handleProvidersIntegration)
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
 	mux.HandleFunc("/api/v1/users/", a.handleUsersByID)
@@ -286,6 +306,126 @@ func (a *App) handleTenantProviders(w http.ResponseWriter, r *http.Request, tena
 	writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 }
 
+func (a *App) handleProvidersIntegration(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/providers/")
+	parts := splitPath(path)
+	if len(parts) != 1 {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
+		return
+	}
+	if a.Factory == nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "provider factory not configured")
+		return
+	}
+
+	switch parts[0] {
+	case "health":
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+			return
+		}
+		adapter, err := a.providerAdapterFromRequest(r)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		health, err := adapter.Health(r.Context())
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "PROVIDER_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, health)
+	case "balance":
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+			return
+		}
+		cfg, adapter, err := a.providerConfigAndAdapterFromRequest(r)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		balance, err := adapter.GetBalance(r.Context(), types.BalanceRequest{TenantID: cfg.TenantID, ProviderID: cfg.ID})
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "PROVIDER_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, balance)
+	case "webhook":
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+			return
+		}
+		cfg, adapter, err := a.providerConfigAndAdapterFromRequest(r)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+			return
+		}
+		event, err := webhooks.Receive(r.Context(), adapter, types.ValidateWebhookRequest{ProviderID: cfg.ID, Headers: requestHeaders(r), Body: body})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "WEBHOOK_VALIDATION_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, event)
+	default:
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
+	}
+}
+
+func (a *App) providerAdapterFromRequest(r *http.Request) (contracts.ProviderAdapter, error) {
+	_, adapter, err := a.providerConfigAndAdapterFromRequest(r)
+	return adapter, err
+}
+
+func (a *App) providerConfigAndAdapterFromRequest(r *http.Request) (types.ProviderConfig, contracts.ProviderAdapter, error) {
+	query := r.URL.Query()
+	tenantID := query.Get("tenant_id")
+	providerID := query.Get("provider_id")
+	cfg := types.ProviderConfig{ID: providerID, TenantID: tenantID, Name: "Mock"}
+
+	if providerID != "" {
+		if !service.IsValidUUID(providerID) || !service.IsValidUUID(tenantID) || a.ProviderSvc == nil {
+			return cfg, nil, service.ErrValidation
+		}
+		provider, err := a.ProviderSvc.Get(providerID)
+		if err != nil {
+			return cfg, nil, err
+		}
+		if provider.TenantID != tenantID {
+			return cfg, nil, service.ErrValidation
+		}
+		cfg = types.ProviderConfig{ID: provider.ID, TenantID: provider.TenantID, Name: provider.Name}
+		if provider.Config != nil {
+			cfg.Config = *provider.Config
+		}
+	}
+
+	adapter, err := a.Factory.Build(cfg)
+	return cfg, adapter, err
+}
+
+func requestHeaders(r *http.Request) map[string]string {
+	headers := make(map[string]string, len(r.Header))
+	for key, values := range r.Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+	return headers
+}
+
+func requestID(r *http.Request) string {
+	if id := strings.TrimSpace(r.Header.Get("X-Request-ID")); id != "" {
+		return id
+	}
+	return uuid.New().String()
+}
+
 func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
 	if len(tail) == 0 {
 		switch r.Method {
@@ -337,6 +477,22 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 		}
+		return
+	}
+
+	if len(tail) == 2 && tail[1] == "emit" && r.Method == http.MethodPost {
+		id := tail[0]
+		if !service.IsValidUUID(id) {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid boleto id")
+			return
+		}
+		ctx := service.WithRequestID(r.Context(), requestID(r))
+		item, err := a.BoletoSvc.Emit(ctx, tenantID, id)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
 		return
 	}
 

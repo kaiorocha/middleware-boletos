@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
 )
 
@@ -81,6 +83,68 @@ func (r *duplicateBoletoRepo) ListByTenant(string) ([]domain.Boleto, error) {
 func (r *duplicateBoletoRepo) Update(*domain.Boleto) error { return nil }
 func (r *duplicateBoletoRepo) Delete(string, string) error { return nil }
 
+type apiProviderRepo struct {
+	item *domain.Provider
+}
+
+func (r *apiProviderRepo) Create(*domain.Provider) error { return nil }
+func (r *apiProviderRepo) FindByID(string) (*domain.Provider, error) {
+	return r.item, nil
+}
+func (r *apiProviderRepo) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
+func (r *apiProviderRepo) Update(*domain.Provider) error                  { return nil }
+func (r *apiProviderRepo) Delete(string, string) error                    { return nil }
+
+type apiCustomerRepo struct {
+	item *domain.Customer
+}
+
+func (r *apiCustomerRepo) Create(*domain.Customer) error { return nil }
+func (r *apiCustomerRepo) FindByID(string) (*domain.Customer, error) {
+	return r.item, nil
+}
+func (r *apiCustomerRepo) ListByTenant(string) ([]domain.Customer, error) { return nil, nil }
+func (r *apiCustomerRepo) Update(*domain.Customer) error                  { return nil }
+func (r *apiCustomerRepo) Delete(string, string) error                    { return nil }
+
+type apiBoletoRepo struct {
+	item    *domain.Boleto
+	updated int
+}
+
+func (r *apiBoletoRepo) Create(*domain.Boleto) error { return nil }
+func (r *apiBoletoRepo) FindByID(string) (*domain.Boleto, error) {
+	return r.item, nil
+}
+func (r *apiBoletoRepo) ListByTenant(string) ([]domain.Boleto, error) { return nil, nil }
+func (r *apiBoletoRepo) Update(b *domain.Boleto) error {
+	r.updated++
+	r.item = b
+	return nil
+}
+func (r *apiBoletoRepo) Delete(string, string) error { return nil }
+
+func completeAPICustomer(tenantID string) *domain.Customer {
+	return &domain.Customer{
+		ID:         "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:   tenantID,
+		Name:       "Cliente Demo",
+		Document:   apiStringPtr("123.456.789-00"),
+		Email:      apiStringPtr("cliente@example.com"),
+		Address:    apiStringPtr("Rua Um"),
+		Number:     apiStringPtr("123"),
+		District:   apiStringPtr("Centro"),
+		City:       apiStringPtr("Sao Paulo"),
+		State:      apiStringPtr("SP"),
+		PostalCode: apiStringPtr("12345-678"),
+		Status:     "ACTIVE",
+	}
+}
+
+func apiStringPtr(value string) *string {
+	return &value
+}
+
 func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 	validTenantID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerID := "550e8400-e29b-41d4-a716-446655440001"
@@ -139,6 +203,114 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 			}
 			if payload.Error.Code != "DUPLICATE_RESOURCE" {
 				t.Fatalf("expected DUPLICATE_RESOURCE, got %q", payload.Error.Code)
+			}
+		})
+	}
+}
+
+func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
+	validTenantID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderID := "550e8400-e29b-41d4-a716-446655440002"
+	validBoletoID := "550e8400-e29b-41d4-a716-446655440003"
+
+	providerRepo := &apiProviderRepo{item: &domain.Provider{
+		ID:       validProviderID,
+		TenantID: validTenantID,
+		Name:     "Mock",
+		Status:   "ACTIVE",
+	}}
+	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
+		ID:          validBoletoID,
+		TenantID:    validTenantID,
+		CustomerID:  validCustomerID,
+		ProviderID:  &validProviderID,
+		AmountCents: 15000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}}
+	providerFactory := factory.NewProviderFactory()
+	app := &App{
+		ProviderSvc: service.NewProviderService(providerRepo),
+		BoletoSvc: service.NewBoletoService(boletoRepo).
+			WithCustomerRepository(&apiCustomerRepo{item: completeAPICustomer(validTenantID)}).
+			WithProviderRepository(providerRepo).
+			WithProviderFactory(providerFactory),
+		Factory: providerFactory,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/boletos/"+validBoletoID+"/emit", nil)
+	rr := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var payload struct {
+		Data domain.Boleto `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if payload.Data.Status != "ISSUED" {
+		t.Fatalf("expected ISSUED, got %q", payload.Data.Status)
+	}
+	if payload.Data.Barcode == nil || payload.Data.DigitableLine == nil || payload.Data.OurNumber == nil || payload.Data.IssuedAt == nil {
+		t.Fatalf("expected emitted boleto fields, got %+v", payload.Data)
+	}
+}
+
+func TestProviderHealthBalanceAndWebhookRoutes(t *testing.T) {
+	validTenantID := "550e8400-e29b-41d4-a716-446655440000"
+	validProviderID := "550e8400-e29b-41d4-a716-446655440002"
+	providerRepo := &apiProviderRepo{item: &domain.Provider{
+		ID:       validProviderID,
+		TenantID: validTenantID,
+		Name:     "Mock",
+		Status:   "ACTIVE",
+	}}
+	providerFactory := factory.NewProviderFactory()
+	app := &App{
+		ProviderSvc: service.NewProviderService(providerRepo),
+		Factory:     providerFactory,
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "health",
+			method: http.MethodGet,
+			path:   "/api/v1/providers/health?tenant_id=" + validTenantID + "&provider_id=" + validProviderID,
+		},
+		{
+			name:   "balance",
+			method: http.MethodGet,
+			path:   "/api/v1/providers/balance?tenant_id=" + validTenantID + "&provider_id=" + validProviderID,
+		},
+		{
+			name:   "webhook",
+			method: http.MethodPost,
+			path:   "/api/v1/providers/webhook?tenant_id=" + validTenantID + "&provider_id=" + validProviderID,
+			body:   `{"type":"boleto.paid","status":"PAID"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			app.routes().ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 			}
 		})
 	}

@@ -1,11 +1,17 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
+	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 )
 
 type tenantRepoMock struct{ created bool }
@@ -32,6 +38,7 @@ type customerRepoMock struct {
 	created bool
 	err     error
 	last    *domain.Customer
+	found   *domain.Customer
 }
 
 func (m *customerRepoMock) Create(c *domain.Customer) error {
@@ -39,7 +46,12 @@ func (m *customerRepoMock) Create(c *domain.Customer) error {
 	m.last = c
 	return m.err
 }
-func (m *customerRepoMock) FindByID(string) (*domain.Customer, error)      { return &domain.Customer{}, nil }
+func (m *customerRepoMock) FindByID(string) (*domain.Customer, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.Customer{}, m.err
+}
 func (m *customerRepoMock) ListByTenant(string) ([]domain.Customer, error) { return nil, nil }
 func (m *customerRepoMock) Update(c *domain.Customer) error                { m.last = c; return m.err }
 func (m *customerRepoMock) Delete(string, string) error                    { return nil }
@@ -48,6 +60,7 @@ type providerRepoMock struct {
 	created bool
 	err     error
 	last    *domain.Provider
+	found   *domain.Provider
 }
 
 func (m *providerRepoMock) Create(p *domain.Provider) error {
@@ -55,7 +68,12 @@ func (m *providerRepoMock) Create(p *domain.Provider) error {
 	m.last = p
 	return m.err
 }
-func (m *providerRepoMock) FindByID(string) (*domain.Provider, error)      { return &domain.Provider{}, nil }
+func (m *providerRepoMock) FindByID(string) (*domain.Provider, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.Provider{}, m.err
+}
 func (m *providerRepoMock) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
 func (m *providerRepoMock) Update(p *domain.Provider) error                { m.last = p; return m.err }
 func (m *providerRepoMock) Delete(string, string) error                    { return nil }
@@ -64,13 +82,24 @@ type boletoRepoMock struct {
 	created bool
 	err     error
 	last    *domain.Boleto
+	found   *domain.Boleto
+	updates int
 }
 
-func (m *boletoRepoMock) Create(b *domain.Boleto) error                { m.created = true; m.last = b; return m.err }
-func (m *boletoRepoMock) FindByID(string) (*domain.Boleto, error)      { return &domain.Boleto{}, nil }
+func (m *boletoRepoMock) Create(b *domain.Boleto) error { m.created = true; m.last = b; return m.err }
+func (m *boletoRepoMock) FindByID(string) (*domain.Boleto, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.Boleto{}, m.err
+}
 func (m *boletoRepoMock) ListByTenant(string) ([]domain.Boleto, error) { return nil, nil }
-func (m *boletoRepoMock) Update(b *domain.Boleto) error                { m.last = b; return m.err }
-func (m *boletoRepoMock) Delete(string, string) error                  { return nil }
+func (m *boletoRepoMock) Update(b *domain.Boleto) error {
+	m.updates++
+	m.last = b
+	return m.err
+}
+func (m *boletoRepoMock) Delete(string, string) error { return nil }
 
 // ========== TenantService Tests ==========
 
@@ -492,7 +521,7 @@ func TestBoletoServiceCreateValidWithCREATED(t *testing.T) {
 	}
 }
 
-func TestBoletoServiceCreateValidWithPENDING(t *testing.T) {
+func TestBoletoServiceCreateValidWithPROCESSING(t *testing.T) {
 	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
 	validDueDate := time.Now().AddDate(0, 0, 7)
@@ -503,13 +532,199 @@ func TestBoletoServiceCreateValidWithPENDING(t *testing.T) {
 		CustomerID:  validCustomerUUID,
 		AmountCents: 75000,
 		DueDate:     validDueDate,
-		Status:      "PENDING",
+		Status:      "PROCESSING",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if !repo.created {
 		t.Fatal("expected boleto to be created")
+	}
+}
+
+func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	providerName := "Mock"
+
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}}
+	providerRepo := &providerRepoMock{found: &domain.Provider{
+		ID:       validProviderUUID,
+		TenantID: validTenantUUID,
+		Name:     providerName,
+		Status:   "ACTIVE",
+	}}
+
+	svc := NewBoletoService(boletoRepo).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(providerRepo).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.Status != "ISSUED" {
+		t.Fatalf("expected ISSUED, got %q", got.Status)
+	}
+	if got.ExternalID == nil || got.Barcode == nil || got.DigitableLine == nil || got.OurNumber == nil || got.IssuedAt == nil {
+		t.Fatalf("expected provider fields to be persisted: %+v", got)
+	}
+	if boletoRepo.updates != 2 {
+		t.Fatalf("expected processing and issued updates, got %d", boletoRepo.updates)
+	}
+}
+
+func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	externalID := "ext-123"
+	ourNumber := "our-123"
+
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "ISSUED",
+		ExternalID:  &externalID,
+		OurNumber:   &ourNumber,
+	}}
+
+	svc := NewBoletoService(boletoRepo).
+		WithCustomerRepository(&customerRepoMock{}).
+		WithProviderRepository(&providerRepoMock{}).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.ExternalID == nil || *got.ExternalID != externalID {
+		t.Fatalf("expected existing boleto, got %+v", got)
+	}
+	if boletoRepo.updates != 0 {
+		t.Fatalf("expected no provider call/update for idempotent emit, got %d updates", boletoRepo.updates)
+	}
+}
+
+func TestBoletoServiceEmitReturnsInvalidPayerForIncompleteCustomer(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}}
+	providerRepo := &providerRepoMock{found: &domain.Provider{
+		ID:       validProviderUUID,
+		TenantID: validTenantUUID,
+		Name:     "Mock",
+		Status:   "ACTIVE",
+	}}
+	customer := completeCustomer(validTenantUUID)
+	customer.PostalCode = nil
+
+	svc := NewBoletoService(boletoRepo).
+		WithCustomerRepository(&customerRepoMock{found: customer}).
+		WithProviderRepository(providerRepo).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	_, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	perr, ok := err.(*providererrors.ProviderError)
+	if !ok {
+		t.Fatalf("expected ProviderError, got %T: %v", err, err)
+	}
+	if perr.Code != "INVALID_PAYER" {
+		t.Fatalf("expected INVALID_PAYER, got %s", perr.Code)
+	}
+}
+
+func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/CashIn/GerarBoleto" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var payload struct {
+			Data struct {
+				DadosSacado struct {
+					CpfCnpj int64  `json:"CpfCnpj"`
+					Cep     int    `json:"Cep"`
+					Uf      string `json:"Uf"`
+				} `json:"DadosSacado"`
+			} `json:"Data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("invalid payload: %v", err)
+		}
+		if payload.Data.DadosSacado.CpfCnpj != 12345678900 || payload.Data.DadosSacado.Cep != 12345678 || payload.Data.DadosSacado.Uf != "SP" {
+			t.Fatalf("unexpected payer payload: %+v", payload.Data.DadosSacado)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"Data": map[string]any{
+				"NossoNumero":    "NN123",
+				"LinhaDigitavel": "linha",
+				"CodigoBarras":   "barra",
+			},
+		})
+	}))
+	defer server.Close()
+
+	config := `{"base_url":"` + server.URL + `","api_key":"test-key","codigo_canal":1,"codigo_cliente":2}`
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}}
+	providerRepo := &providerRepoMock{found: &domain.Provider{
+		ID:       validProviderUUID,
+		TenantID: validTenantUUID,
+		Name:     "Moncalieri Capital",
+		Status:   "ACTIVE",
+		Config:   &config,
+	}}
+
+	svc := NewBoletoService(boletoRepo).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(providerRepo).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.Status != "ISSUED" || got.OurNumber == nil || *got.OurNumber != "NN123" {
+		t.Fatalf("unexpected boleto: %+v", got)
 	}
 }
 
@@ -605,4 +820,26 @@ func TestBoletoServicePropagatesDuplicateError(t *testing.T) {
 	if !errors.Is(err, ErrDuplicateResource) {
 		t.Fatalf("expected duplicate error, got %v", err)
 	}
+}
+
+func completeCustomer(tenantID string) *domain.Customer {
+	return &domain.Customer{
+		ID:         "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:   tenantID,
+		Name:       "Cliente Demo",
+		Document:   testStringPtr("123.456.789-00"),
+		Email:      testStringPtr("CLIENTE@EXAMPLE.COM"),
+		Address:    testStringPtr("Rua Um"),
+		Number:     testStringPtr("123"),
+		Complement: testStringPtr("Apto 4"),
+		District:   testStringPtr("Centro"),
+		City:       testStringPtr("Sao Paulo"),
+		State:      testStringPtr("sp"),
+		PostalCode: testStringPtr("12345-678"),
+		Status:     "ACTIVE",
+	}
+}
+
+func testStringPtr(value string) *string {
+	return &value
 }

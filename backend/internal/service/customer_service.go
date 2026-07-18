@@ -23,12 +23,14 @@ func NewCustomerService(repo customerRepo) *CustomerService {
 }
 
 func (s *CustomerService) Create(c *domain.Customer) error {
-	c.Document = NormalizeDocument(c.Document)
+	normalizeCustomer(c)
 	if !IsValidUUID(c.TenantID) {
 		return ErrValidation
 	}
-	c.Name = strings.TrimSpace(c.Name)
 	if strings.TrimSpace(c.Name) == "" {
+		return ErrValidation
+	}
+	if !validateCustomerOptionalFields(c) {
 		return ErrValidation
 	}
 	if c.Status == "" {
@@ -52,16 +54,52 @@ func (s *CustomerService) ListByTenant(tenantID string) ([]domain.Customer, erro
 }
 
 func (s *CustomerService) Update(c *domain.Customer) error {
-	c.Document = NormalizeDocument(c.Document)
+	normalizeCustomer(c)
 	if !IsValidUUID(c.ID) || !IsValidUUID(c.TenantID) {
 		return ErrValidation
 	}
-	c.Name = strings.TrimSpace(c.Name)
 	if strings.TrimSpace(c.Name) == "" {
+		return ErrValidation
+	}
+	if !validateCustomerOptionalFields(c) {
 		return ErrValidation
 	}
 	if c.Status == "" {
 		c.Status = "ACTIVE"
 	}
 	return s.repo.Update(c)
+}
+
+func normalizeCustomer(c *domain.Customer) {
+	c.Name = strings.TrimSpace(c.Name)
+	c.Document = NormalizeDocument(c.Document)
+	c.Email = NormalizeOptionalEmail(c.Email)
+	c.Address = NormalizeOptionalString(c.Address)
+	c.Number = NormalizeOptionalString(c.Number)
+	c.Complement = NormalizeOptionalString(c.Complement)
+	c.District = NormalizeOptionalString(c.District)
+	c.City = NormalizeOptionalString(c.City)
+	c.State = NormalizeOptionalString(c.State)
+	if c.State != nil {
+		v := strings.ToUpper(*c.State)
+		c.State = &v
+	}
+	c.PostalCode = NormalizePostalCode(c.PostalCode)
+	c.ExternalID = NormalizeOptionalString(c.ExternalID)
+}
+
+func validateCustomerOptionalFields(c *domain.Customer) bool {
+	if c.Email != nil && !IsValidEmail(*c.Email) {
+		return false
+	}
+	if c.State != nil && len(*c.State) != 2 {
+		return false
+	}
+	if c.PostalCode != nil && len(*c.PostalCode) != 8 {
+		return false
+	}
+	if c.Document != nil && len(*c.Document) != 11 && len(*c.Document) != 14 {
+		return false
+	}
+	return true
 }

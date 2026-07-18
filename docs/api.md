@@ -1,10 +1,10 @@
-# API — Etapa 2
+# API — Etapa 3
 
-Documentação das rotas REST implementadas na **Etapa 2 — Backend e API**.
+Documentação das rotas REST implementadas até a **Etapa 3 — Arquitetura de provedores**.
 
 Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
 
-> Observação: a emissão real de boletos com bancos/provedores ainda não faz parte desta etapa. O boleto criado aqui representa uma intenção de emissão, com status inicial `CREATED` ou `PENDING`.
+> Observação: esta etapa mantém `MockProvider` e adiciona o primeiro adapter real, `MoncalieriProvider`. A emissão usa os dados do `Customer` para montar o pagador por meio do `DefaultPayerBuilder`.
 
 ## Base URL local
 
@@ -156,9 +156,30 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/customers \
   -H "Content-Type: application/json" \
   -d '{
     "name":"Cliente 1",
-    "document":"12345678900"
+    "document":"12345678900",
+    "email":"cliente@example.com",
+    "address":"Rua Um",
+    "number":"123",
+    "complement":"Apto 4",
+    "district":"Centro",
+    "city":"Sao Paulo",
+    "state":"SP",
+    "postal_code":"12345-678"
   }'
 ```
+
+Campos opcionais aceitos em customer:
+
+| Campo | Observação |
+|---|---|
+| `email` | Validado quando informado. |
+| `address` | Obrigatório para emissão real via providers que exigem pagador. |
+| `number` | Usado na composição do endereço completo. |
+| `complement` | Usado na composição do endereço completo. |
+| `district` | Obrigatório para emissão real. |
+| `city` | Obrigatório para emissão real. |
+| `state` | UF com 2 caracteres; normalizada para uppercase. |
+| `postal_code` | CEP; máscara removida e validado com 8 dígitos quando informado. |
 
 ### GET /api/v1/tenants/:tenantId/customers
 
@@ -199,8 +220,19 @@ Cria um provedor bancário/gateway vinculado ao tenant.
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
   -H "Content-Type: application/json" \
   -d '{
-    "name":"Banco X",
-    "config":"{}"
+    "name":"Mock",
+    "config":"{\"delay_ms\":0}"
+  }'
+```
+
+Exemplo para Moncalieri Capital, sem credencial real:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Moncalieri Capital",
+    "config":"{\"base_url\":\"https://dev.moncaliericapital.com.br\",\"api_key\":\"REPLACE_WITH_SECRET\",\"codigo_canal\":0,\"codigo_cliente\":0,\"timeout_seconds\":30,\"instrucoes\":\"Pagar ate o vencimento.\"}"
   }'
 ```
 
@@ -220,11 +252,46 @@ Busca provedor por ID dentro do tenant.
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers/<providerId>
 ```
 
+### GET /api/v1/providers/health
+
+Consulta o health do provider. Sem parâmetros, usa `MockProvider`; com `tenant_id` e `provider_id`, carrega o provider persistido.
+
+```bash
+curl -s "http://localhost:8080/api/v1/providers/health?tenant_id=<tenantId>&provider_id=<providerId>"
+```
+
+### GET /api/v1/providers/balance
+
+Consulta saldo padronizado do provider.
+
+Para Moncalieri, retorna `UNSUPPORTED_OPERATION`, pois a especificação enviada não possui endpoint de saldo.
+
+```bash
+curl -s "http://localhost:8080/api/v1/providers/balance?tenant_id=<tenantId>&provider_id=<providerId>"
+```
+
+### POST /api/v1/providers/webhook
+
+Recebe, valida e converte webhook do provider.
+
+Para Moncalieri, retorna `UNSUPPORTED_OPERATION`, pois a especificação enviada não descreve webhooks.
+
+```bash
+curl -s -X POST "http://localhost:8080/api/v1/providers/webhook?tenant_id=<tenantId>&provider_id=<providerId>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type":"boleto.paid",
+    "external_id":"mock-ext",
+    "our_number":"MOCK123",
+    "status":"PAID"
+  }'
+```
+
 ## Boletos
 
 ### POST /api/v1/tenants/:tenantId/boletos
 
-Cria uma intenção de boleto. A emissão real com banco/provedor será implementada na Etapa 3.
+Cria uma intenção de boleto.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
@@ -246,7 +313,7 @@ Campos principais:
 | `provider_id` | Não | UUID do provedor. Opcional nesta etapa. |
 | `amount_cents` | Sim | Valor em centavos. Deve ser maior que zero. |
 | `due_date` | Sim | Data no formato `YYYY-MM-DD`. |
-| `status` | Não | Aceita `CREATED` ou `PENDING`. Se vazio, assume `CREATED`. |
+| `status` | Não | Se vazio, assume `CREATED`. |
 
 ### GET /api/v1/tenants/:tenantId/boletos
 
@@ -264,6 +331,28 @@ Busca boleto por ID dentro do tenant.
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>
 ```
 
+### POST /api/v1/tenants/:tenantId/boletos/:id/emit
+
+Emite o boleto usando o provider vinculado ao boleto.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>/emit \
+  -H "X-Request-ID: req-demo-1"
+```
+
+Campos persistidos após emissão:
+
+| Campo | Origem |
+|---|---|
+| `status` | Retorno padronizado do provider (`ISSUED` no mock) |
+| `external_id` | Identificador externo fake |
+| `barcode` | Código de barras fake |
+| `digitable_line` | Linha digitável fake |
+| `our_number` | Nosso número fake |
+| `issued_at` | Timestamp da emissão simulada |
+
+Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado no customer (`document`, `name`, endereço, bairro, cidade, CEP e UF). Se faltar algum campo obrigatório, a API retorna `INVALID_PAYER`.
+
 ## Validações implementadas
 
 - UUID válido para parâmetros e campos relacionais.
@@ -271,11 +360,12 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>
 - E-mail válido para user.
 - Valor do boleto maior que zero.
 - Vencimento obrigatório para boleto.
-- Status de boleto restrito a `CREATED` ou `PENDING`.
+- Status de boleto restrito aos estados padronizados.
+- Transições de boleto validadas pela máquina de estados.
+- Customer valida email, documento, UF e CEP quando esses campos são informados.
 
 ## Limitações conhecidas da Etapa 2
 
 - Ainda não há autenticação/autorização real.
 - Ainda não há integração bancária real.
-- Ainda não há emissão, cancelamento ou consulta real de boleto junto a provedor.
-- Webhooks reais ficam para a etapa de integração bancária.
+- Cancelamento e consulta real junto a provedores reais ficam para etapas posteriores.
