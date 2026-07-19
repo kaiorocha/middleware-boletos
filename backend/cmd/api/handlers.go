@@ -33,10 +33,12 @@ type App struct {
 	ProviderSvc   *service.ProviderService
 	BoletoSvc     *service.BoletoService
 	BlacklistSvc  *service.BlacklistService
+	OnboardingSvc *service.OnboardingService
 	Factory       contracts.ProviderFactory
 	Authorizer    TenantAuthorizer
 	Authenticator *RequestAuthenticator
 	TokenIssuer   authn.TokenIssuer
+	CORSOrigins   []string
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -113,17 +115,35 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/admin/dashboard", a.handleAdminDashboard)
 	mux.HandleFunc("/api/v1/admin/transactions", a.handleAdminTransactions)
 	mux.HandleFunc("/api/v1/admin/providers", a.handleAdminProviders)
+	mux.HandleFunc("/api/v1/admin/providers/", a.handleAdminProviderByID)
 	mux.HandleFunc("/api/v1/admin/tenants", a.handleAdminTenants)
 	mux.HandleFunc("/api/v1/providers/", a.handleProvidersIntegration)
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
 	mux.HandleFunc("/api/v1/users/", a.handleUsersByID)
-	return corsMiddleware(a.authenticationMiddleware(mux))
+	return corsMiddleware(a.authenticationMiddleware(mux), a.CORSOrigins)
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func corsMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
+	allowed := map[string]struct{}{}
+	allowAny := len(allowedOrigins) == 0
+	for _, origin := range allowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin == "*" {
+			allowAny = true
+		}
+		if origin != "" {
+			allowed[origin] = struct{}{}
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if allowAny {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if _, ok := allowed[origin]; ok {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
 		w.Header().Set("Access-Control-Max-Age", "600")
@@ -237,32 +257,54 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
 		return
 	}
-	tenant := &domain.Tenant{Name: in.Name}
-	if err := a.TenantSvc.Create(tenant); err != nil {
-		writeServiceError(w, err)
-		return
-	}
 	var admin *domain.User
 	if in.Admin != nil && strings.TrimSpace(in.Admin.Email) != "" {
 		if len(strings.TrimSpace(in.Admin.Password)) < 8 {
-			_ = a.TenantSvc.Delete(tenant.ID)
 			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid admin password")
 			return
 		}
 		hash, err := authn.HashPassword(in.Admin.Password)
 		if err != nil {
-			_ = a.TenantSvc.Delete(tenant.ID)
 			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid admin password")
 			return
 		}
 		admin = &domain.User{
-			TenantID:     tenant.ID,
 			Email:        in.Admin.Email,
 			Name:         in.Admin.Name,
 			Status:       "ACTIVE",
 			Roles:        []string{authn.RoleTenantAdmin},
 			PasswordHash: hash,
 		}
+	}
+	providers := []domain.OnboardingProviderInput{}
+	for _, provider := range in.Providers {
+		active := true
+		if provider.Active != nil {
+			active = *provider.Active
+		}
+		providers = append(providers, domain.OnboardingProviderInput{ProviderID: provider.ProviderID, Active: active, Config: provider.Config})
+	}
+	if a.OnboardingSvc != nil {
+		result, err := a.OnboardingSvc.CreateTenant(domain.OnboardingInput{
+			Tenant:    domain.Tenant{Name: in.Name},
+			Admin:     admin,
+			Providers: providers,
+		})
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"tenant": result.Tenant, "admin": publicUser(result.Admin, tenantIDsForUser(result.Admin)), "providers": maskTenantProviders(result.Providers)})
+		return
+	}
+
+	tenant := &domain.Tenant{Name: in.Name}
+	if err := a.TenantSvc.Create(tenant); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if admin != nil {
+		admin.TenantID = tenant.ID
 		if err := a.UserSvc.Create(admin); err != nil {
 			_ = a.TenantSvc.Delete(tenant.ID)
 			writeServiceError(w, err)
@@ -270,12 +312,8 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	assignments := []domain.TenantProvider{}
-	for _, provider := range in.Providers {
-		active := true
-		if provider.Active != nil {
-			active = *provider.Active
-		}
-		assignment, err := a.ProviderSvc.AssignToTenant(tenant.ID, provider.ProviderID, active, provider.Config)
+	for _, provider := range providers {
+		assignment, err := a.ProviderSvc.AssignToTenant(tenant.ID, provider.ProviderID, provider.Active, provider.Config)
 		if err != nil {
 			_ = a.TenantSvc.Delete(tenant.ID)
 			writeServiceError(w, err)
@@ -283,7 +321,7 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		}
 		assignments = append(assignments, *assignment)
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant, "admin": publicUser(admin, tenantIDsForUser(admin)), "providers": assignments})
+	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant, "admin": publicUser(admin, tenantIDsForUser(admin)), "providers": maskTenantProviders(assignments)})
 }
 
 func (a *App) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +400,67 @@ func (a *App) handleAdminProviders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleAdminProviderByID(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePlatformAdmin(w, r) {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/admin/providers/")
+	parts := splitPath(path)
+	if len(parts) == 0 || !service.IsValidUUID(parts[0]) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid provider id")
+		return
+	}
+	id := parts[0]
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			item, err := a.ProviderSvc.Get(id)
+			if err != nil || item.TenantID != "" {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "provider not found")
+				return
+			}
+			maskProviderConfig(item)
+			writeJSON(w, http.StatusOK, item)
+		case http.MethodPut:
+			var in domain.Provider
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+				return
+			}
+			in.ID = id
+			if err := a.ProviderSvc.UpdateCatalog(&in); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			maskProviderConfig(&in)
+			writeJSON(w, http.StatusOK, in)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		}
+		return
+	}
+	if len(parts) == 2 && r.Method == http.MethodPost {
+		switch parts[1] {
+		case "activate":
+			if err := a.ProviderSvc.ActivateCatalog(id); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ACTIVE"})
+		case "deactivate":
+			if err := a.ProviderSvc.DeactivateCatalog(id); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "INACTIVE"})
+		default:
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
+		}
+		return
+	}
+	writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+}
+
 func (a *App) handleMyTenants(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
@@ -417,6 +516,25 @@ func (a *App) requirePlatformAdmin(w http.ResponseWriter, r *http.Request) bool 
 	return true
 }
 
+func (a *App) requireTenantRole(w http.ResponseWriter, r *http.Request, roles ...string) bool {
+	identity, ok := authn.IdentityFromContext(r.Context())
+	if !ok || identity.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	for _, role := range roles {
+		if identity.HasRole(role) {
+			return true
+		}
+	}
+	writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
+	return false
+}
+
+func (a *App) requireTenantAdmin(w http.ResponseWriter, r *http.Request) bool {
+	return a.requireTenantRole(w, r, authn.RoleTenantAdmin)
+}
+
 func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
@@ -436,6 +554,9 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if !decision.Allowed {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
+		return
+	}
+	if !a.requireTenantAdmin(w, r) {
 		return
 	}
 	if err := a.UserSvc.Create(&in); err != nil {
@@ -509,6 +630,8 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 	switch resource {
 	case "dashboard":
 		a.handleTenantDashboard(w, r, tenantID, parts[2:])
+	case "transactions":
+		a.handleTenantTransactions(w, r, tenantID, parts[2:])
 	case "users":
 		a.handleTenantUsers(w, r, tenantID, parts[2:])
 	case "customers":
@@ -527,6 +650,17 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleTenantDashboard(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
 	if len(tail) != 0 || r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	filters, err := parseBoletoFilters(r)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	filters.TenantID = tenantID
+	adminDashboard, err := a.BoletoSvc.AdminDashboard(filters)
+	if err == nil {
+		writeJSON(w, http.StatusOK, tenantDashboardResponse(adminDashboard))
 		return
 	}
 	items, err := a.BoletoSvc.ListByTenant(tenantID)
@@ -575,27 +709,76 @@ func (a *App) handleTenantDashboard(w http.ResponseWriter, r *http.Request, tena
 			summary["boletos_em_processamento"] = summary["boletos_em_processamento"].(int) + 1
 		case types.StatusPaid:
 			summary["boletos_pagos"] = summary["boletos_pagos"].(int) + 1
+			summary["valor_total_emitido"] = summary["valor_total_emitido"].(int64) + boleto.AmountCents
 		case types.StatusExpired:
 			summary["boletos_vencidos"] = summary["boletos_vencidos"].(int) + 1
+			summary["valor_total_emitido"] = summary["valor_total_emitido"].(int64) + boleto.AmountCents
 		case types.StatusCancelled:
 			summary["boletos_cancelados"] = summary["boletos_cancelados"].(int) + 1
+			summary["valor_total_emitido"] = summary["valor_total_emitido"].(int64) + boleto.AmountCents
 		case types.StatusFailed:
 			summary["boletos_com_falha"] = summary["boletos_com_falha"].(int) + 1
 		}
 	}
 	total := summary["total_boletos"].(int)
-	if total > 0 {
-		sucesso := summary["boletos_emitidos"].(int) + summary["boletos_pagos"].(int)
-		summary["taxa_sucesso"] = float64(sucesso) / float64(total)
-		summary["taxa_falha"] = float64(summary["boletos_com_falha"].(int)) / float64(total)
-		summary["ticket_medio"] = summary["valor_total_emitido"].(int64) / int64(total)
+	sucesso := summary["boletos_emitidos"].(int) + summary["boletos_pagos"].(int) + summary["boletos_vencidos"].(int) + summary["boletos_cancelados"].(int)
+	completas := sucesso + summary["boletos_com_falha"].(int)
+	if completas > 0 {
+		summary["taxa_sucesso"] = float64(sucesso) / float64(completas)
+		summary["taxa_falha"] = float64(summary["boletos_com_falha"].(int)) / float64(completas)
 	}
+	if sucesso > 0 {
+		summary["ticket_medio"] = summary["valor_total_emitido"].(int64) / int64(sucesso)
+	}
+	_ = total
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (a *App) handleTenantTransactions(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
+	if len(tail) != 0 || r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	filters, err := parseBoletoFilters(r)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	filters.TenantID = tenantID
+	filters.Limit = parseIntQuery(r, "limit", 50)
+	filters.Offset = parseIntQuery(r, "offset", 0)
+	transactions, err := a.BoletoSvc.ListTransactions(filters)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, transactions)
+}
+
+func tenantDashboardResponse(dashboard *domain.AdminDashboard) map[string]any {
+	totals := dashboard.Totals
+	return map[string]any{
+		"total_boletos":            totals.Boletos,
+		"boletos_emitidos":         totals.Issued,
+		"boletos_em_processamento": totals.Processing,
+		"boletos_pagos":            totals.Paid,
+		"boletos_vencidos":         totals.Expired,
+		"boletos_cancelados":       totals.Cancelled,
+		"boletos_com_falha":        totals.Failed,
+		"valor_total_emitido":      totals.AmountCents,
+		"taxa_sucesso":             totals.SuccessRate,
+		"taxa_falha":               totals.FailureRate,
+		"ticket_medio":             totals.AverageTicketCents,
+		"by_status":                dashboard.ByStatus,
+	}
 }
 
 func (a *App) handleTenantUsers(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
 	if len(tail) != 0 || r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	if !a.requireTenantAdmin(w, r) {
 		return
 	}
 	items, err := a.UserSvc.ListByTenant(tenantID)
@@ -740,6 +923,9 @@ func (a *App) handleTenantBlacklist(w http.ResponseWriter, r *http.Request, tena
 	if len(tail) == 0 {
 		switch r.Method {
 		case http.MethodPost:
+			if !a.requireTenantAdmin(w, r) {
+				return
+			}
 			var in domain.BlacklistEntry
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
@@ -781,6 +967,9 @@ func (a *App) handleTenantBlacklist(w http.ResponseWriter, r *http.Request, tena
 				writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 				return
 			}
+			if !a.requireTenantAdmin(w, r) {
+				return
+			}
 			item, err := a.BlacklistSvc.Block(tenantID, id, nil)
 			if err != nil {
 				writeServiceError(w, err)
@@ -791,6 +980,9 @@ func (a *App) handleTenantBlacklist(w http.ResponseWriter, r *http.Request, tena
 		case "unblock":
 			if r.Method != http.MethodPost {
 				writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+				return
+			}
+			if !a.requireTenantAdmin(w, r) {
 				return
 			}
 			item, err := a.BlacklistSvc.Unblock(tenantID, id, nil)
@@ -815,6 +1007,9 @@ func (a *App) handleTenantBlacklist(w http.ResponseWriter, r *http.Request, tena
 			}
 			writeJSON(w, http.StatusOK, item)
 		case http.MethodPut:
+			if !a.requireTenantAdmin(w, r) {
+				return
+			}
 			var in domain.BlacklistEntry
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
@@ -828,6 +1023,9 @@ func (a *App) handleTenantBlacklist(w http.ResponseWriter, r *http.Request, tena
 			}
 			writeJSON(w, http.StatusOK, in)
 		case http.MethodDelete:
+			if !a.requireTenantAdmin(w, r) {
+				return
+			}
 			if err := a.BlacklistSvc.Delete(tenantID, id); err != nil {
 				writeServiceError(w, err)
 				return
@@ -932,22 +1130,15 @@ func (a *App) providerConfigAndAdapterFromRequest(r *http.Request) (types.Provid
 		} else if !decision.Allowed {
 			return cfg, nil, ErrForbidden
 		}
-		provider, err := a.ProviderSvc.Get(providerID)
+		tenantProviderConfig, err := a.ProviderSvc.GetTenantProvider(tenantID, providerID)
 		if err != nil {
 			return cfg, nil, err
 		}
-		allowed, err := a.ProviderSvc.IsAllowedForTenant(tenantID, providerID)
-		if err != nil {
-			return cfg, nil, err
-		}
-		if !allowed {
-			return cfg, nil, service.ErrProviderNotAllowed
-		}
-		if provider.TenantID != "" && provider.TenantID != tenantID {
-			return cfg, nil, service.ErrValidation
-		}
+		provider := tenantProviderConfig.Provider
 		cfg = types.ProviderConfig{ID: provider.ID, TenantID: tenantID, Name: provider.Name}
-		if provider.Config != nil {
+		if tenantProviderConfig.TenantProvider.Config != nil {
+			cfg.Config = strings.TrimSpace(*tenantProviderConfig.TenantProvider.Config)
+		} else if provider.Config != nil {
 			cfg.Config = *provider.Config
 		}
 	}
@@ -998,6 +1189,9 @@ func parseBoletoFilters(r *http.Request) (domain.BoletoFilters, error) {
 	filters.TenantID = strings.TrimSpace(query.Get("tenant_id"))
 	filters.ProviderID = strings.TrimSpace(query.Get("provider_id"))
 	filters.Status = strings.ToUpper(strings.TrimSpace(query.Get("status")))
+	filters.ExternalID = strings.TrimSpace(query.Get("external_id"))
+	filters.OurNumber = strings.TrimSpace(query.Get("our_number"))
+	filters.Document = strings.TrimSpace(query.Get("document"))
 	return filters, nil
 }
 
@@ -1019,6 +1213,16 @@ func maskProviderConfig(provider *domain.Provider) {
 	}
 	masked := "***"
 	provider.Config = &masked
+}
+
+func maskTenantProviders(items []domain.TenantProvider) []domain.TenantProvider {
+	for i := range items {
+		if items[i].Config != nil {
+			masked := "***"
+			items[i].Config = &masked
+		}
+	}
+	return items
 }
 
 func requestID(r *http.Request) string {

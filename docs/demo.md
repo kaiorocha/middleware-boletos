@@ -68,7 +68,7 @@ O bootstrap continua idempotente: se já existir `PLATFORM_ADMIN`, outro usuári
    - Nome: `Administrador Cliente`
    - E-mail: `cliente@demo.local`
    - Senha: `Cliente123456!`
-8. Selecione o provider `Mock` para habilitá-lo no onboarding.
+8. Selecione o provider `Mock` para habilitá-lo no onboarding e, se necessário, informe config específica do tenant em campo de senha.
 9. Faça logout.
 10. Faça login como `cliente@demo.local`.
 11. O painel entra no tenant autorizado pelo JWT; se houver mais de um tenant, selecione apenas entre os tenants permitidos.
@@ -87,3 +87,5 @@ O bootstrap continua idempotente: se já existir `PLATFORM_ADMIN`, outro usuári
 - Provider: integração bancária criada no catálogo global e habilitada por tenant.
 
 `TENANT_ADMIN` não é customer. Ele administra recursos do tenant autorizado.
+
+Configurações sensíveis de provider devem ficar na associação tenant-provider e não são exibidas completas após salvas.

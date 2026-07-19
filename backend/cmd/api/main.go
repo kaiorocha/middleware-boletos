@@ -46,12 +46,14 @@ func main() {
 	boletoRepo := repository.NewBoletoRepo(db)
 	blacklistRepo := repository.NewBlacklistRepo(db)
 	auditRepo := repository.NewAuditLogRepo(db)
+	onboardingRepo := repository.NewOnboardingRepo(db)
 
 	// services
 	tenantSvc := service.NewTenantService(tenantRepo)
 	userSvc := service.NewUserService(userRepo)
 	customerSvc := service.NewCustomerService(custRepo)
 	providerSvc := service.NewProviderService(providerRepo)
+	onboardingSvc := service.NewOnboardingService(onboardingRepo)
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
 	boletoSvc := service.NewBoletoService(boletoRepo).
@@ -71,10 +73,12 @@ func main() {
 		ProviderSvc:   providerSvc,
 		BoletoSvc:     boletoSvc,
 		BlacklistSvc:  blacklistSvc,
+		OnboardingSvc: onboardingSvc,
 		Factory:       providerFactory,
 		Authorizer:    NewIdentityTenantAuthorizer(),
 		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator),
 		TokenIssuer:   jwtIssuer,
+		CORSOrigins:   cfg.CORSAllowedOrigins,
 	}
 
 	h := app.routes()

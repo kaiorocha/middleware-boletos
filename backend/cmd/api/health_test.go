@@ -152,8 +152,12 @@ func (r *duplicateProviderRepo) ListByTenant(string) ([]domain.Provider, error) 
 func (r *duplicateProviderRepo) ListCatalog() ([]domain.Provider, error) {
 	return nil, nil
 }
-func (r *duplicateProviderRepo) Update(*domain.Provider) error { return nil }
-func (r *duplicateProviderRepo) Delete(string, string) error   { return nil }
+func (r *duplicateProviderRepo) FindTenantProvider(string, string) (*domain.TenantProviderConfig, error) {
+	return nil, service.ErrProviderNotAllowed
+}
+func (r *duplicateProviderRepo) Update(*domain.Provider) error  { return nil }
+func (r *duplicateProviderRepo) Delete(string, string) error    { return nil }
+func (r *duplicateProviderRepo) SetStatus(string, string) error { return nil }
 func (r *duplicateProviderRepo) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, nil
 }
@@ -181,8 +185,20 @@ func (r *apiProviderRepo) FindByID(string) (*domain.Provider, error) {
 }
 func (r *apiProviderRepo) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
 func (r *apiProviderRepo) ListCatalog() ([]domain.Provider, error)        { return nil, nil }
-func (r *apiProviderRepo) Update(*domain.Provider) error                  { return nil }
-func (r *apiProviderRepo) Delete(string, string) error                    { return nil }
+func (r *apiProviderRepo) FindTenantProvider(tenantID, providerID string) (*domain.TenantProviderConfig, error) {
+	if r.item == nil {
+		return nil, service.ErrProviderNotAllowed
+	}
+	provider := *r.item
+	provider.TenantID = ""
+	return &domain.TenantProviderConfig{
+		Provider:       provider,
+		TenantProvider: domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: true},
+	}, nil
+}
+func (r *apiProviderRepo) Update(*domain.Provider) error  { return nil }
+func (r *apiProviderRepo) Delete(string, string) error    { return nil }
+func (r *apiProviderRepo) SetStatus(string, string) error { return nil }
 func (r *apiProviderRepo) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, nil
 }
@@ -294,7 +310,7 @@ func TestBlacklistCheckRouteReturnsRawBlockedPayload(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+validTenantID+"/blacklist/check?document=123.456.789-00", nil)
-	authorizeTenant(req, validTenantID)
+	authorizeTenantAdmin(req, validTenantID)
 	rr := httptest.NewRecorder()
 	app.routes().ServeHTTP(rr, req)
 
@@ -323,7 +339,7 @@ func TestBlacklistCreateDuplicateReturnsConflict(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/blacklist", strings.NewReader(`{"document":"12345678900","reason":"Solicitação do cliente"}`))
 	req.Header.Set("Content-Type", "application/json")
-	authorizeTenant(req, validTenantID)
+	authorizeTenantAdmin(req, validTenantID)
 	rr := httptest.NewRecorder()
 	app.routes().ServeHTTP(rr, req)
 
@@ -349,6 +365,14 @@ func apiStringPtr(value string) *string {
 
 func authorizeTenant(req *http.Request, tenantID string) {
 	authorizeTenants(req, tenantID)
+}
+
+func authorizeTenantAdmin(req *http.Request, tenantID string) {
+	req.Header.Set("Authorization", "Bearer "+testJWTWithRoles(testUserID, []string{tenantID}, []string{authn.RoleTenantAdmin}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
+}
+
+func authorizeTenantUser(req *http.Request, tenantID string) {
+	req.Header.Set("Authorization", "Bearer "+testJWTWithRoles(testUserID, []string{tenantID}, []string{authn.RoleTenantUser}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
 }
 
 func authorizeTenants(req *http.Request, tenantIDs ...string) {
@@ -826,6 +850,8 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			if tt.platform {
 				authorizePlatformAdmin(req)
+			} else if tt.name == "user" {
+				authorizeTenantAdmin(req, validTenantID)
 			} else {
 				authorizeTenant(req, validTenantID)
 			}
@@ -879,6 +905,94 @@ func TestAdminDashboardAndTransactionsRequirePlatformAdmin(t *testing.T) {
 				t.Fatalf("expected %d, got %d: %s", tt.wantStatus, rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+func TestTenantRBACForComplianceAndUsers(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	blacklistID := "550e8400-e29b-41d4-a716-446655440004"
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		body      string
+		authorize func(*http.Request)
+		want      int
+	}{
+		{name: "tenant admin post blacklist", method: http.MethodPost, path: "/api/v1/tenants/" + tenantID + "/blacklist", body: `{"document":"12345678900","name":"Cliente","reason":"Solicitação do cliente"}`, authorize: func(req *http.Request) { authorizeTenantAdmin(req, tenantID) }, want: http.StatusCreated},
+		{name: "tenant user post blacklist forbidden", method: http.MethodPost, path: "/api/v1/tenants/" + tenantID + "/blacklist", body: `{"document":"12345678900","name":"Cliente","reason":"Solicitação do cliente"}`, authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant user put blacklist forbidden", method: http.MethodPut, path: "/api/v1/tenants/" + tenantID + "/blacklist/" + blacklistID, body: `{"document":"12345678900","name":"Cliente","reason":"Atualizado"}`, authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant user delete blacklist forbidden", method: http.MethodDelete, path: "/api/v1/tenants/" + tenantID + "/blacklist/" + blacklistID, authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant user block forbidden", method: http.MethodPost, path: "/api/v1/tenants/" + tenantID + "/blacklist/" + blacklistID + "/block", authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant user unblock forbidden", method: http.MethodPost, path: "/api/v1/tenants/" + tenantID + "/blacklist/" + blacklistID + "/unblock", authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant user list users forbidden", method: http.MethodGet, path: "/api/v1/tenants/" + tenantID + "/users", authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant admin list users allowed", method: http.MethodGet, path: "/api/v1/tenants/" + tenantID + "/users", authorize: func(req *http.Request) { authorizeTenantAdmin(req, tenantID) }, want: http.StatusOK},
+		{name: "tenant user create user forbidden", method: http.MethodPost, path: "/api/v1/users", body: `{"tenant_id":"` + tenantID + `","email":"novo@example.com","name":"Novo"}`, authorize: func(req *http.Request) { authorizeTenantUser(req, tenantID) }, want: http.StatusForbidden},
+		{name: "tenant admin create user allowed", method: http.MethodPost, path: "/api/v1/users", body: `{"tenant_id":"` + tenantID + `","email":"novo@example.com","name":"Novo"}`, authorize: func(req *http.Request) { authorizeTenantAdmin(req, tenantID) }, want: http.StatusCreated},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := authenticatedTestApp(&App{
+				BlacklistSvc: service.NewBlacklistService(&apiBlacklistRepo{item: &domain.BlacklistEntry{ID: blacklistID, TenantID: tenantID, Document: "12345678900", Name: "Cliente", Reason: "Razão", Source: "MANUAL", Active: true}}),
+				UserSvc:      service.NewUserService(&apiUserRepo{}),
+			})
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			tt.authorize(req)
+			rr := httptest.NewRecorder()
+
+			app.routes().ServeHTTP(rr, req)
+
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminProvidersRequirePlatformAdmin(t *testing.T) {
+	providerID := "550e8400-e29b-41d4-a716-446655440002"
+	app := authenticatedTestApp(&App{ProviderSvc: service.NewProviderService(&apiProviderRepo{item: &domain.Provider{ID: providerID, Name: "Mock", Status: "ACTIVE"}})})
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		body      string
+		authorize func(*http.Request)
+		want      int
+	}{
+		{name: "platform admin list", method: http.MethodGet, path: "/api/v1/admin/providers", authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, want: http.StatusOK},
+		{name: "tenant user list forbidden", method: http.MethodGet, path: "/api/v1/admin/providers", authorize: func(req *http.Request) { authorizeTenantUser(req, "550e8400-e29b-41d4-a716-446655440000") }, want: http.StatusForbidden},
+		{name: "platform admin detail", method: http.MethodGet, path: "/api/v1/admin/providers/" + providerID, authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, want: http.StatusOK},
+		{name: "platform admin update", method: http.MethodPut, path: "/api/v1/admin/providers/" + providerID, body: `{"name":"Mock","type":"BANK","metadata":"{}"}`, authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, want: http.StatusOK},
+		{name: "platform admin deactivate", method: http.MethodPost, path: "/api/v1/admin/providers/" + providerID + "/deactivate", authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, want: http.StatusOK},
+		{name: "platform admin activate", method: http.MethodPost, path: "/api/v1/admin/providers/" + providerID + "/activate", authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, want: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			tt.authorize(req)
+			rr := httptest.NewRecorder()
+
+			app.routes().ServeHTTP(rr, req)
+
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestTenantDashboardMetricSemantics(t *testing.T) {
+	dashboard := tenantDashboardResponse(&domain.AdminDashboard{Totals: domain.AdminDashboardTotals{
+		Boletos: 6, AmountCents: 6000, Issued: 1, Paid: 1, Expired: 1, Cancelled: 1, Failed: 1, Created: 1, SuccessRate: 0.8, FailureRate: 0.2, AverageTicketCents: 1500,
+	}})
+	if dashboard["valor_total_emitido"] != int64(6000) || dashboard["ticket_medio"] != int64(1500) {
+		t.Fatalf("unexpected financial metrics: %+v", dashboard)
+	}
+	if dashboard["taxa_sucesso"] != 0.8 || dashboard["taxa_falha"] != 0.2 {
+		t.Fatalf("unexpected rates: %+v", dashboard)
 	}
 }
 

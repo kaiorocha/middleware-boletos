@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,6 +24,20 @@ func (m *tenantRepoMock) FindByID(string) (*domain.Tenant, error) { return &doma
 func (m *tenantRepoMock) List() ([]domain.Tenant, error)          { return nil, nil }
 func (m *tenantRepoMock) Update(*domain.Tenant) error             { return nil }
 func (m *tenantRepoMock) Delete(string) error                     { return nil }
+
+type onboardingRepoMock struct {
+	result *domain.OnboardingResult
+	err    error
+	input  domain.OnboardingInput
+}
+
+func (m *onboardingRepoMock) CreateTenantOnboarding(input domain.OnboardingInput) (*domain.OnboardingResult, error) {
+	m.input = input
+	if m.result != nil || m.err != nil {
+		return m.result, m.err
+	}
+	return &domain.OnboardingResult{Tenant: input.Tenant, Admin: input.Admin, Providers: []domain.TenantProvider{}}, nil
+}
 
 type userRepoMock struct {
 	created bool
@@ -67,6 +82,7 @@ type providerRepoMock struct {
 	found   *domain.Provider
 	allowed bool
 	denied  bool
+	tenant  *domain.TenantProviderConfig
 }
 
 func (m *providerRepoMock) Create(p *domain.Provider) error {
@@ -82,8 +98,26 @@ func (m *providerRepoMock) FindByID(string) (*domain.Provider, error) {
 }
 func (m *providerRepoMock) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
 func (m *providerRepoMock) ListCatalog() ([]domain.Provider, error)        { return nil, nil }
-func (m *providerRepoMock) Update(p *domain.Provider) error                { m.last = p; return m.err }
-func (m *providerRepoMock) Delete(string, string) error                    { return nil }
+func (m *providerRepoMock) FindTenantProvider(tenantID, providerID string) (*domain.TenantProviderConfig, error) {
+	if m.tenant != nil {
+		return m.tenant, m.err
+	}
+	if m.denied {
+		return nil, ErrProviderNotAllowed
+	}
+	provider := domain.Provider{ID: providerID, TenantID: "", Name: "Mock", Status: "ACTIVE"}
+	if m.found != nil {
+		provider = *m.found
+		provider.TenantID = ""
+	}
+	return &domain.TenantProviderConfig{
+		Provider:       provider,
+		TenantProvider: domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: true},
+	}, m.err
+}
+func (m *providerRepoMock) Update(p *domain.Provider) error { m.last = p; return m.err }
+func (m *providerRepoMock) Delete(string, string) error     { return nil }
+func (m *providerRepoMock) SetStatus(string, string) error  { return m.err }
 func (m *providerRepoMock) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, m.err
 }
@@ -178,10 +212,12 @@ type providerFactorySpy struct {
 	builds  int
 	adapter *providerAdapterSpy
 	err     error
+	lastCfg types.ProviderConfig
 }
 
-func (f *providerFactorySpy) Build(types.ProviderConfig) (contracts.ProviderAdapter, error) {
+func (f *providerFactorySpy) Build(cfg types.ProviderConfig) (contracts.ProviderAdapter, error) {
 	f.builds++
+	f.lastCfg = cfg
 	if f.adapter == nil {
 		f.adapter = &providerAdapterSpy{}
 	}
@@ -422,6 +458,37 @@ func TestCustomerServicePropagatesDuplicateError(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDuplicateResource) {
 		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestOnboardingServiceCreateTenantValidatesAndDelegatesTransaction(t *testing.T) {
+	repo := &onboardingRepoMock{}
+	config := `{"api_key":"tenant"}`
+	admin := &domain.User{Email: " ADMIN@EXAMPLE.COM ", Name: "Admin", PasswordHash: "hash"}
+	result, err := NewOnboardingService(repo).CreateTenant(domain.OnboardingInput{
+		Tenant:    domain.Tenant{Name: " Tenant Demo "},
+		Admin:     admin,
+		Providers: []domain.OnboardingProviderInput{{ProviderID: "550e8400-e29b-41d4-a716-446655440002", Active: true, Config: &config}},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil || repo.input.Tenant.Name != "Tenant Demo" || repo.input.Admin.Email != "admin@example.com" {
+		t.Fatalf("unexpected onboarding input/result: %+v %+v", repo.input, result)
+	}
+	if repo.input.Providers[0].Config == nil || *repo.input.Providers[0].Config != config {
+		t.Fatalf("expected tenant provider config to be preserved")
+	}
+}
+
+func TestOnboardingServiceMapsInvalidProviderToProviderNotAllowed(t *testing.T) {
+	repo := &onboardingRepoMock{err: sql.ErrNoRows}
+	_, err := NewOnboardingService(repo).CreateTenant(domain.OnboardingInput{
+		Tenant:    domain.Tenant{Name: "Tenant Demo"},
+		Providers: []domain.OnboardingProviderInput{{ProviderID: "550e8400-e29b-41d4-a716-446655440002", Active: true}},
+	})
+	if !errors.Is(err, ErrProviderNotAllowed) {
+		t.Fatalf("expected provider not allowed, got %v", err)
 	}
 }
 
@@ -876,6 +943,81 @@ func TestBoletoServiceEmitRejectsProviderNotAllowedForTenant(t *testing.T) {
 	}
 	if spy.builds != 0 || spy.adapter.issues != 0 {
 		t.Fatalf("expected no provider interaction, builds=%d issues=%d", spy.builds, spy.adapter.issues)
+	}
+}
+
+func TestBoletoServiceEmitUsesTenantProviderConfigPerTenant(t *testing.T) {
+	providerID := "550e8400-e29b-41d4-a716-446655440002"
+	customerID := "550e8400-e29b-41d4-a716-446655440001"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	tests := []struct {
+		name     string
+		tenantID string
+		config   string
+	}{
+		{name: "tenant A", tenantID: "550e8400-e29b-41d4-a716-446655440000", config: `{"api_key":"tenant-a"}`},
+		{name: "tenant B", tenantID: "550e8400-e29b-41d4-a716-446655440099", config: `{"api_key":"tenant-b"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
+			_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+				ID: boletoID, TenantID: tt.tenantID, CustomerID: customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+			}}).
+				WithCustomerRepository(&customerRepoMock{found: completeCustomer(tt.tenantID)}).
+				WithProviderRepository(&providerRepoMock{tenant: tenantProviderConfig(tt.tenantID, providerID, "ACTIVE", true, &tt.config)}).
+				WithBlacklistService(&blacklistComplianceMock{}).
+				WithProviderFactory(spy).
+				Emit(context.Background(), tt.tenantID, boletoID)
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if spy.lastCfg.Config != tt.config {
+				t.Fatalf("expected tenant config %q, got %q", tt.config, spy.lastCfg.Config)
+			}
+		})
+	}
+}
+
+func TestBoletoServiceEmitRejectsInactiveProviderStatesBeforeFactory(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	providerID := "550e8400-e29b-41d4-a716-446655440002"
+	customerID := "550e8400-e29b-41d4-a716-446655440001"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	config := `{"api_key":"tenant"}`
+	tests := []struct {
+		name string
+		cfg  *domain.TenantProviderConfig
+	}{
+		{name: "missing tenant provider", cfg: nil},
+		{name: "inactive global provider", cfg: tenantProviderConfig(tenantID, providerID, "INACTIVE", true, &config)},
+		{name: "inactive tenant provider", cfg: tenantProviderConfig(tenantID, providerID, "ACTIVE", false, &config)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
+			_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+				ID: boletoID, TenantID: tenantID, CustomerID: customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+			}}).
+				WithCustomerRepository(&customerRepoMock{found: completeCustomer(tenantID)}).
+				WithProviderRepository(&providerRepoMock{tenant: tt.cfg, denied: tt.cfg == nil}).
+				WithBlacklistService(&blacklistComplianceMock{}).
+				WithProviderFactory(spy).
+				Emit(context.Background(), tenantID, boletoID)
+			if !errors.Is(err, ErrProviderNotAllowed) {
+				t.Fatalf("expected provider not allowed, got %v", err)
+			}
+			if spy.builds != 0 {
+				t.Fatalf("factory must not be called, got %d builds", spy.builds)
+			}
+		})
+	}
+}
+
+func tenantProviderConfig(tenantID, providerID, providerStatus string, active bool, config *string) *domain.TenantProviderConfig {
+	return &domain.TenantProviderConfig{
+		Provider:       domain.Provider{ID: providerID, Name: "Mock", Status: providerStatus},
+		TenantProvider: domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config},
 	}
 }
 

@@ -127,8 +127,14 @@ Rotas globais protegidas por `PLATFORM_ADMIN`:
 - `GET /api/v1/admin/transactions`
 - `GET /api/v1/admin/providers`
 - `POST /api/v1/admin/providers`
+- `GET /api/v1/admin/providers/:id`
+- `PUT /api/v1/admin/providers/:id`
+- `POST /api/v1/admin/providers/:id/activate`
+- `POST /api/v1/admin/providers/:id/deactivate`
 
 Usuários sem `PLATFORM_ADMIN` recebem HTTP `403` nessas rotas, mesmo com JWT válido.
+
+Mutações de compliance e gestão de usuários do tenant exigem `TENANT_ADMIN`. `TENANT_USER` permanece com leitura tenant-scoped e recebe HTTP `403` para essas mutações.
 
 ## Tenants do usuário
 
@@ -139,6 +145,16 @@ GET /api/v1/me/tenants
 ```
 
 Esse endpoint lê `tenant_id`/`tenant_ids` da Identity autenticada e retorna somente tenants presentes nas claims.
+
+## Integrações externas
+
+Nesta etapa, APIs tenant-scoped de integração ainda usam o mesmo JWT Bearer validado pelo backend para manter compatibilidade.
+
+A arquitetura está preparada para separar usuários humanos de credenciais machine-to-machine em etapa futura, usando alternativas como:
+
+- API Key por tenant/aplicação;
+- OAuth Client Credentials;
+- Service Account com escopos restritos.
 
 ## Bootstrap
 

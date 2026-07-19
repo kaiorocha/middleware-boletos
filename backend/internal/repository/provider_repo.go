@@ -41,6 +41,21 @@ func (r *ProviderRepo) ListCatalog() ([]domain.Provider, error) {
 	return scanProviders(rows)
 }
 
+func (r *ProviderRepo) FindTenantProvider(tenantID, providerID string) (*domain.TenantProviderConfig, error) {
+	row := r.db.QueryRow(`
+		SELECT
+			p.id,p.tenant_id,p.name,p.type,p.status,p.external_id,p.config,p.metadata,p.created_at,p.updated_at,p.deleted_at,
+			tp.id,tp.tenant_id,tp.provider_id,tp.active,tp.config,tp.created_at,tp.updated_at,tp.deleted_at
+		FROM providers p
+		JOIN tenant_providers tp ON tp.provider_id = p.id
+		WHERE p.id = $1
+		  AND tp.tenant_id = $2
+		  AND p.deleted_at IS NULL
+		  AND tp.deleted_at IS NULL
+	`, providerID, tenantID)
+	return scanTenantProviderConfig(row)
+}
+
 func (r *ProviderRepo) ListByTenant(tenantID string) ([]domain.Provider, error) {
 	rows, err := r.db.Query(`
 		SELECT DISTINCT ON (p.id)
@@ -70,6 +85,11 @@ func (r *ProviderRepo) ListByTenant(tenantID string) ([]domain.Provider, error) 
 
 func (r *ProviderRepo) Update(p *domain.Provider) error {
 	_, err := r.db.Exec(`UPDATE providers SET name = $1, type = $2, status = $3, external_id = $4, config = $5, metadata = $6, updated_at = now() WHERE id = $7 AND deleted_at IS NULL`, p.Name, p.Type, p.Status, p.ExternalID, p.Config, p.Metadata, p.ID)
+	return translatePostgresError(err)
+}
+
+func (r *ProviderRepo) SetStatus(id, status string) error {
+	_, err := r.db.Exec(`UPDATE providers SET status = $1, updated_at = now() WHERE id = $2 AND tenant_id IS NULL AND deleted_at IS NULL`, status, id)
 	return translatePostgresError(err)
 }
 
@@ -113,6 +133,65 @@ func (r *ProviderRepo) IsAllowedForTenant(tenantID, providerID string) (bool, er
 		)
 	`, tenantID, providerID).Scan(&allowed)
 	return allowed, err
+}
+
+func scanTenantProviderConfig(scanner interface{ Scan(dest ...any) error }) (*domain.TenantProviderConfig, error) {
+	var cfg domain.TenantProviderConfig
+	provider, tenantProvider, err := scanProviderAndTenantProvider(scanner)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Provider = *provider
+	cfg.TenantProvider = *tenantProvider
+	return &cfg, nil
+}
+
+func scanProviderAndTenantProvider(scanner interface{ Scan(dest ...any) error }) (*domain.Provider, *domain.TenantProvider, error) {
+	var p domain.Provider
+	var tp domain.TenantProvider
+	var providerTenantID sql.NullString
+	var providerType sql.NullString
+	var providerExternalID sql.NullString
+	var providerConfig sql.NullString
+	var providerMetadata sql.NullString
+	var providerDeleted *time.Time
+	var tenantProviderConfig sql.NullString
+	var tenantProviderDeleted *time.Time
+	if err := scanner.Scan(
+		&p.ID, &providerTenantID, &p.Name, &providerType, &p.Status, &providerExternalID, &providerConfig, &providerMetadata, &p.CreatedAt, &p.UpdatedAt, &providerDeleted,
+		&tp.ID, &tp.TenantID, &tp.ProviderID, &tp.Active, &tenantProviderConfig, &tp.CreatedAt, &tp.UpdatedAt, &tenantProviderDeleted,
+	); err != nil {
+		return nil, nil, err
+	}
+	if providerTenantID.Valid {
+		p.TenantID = providerTenantID.String
+	}
+	if providerType.Valid {
+		p.Type = providerType.String
+	}
+	if providerExternalID.Valid {
+		v := providerExternalID.String
+		p.ExternalID = &v
+	}
+	if providerConfig.Valid {
+		v := providerConfig.String
+		p.Config = &v
+	}
+	if providerMetadata.Valid {
+		v := providerMetadata.String
+		p.Metadata = &v
+	}
+	if providerDeleted != nil {
+		p.DeletedAt = providerDeleted
+	}
+	if tenantProviderConfig.Valid {
+		v := tenantProviderConfig.String
+		tp.Config = &v
+	}
+	if tenantProviderDeleted != nil {
+		tp.DeletedAt = tenantProviderDeleted
+	}
+	return &p, &tp, nil
 }
 
 func scanProvider(scanner interface{ Scan(dest ...any) error }) (*domain.Provider, error) {

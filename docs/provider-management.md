@@ -16,6 +16,19 @@ Um tenant só pode usar um provider quando:
 
 Caso contrário, a emissão retorna `PROVIDER_NOT_ALLOWED`.
 
+## Configuração por tenant
+
+`tenant_providers.config` é a configuração usada na emissão. Ela tem precedência sobre `providers.config`.
+
+Regra adotada:
+
+- usar `tenant_providers.config` quando existir;
+- usar `providers.config` somente como configuração global comum e não sensível;
+- nunca retornar `tenant_providers.config` em listagens ou respostas sem máscara;
+- nunca registrar config em logs.
+
+Para providers com credenciais por cliente, como Moncalieri, as credenciais devem ficar em `tenant_providers.config`.
+
 ## Endpoints
 
 ### Catálogo global
@@ -24,6 +37,10 @@ Requer `PLATFORM_ADMIN`.
 
 - `GET /api/v1/admin/providers`
 - `POST /api/v1/admin/providers`
+- `GET /api/v1/admin/providers/:id`
+- `PUT /api/v1/admin/providers/:id`
+- `POST /api/v1/admin/providers/:id/activate`
+- `POST /api/v1/admin/providers/:id/deactivate`
 
 ### Providers habilitados do tenant
 
@@ -43,6 +60,7 @@ O tenant não cria providers pelo painel nem pelo endpoint tenant-scoped. Provid
 - associações iniciais de providers quando informadas.
 
 Se a criação do admin ou qualquer associação de provider falhar, o tenant recém-criado é removido para evitar onboarding parcial.
+No backend real, o onboarding usa transação de banco: tenant, admin e associações são criados em `BEGIN/COMMIT`; qualquer erro executa `ROLLBACK`.
 
 Exemplo:
 

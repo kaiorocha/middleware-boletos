@@ -101,6 +101,9 @@ type BoletoFilters struct {
 	TenantID   string
 	ProviderID string
 	Status     string
+	ExternalID string
+	OurNumber  string
+	Document   string
 	Limit      int
 	Offset     int
 }
@@ -144,21 +147,22 @@ type TimelineRow struct {
 }
 
 type BoletoTransaction struct {
-	ID            string     `json:"id"`
-	TenantID      string     `json:"tenant_id"`
-	TenantName    string     `json:"tenant_name"`
-	CustomerID    string     `json:"customer_id"`
-	CustomerName  string     `json:"customer_name"`
-	ProviderID    *string    `json:"provider_id,omitempty"`
-	ProviderName  *string    `json:"provider_name,omitempty"`
-	AmountCents   int64      `json:"amount_cents"`
-	DueDate       time.Time  `json:"due_date"`
-	Status        string     `json:"status"`
-	ExternalID    *string    `json:"external_id,omitempty"`
-	OurNumber     *string    `json:"our_number,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	IssuedAt      *time.Time `json:"issued_at,omitempty"`
-	DigitableLine *string    `json:"digitable_line,omitempty"`
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id"`
+	TenantName       string     `json:"tenant_name"`
+	CustomerID       string     `json:"customer_id"`
+	CustomerName     string     `json:"customer_name"`
+	CustomerDocument string     `json:"customer_document,omitempty"`
+	ProviderID       *string    `json:"provider_id,omitempty"`
+	ProviderName     *string    `json:"provider_name,omitempty"`
+	AmountCents      int64      `json:"amount_cents"`
+	DueDate          time.Time  `json:"due_date"`
+	Status           string     `json:"status"`
+	ExternalID       *string    `json:"external_id,omitempty"`
+	OurNumber        *string    `json:"our_number,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	IssuedAt         *time.Time `json:"issued_at,omitempty"`
+	DigitableLine    *string    `json:"digitable_line,omitempty"`
 }
 
 type PaginatedTransactions struct {
@@ -166,6 +170,29 @@ type PaginatedTransactions struct {
 	Limit  int                 `json:"limit"`
 	Offset int                 `json:"offset"`
 	Total  int                 `json:"total"`
+}
+
+type TenantProviderConfig struct {
+	Provider       Provider       `json:"provider"`
+	TenantProvider TenantProvider `json:"tenant_provider"`
+}
+
+type OnboardingProviderInput struct {
+	ProviderID string  `json:"provider_id"`
+	Active     bool    `json:"active"`
+	Config     *string `json:"config,omitempty"`
+}
+
+type OnboardingInput struct {
+	Tenant    Tenant                    `json:"tenant"`
+	Admin     *User                     `json:"admin,omitempty"`
+	Providers []OnboardingProviderInput `json:"providers,omitempty"`
+}
+
+type OnboardingResult struct {
+	Tenant    Tenant           `json:"tenant"`
+	Admin     *User            `json:"admin,omitempty"`
+	Providers []TenantProvider `json:"providers"`
 }
 
 // WebhookEvent represents events received from providers or emitted to clients

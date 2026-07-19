@@ -4,10 +4,11 @@ import "testing"
 
 func TestValidateAuthConfig(t *testing.T) {
 	valid := &Config{
-		Env:         "production",
-		JWTSecret:   "01234567890123456789012345678901",
-		JWTIssuer:   "middleware-boletos",
-		JWTAudience: "middleware-boletos-api",
+		Env:                "production",
+		JWTSecret:          "01234567890123456789012345678901",
+		JWTIssuer:          "middleware-boletos",
+		JWTAudience:        "middleware-boletos-api",
+		CORSAllowedOrigins: []string{"https://app.example.com"},
 	}
 
 	tests := []struct {
@@ -19,6 +20,7 @@ func TestValidateAuthConfig(t *testing.T) {
 		{name: "production with short secret", cfg: &Config{Env: "production", JWTSecret: "short", JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience}, want: true},
 		{name: "production without JWT_ISSUER", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTAudience: valid.JWTAudience}, want: true},
 		{name: "production without JWT_AUDIENCE", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer}, want: true},
+		{name: "production without CORS_ALLOWED_ORIGINS", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience}, want: true},
 		{name: "production complete", cfg: valid, want: false},
 		{name: "development without JWT", cfg: &Config{Env: "development"}, want: false},
 	}

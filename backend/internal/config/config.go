@@ -20,6 +20,7 @@ type Config struct {
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
 	BootstrapAdminName     string
+	CORSAllowedOrigins     []string
 }
 
 const MinJWTSecretLength = 32
@@ -38,8 +39,21 @@ func Load() *Config {
 		BootstrapAdminEmail:    getEnv("BOOTSTRAP_ADMIN_EMAIL", ""),
 		BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
 		BootstrapAdminName:     getEnv("BOOTSTRAP_ADMIN_NAME", ""),
+		CORSAllowedOrigins:     splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "")),
 	}
 	return cfg
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func parseBool(value string) bool {
@@ -71,6 +85,9 @@ func ValidateAuthConfig(cfg *Config) error {
 	}
 	if strings.TrimSpace(cfg.JWTAudience) == "" {
 		return errors.New("JWT_AUDIENCE is required")
+	}
+	if len(cfg.CORSAllowedOrigins) == 0 {
+		return errors.New("CORS_ALLOWED_ORIGINS is required in production")
 	}
 	return nil
 }

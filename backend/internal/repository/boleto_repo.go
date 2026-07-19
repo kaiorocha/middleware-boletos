@@ -134,7 +134,7 @@ func (r *BoletoRepo) AdminDashboard(filters domain.BoletoFilters) (*domain.Admin
 		SELECT
 			COUNT(DISTINCT t.id),
 			COUNT(b.id),
-			COALESCE(SUM(b.amount_cents), 0),
+			COALESCE(SUM(b.amount_cents) FILTER (WHERE b.status IN ('ISSUED','PAID','EXPIRED','CANCELLED')), 0),
 			COUNT(*) FILTER (WHERE b.status = 'ISSUED'),
 			COUNT(*) FILTER (WHERE b.status = 'PAID'),
 			COUNT(*) FILTER (WHERE b.status = 'FAILED'),
@@ -144,6 +144,7 @@ func (r *BoletoRepo) AdminDashboard(filters domain.BoletoFilters) (*domain.Admin
 			COUNT(*) FILTER (WHERE b.status = 'CANCELLED')
 		FROM tenants t
 		LEFT JOIN boletos b ON b.tenant_id = t.id AND b.deleted_at IS NULL
+		LEFT JOIN customers c ON c.id = b.customer_id
 		LEFT JOIN providers p ON p.id = b.provider_id
 		`+where, args...).Scan(
 		&dash.Totals.Tenants,
@@ -161,22 +162,26 @@ func (r *BoletoRepo) AdminDashboard(filters domain.BoletoFilters) (*domain.Admin
 		return nil, err
 	}
 	dash.Totals.AmountCents = totalAmount.Int64
-	if dash.Totals.Boletos > 0 {
-		dash.Totals.SuccessRate = float64(dash.Totals.Issued+dash.Totals.Paid) / float64(dash.Totals.Boletos)
-		dash.Totals.FailureRate = float64(dash.Totals.Failed) / float64(dash.Totals.Boletos)
-		dash.Totals.AverageTicketCents = dash.Totals.AmountCents / int64(dash.Totals.Boletos)
+	successful := dash.Totals.Issued + dash.Totals.Paid + dash.Totals.Expired + dash.Totals.Cancelled
+	completedAttempts := successful + dash.Totals.Failed
+	if completedAttempts > 0 {
+		dash.Totals.SuccessRate = float64(successful) / float64(completedAttempts)
+		dash.Totals.FailureRate = float64(dash.Totals.Failed) / float64(completedAttempts)
+	}
+	if successful > 0 {
+		dash.Totals.AverageTicketCents = dash.Totals.AmountCents / int64(successful)
 	}
 
-	if dash.ByTenant, err = r.metricRows(`SELECT t.id::text, t.name, COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM tenants t LEFT JOIN boletos b ON b.tenant_id = t.id AND b.deleted_at IS NULL LEFT JOIN providers p ON p.id = b.provider_id `+where+` GROUP BY t.id, t.name ORDER BY COUNT(b.id) DESC, t.name ASC LIMIT 10`, args...); err != nil {
+	if dash.ByTenant, err = r.metricRows(`SELECT t.id::text, t.name, COUNT(b.id), COALESCE(SUM(b.amount_cents) FILTER (WHERE b.status IN ('ISSUED','PAID','EXPIRED','CANCELLED')),0) FROM tenants t LEFT JOIN boletos b ON b.tenant_id = t.id AND b.deleted_at IS NULL LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id `+where+` GROUP BY t.id, t.name ORDER BY COUNT(b.id) DESC, t.name ASC LIMIT 10`, args...); err != nil {
 		return nil, err
 	}
-	if dash.ByProvider, err = r.metricRows(`SELECT COALESCE(p.id::text,''), COALESCE(p.name,'Sem provider'), COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY p.id, p.name ORDER BY COUNT(b.id) DESC, COALESCE(p.name,'Sem provider') ASC LIMIT 10`, args...); err != nil {
+	if dash.ByProvider, err = r.metricRows(`SELECT COALESCE(p.id::text,''), COALESCE(p.name,'Sem provider'), COUNT(b.id), COALESCE(SUM(b.amount_cents) FILTER (WHERE b.status IN ('ISSUED','PAID','EXPIRED','CANCELLED')),0) FROM boletos b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY p.id, p.name ORDER BY COUNT(b.id) DESC, COALESCE(p.name,'Sem provider') ASC LIMIT 10`, args...); err != nil {
 		return nil, err
 	}
-	if dash.ByStatus, err = r.metricRows(`SELECT COALESCE(b.status,''), COALESCE(b.status,'Sem status'), COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY b.status ORDER BY COUNT(b.id) DESC`, args...); err != nil {
+	if dash.ByStatus, err = r.metricRows(`SELECT COALESCE(b.status,''), COALESCE(b.status,'Sem status'), COUNT(b.id), COALESCE(SUM(b.amount_cents) FILTER (WHERE b.status IN ('ISSUED','PAID','EXPIRED','CANCELLED')),0) FROM boletos b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY b.status ORDER BY COUNT(b.id) DESC`, args...); err != nil {
 		return nil, err
 	}
-	if dash.Timeline, err = r.timelineRows(`SELECT to_char(date_trunc('day', b.created_at), 'YYYY-MM-DD'), COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY date_trunc('day', b.created_at) ORDER BY date_trunc('day', b.created_at) ASC`, args...); err != nil {
+	if dash.Timeline, err = r.timelineRows(`SELECT to_char(date_trunc('day', b.created_at), 'YYYY-MM-DD'), COUNT(b.id), COALESCE(SUM(b.amount_cents) FILTER (WHERE b.status IN ('ISSUED','PAID','EXPIRED','CANCELLED')),0) FROM boletos b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY date_trunc('day', b.created_at) ORDER BY date_trunc('day', b.created_at) ASC`, args...); err != nil {
 		return nil, err
 	}
 	return &dash, nil
@@ -191,12 +196,12 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 	}
 	where, args := adminBoletoWhere(filters)
 	var total int
-	if err := r.db.QueryRow(`SELECT COUNT(b.id) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(`SELECT COUNT(b.id) FROM boletos b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where, args...).Scan(&total); err != nil {
 		return nil, err
 	}
 	args = append(args, filters.Limit, filters.Offset)
 	query := fmt.Sprintf(`
-		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line
+		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), COALESCE(c.document,''), b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line
 		FROM boletos b
 		LEFT JOIN tenants t ON t.id = b.tenant_id
 		LEFT JOIN customers c ON c.id = b.customer_id
@@ -219,7 +224,7 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 		var ourNumber sql.NullString
 		var issuedAt sql.NullTime
 		var digitableLine sql.NullString
-		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &item.CustomerID, &item.CustomerName, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine); err != nil {
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &item.CustomerID, &item.CustomerName, &item.CustomerDocument, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine); err != nil {
 			return nil, err
 		}
 		if providerID.Valid {
@@ -273,7 +278,26 @@ func adminBoletoWhere(filters domain.BoletoFilters) (string, []any) {
 	if filters.Status != "" {
 		add("b.status = $%d", strings.ToUpper(strings.TrimSpace(filters.Status)))
 	}
+	if filters.ExternalID != "" {
+		add("b.external_id = $%d", strings.TrimSpace(filters.ExternalID))
+	}
+	if filters.OurNumber != "" {
+		add("b.our_number = $%d", strings.TrimSpace(filters.OurNumber))
+	}
+	if filters.Document != "" {
+		add("c.document = $%d", normalizeDigits(filters.Document))
+	}
 	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func normalizeDigits(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (r *BoletoRepo) metricRows(query string, args ...any) ([]domain.MetricRow, error) {

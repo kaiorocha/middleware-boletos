@@ -40,6 +40,10 @@ type adminBoletoReader interface {
 	ListTransactions(domain.BoletoFilters) (*domain.PaginatedTransactions, error)
 }
 
+type tenantProviderReader interface {
+	FindTenantProvider(string, string) (*domain.TenantProviderConfig, error)
+}
+
 func NewBoletoService(repo boletoRepo) *BoletoService {
 	return &BoletoService{repo: repo, payerBuilder: base.NewDefaultPayerBuilder(), logger: slog.Default()}
 }
@@ -211,26 +215,11 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return nil, err
 	}
 
-	provider, err := s.providers.FindByID(*boleto.ProviderID)
+	providerConfig, err := s.providerConfigForTenant(tenantID, *boleto.ProviderID)
 	if err != nil {
 		return nil, err
 	}
-	if provider.Status != "ACTIVE" {
-		return nil, ErrProviderNotAllowed
-	}
-	allowed, err := s.providers.IsAllowedForTenant(tenantID, *boleto.ProviderID)
-	if err != nil {
-		return nil, err
-	}
-	if !allowed {
-		return nil, ErrProviderNotAllowed
-	}
-
-	cfg := types.ProviderConfig{ID: provider.ID, TenantID: tenantID, Name: provider.Name}
-	if provider.Config != nil {
-		cfg.Config = *provider.Config
-	}
-	adapter, err := s.factory.Build(cfg)
+	adapter, err := s.factory.Build(providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +243,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		_ = s.repo.Update(boleto)
 		s.logger.Error("boleto emission failed",
 			"tenant", tenantID,
-			"provider", provider.Name,
+			"provider", providerConfig.Name,
 			"request_id", requestID(ctx),
 			"boleto_id", boleto.ID,
 			"latency_ms", time.Since(start).Milliseconds(),
@@ -281,13 +270,56 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 
 	s.logger.Info("boleto emission completed",
 		"tenant", tenantID,
-		"provider", provider.Name,
+		"provider", providerConfig.Name,
 		"request_id", requestID(ctx),
 		"boleto_id", boleto.ID,
 		"latency_ms", time.Since(start).Milliseconds(),
 		"result", boleto.Status,
 	)
 	return boleto, nil
+}
+
+func (s *BoletoService) providerConfigForTenant(tenantID, providerID string) (types.ProviderConfig, error) {
+	cfg := types.ProviderConfig{ID: providerID, TenantID: tenantID}
+	reader, ok := s.providers.(tenantProviderReader)
+	if ok {
+		tenantProviderConfig, err := reader.FindTenantProvider(tenantID, providerID)
+		if err != nil {
+			return cfg, ErrProviderNotAllowed
+		}
+		provider := tenantProviderConfig.Provider
+		assignment := tenantProviderConfig.TenantProvider
+		if provider.Status != "ACTIVE" || assignment.DeletedAt != nil || !assignment.Active {
+			return cfg, ErrProviderNotAllowed
+		}
+		cfg.Name = provider.Name
+		if assignment.Config != nil && strings.TrimSpace(*assignment.Config) != "" {
+			cfg.Config = strings.TrimSpace(*assignment.Config)
+		} else if provider.Config != nil && strings.TrimSpace(*provider.Config) != "" {
+			cfg.Config = strings.TrimSpace(*provider.Config)
+		}
+		return cfg, nil
+	}
+
+	provider, err := s.providers.FindByID(providerID)
+	if err != nil {
+		return cfg, err
+	}
+	if provider.Status != "ACTIVE" {
+		return cfg, ErrProviderNotAllowed
+	}
+	allowed, err := s.providers.IsAllowedForTenant(tenantID, providerID)
+	if err != nil {
+		return cfg, err
+	}
+	if !allowed {
+		return cfg, ErrProviderNotAllowed
+	}
+	cfg.Name = provider.Name
+	if provider.Config != nil {
+		cfg.Config = strings.TrimSpace(*provider.Config)
+	}
+	return cfg, nil
 }
 
 func validateBoletoFilters(filters domain.BoletoFilters) error {

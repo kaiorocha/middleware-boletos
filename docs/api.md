@@ -107,6 +107,10 @@ Respostas de autorização:
 
 Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` podem ser usados para operação local controlada. Esses headers são ignorados em produção.
 
+## CORS
+
+Em desenvolvimento local, `CORS_ALLOWED_ORIGINS=*` mantém a demo em `http://localhost:3000` funcional. Em produção, `CORS_ALLOWED_ORIGINS` deve conter a lista explícita de origens permitidas, separadas por vírgula.
+
 Rotas globais:
 
 | Rota | Política |
@@ -119,6 +123,10 @@ Rotas globais:
 | `GET /api/v1/admin/transactions` | `PLATFORM_ADMIN` |
 | `GET /api/v1/admin/providers` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/providers` | `PLATFORM_ADMIN` |
+| `GET /api/v1/admin/providers/:id` | `PLATFORM_ADMIN` |
+| `PUT /api/v1/admin/providers/:id` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers/:id/activate` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers/:id/deactivate` | `PLATFORM_ADMIN` |
 | `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
 | `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
 | `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |
@@ -217,6 +225,16 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>
 
 ## Dashboard
 
+### Semântica financeira
+
+`amount_cents`, volume financeiro, volume por tenant/provider/status e timeline financeira somam somente boletos efetivamente emitidos: `ISSUED`, `PAID`, `EXPIRED` e `CANCELLED`.
+
+`CREATED`, `PROCESSING` e `FAILED` não entram em volume emitido.
+
+Taxa de sucesso usa `(ISSUED + PAID + EXPIRED + CANCELLED) / (ISSUED + PAID + EXPIRED + CANCELLED + FAILED)`.
+
+Ticket médio usa `volume_emitido / quantidade_emitida_com_sucesso`.
+
 ### GET /api/v1/admin/dashboard
 
 Retorna indicadores globais da plataforma. Requer `PLATFORM_ADMIN`.
@@ -228,6 +246,9 @@ Filtros opcionais:
 - `tenant_id`
 - `provider_id`
 - `status`
+- `document`
+- `external_id`
+- `our_number`
 
 ```bash
 curl -s "http://localhost:8080/api/v1/admin/dashboard?from=2026-07-01&to=2026-07-31" \
@@ -292,12 +313,26 @@ Filtros opcionais:
 - `tenant_id`
 - `provider_id`
 - `status`
+- `document`
+- `external_id`
+- `our_number`
 - `limit`
 - `offset`
 
 ```bash
 curl -s "http://localhost:8080/api/v1/admin/transactions?status=ISSUED&limit=50&offset=0" \
   -H "Authorization: Bearer <platform-admin-token>"
+```
+
+### GET /api/v1/tenants/:tenantId/transactions
+
+Lista transações do tenant autenticado com paginação. O `tenantId` vem da rota e é validado contra o JWT.
+
+Filtros opcionais: `from`, `to`, `provider_id`, `status`, `document`, `external_id`, `our_number`, `limit` e `offset`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/transactions?document=12345678900&limit=50&offset=0" \
+  -H "Authorization: Bearer <tenant-token>"
 ```
 
 ## Users
@@ -435,6 +470,22 @@ Lista o catálogo global de providers. Requer `PLATFORM_ADMIN`.
 curl -s http://localhost:8080/api/v1/admin/providers \
   -H "Authorization: Bearer <platform-admin-token>"
 ```
+
+### GET /api/v1/admin/providers/:id
+
+Busca um provider do catálogo global. `config` é mascarado quando existir.
+
+### PUT /api/v1/admin/providers/:id
+
+Atualiza nome, tipo, status, external ID, metadata e config global. Requer `PLATFORM_ADMIN`.
+
+### POST /api/v1/admin/providers/:id/activate
+
+Ativa um provider global.
+
+### POST /api/v1/admin/providers/:id/deactivate
+
+Desativa um provider global.
 
 ### GET /api/v1/tenants/:tenantId/providers
 

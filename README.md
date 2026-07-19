@@ -95,6 +95,11 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 - `GET /api/v1/admin/transactions`
 - `GET /api/v1/admin/providers`
 - `POST /api/v1/admin/providers`
+- `GET /api/v1/admin/providers/:id`
+- `PUT /api/v1/admin/providers/:id`
+- `POST /api/v1/admin/providers/:id/activate`
+- `POST /api/v1/admin/providers/:id/deactivate`
+- `GET /api/v1/admin/transactions`
 
 ### Users
 - `POST /api/v1/users`
@@ -119,6 +124,7 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 - `GET /api/v1/tenants/:tenantId/boletos`
 - `GET /api/v1/tenants/:tenantId/boletos/:id`
 - `POST /api/v1/tenants/:tenantId/boletos/:id/emit`
+- `GET /api/v1/tenants/:tenantId/transactions`
 
 ### Dashboard
 - `GET /api/v1/admin/dashboard`

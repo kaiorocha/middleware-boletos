@@ -12,6 +12,20 @@ Cada tenant mantém uma blacklist própria. Um documento bloqueado no Tenant A n
 
 Os documentos são normalizados para somente números antes de qualquer persistência ou consulta. A tabela `blacklist` possui índice único parcial para impedir duplicidade ativa de `tenant_id + document`.
 
+## RBAC
+
+Endpoints de leitura são permitidos para usuários autenticados do tenant.
+
+Mutações exigem `TENANT_ADMIN`:
+
+- `POST /api/v1/tenants/:tenantId/blacklist`
+- `PUT /api/v1/tenants/:tenantId/blacklist/:id`
+- `DELETE /api/v1/tenants/:tenantId/blacklist/:id`
+- `POST /api/v1/tenants/:tenantId/blacklist/:id/block`
+- `POST /api/v1/tenants/:tenantId/blacklist/:id/unblock`
+
+`TENANT_USER` recebe HTTP `403 FORBIDDEN` nessas operações.
+
 ## Fluxo de emissão
 
 ```text

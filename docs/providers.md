@@ -28,10 +28,11 @@ O catálogo de integrações é responsabilidade do `PLATFORM_ADMIN`. Tenants ap
 4. `BoletoService` busca o `Customer`.
 5. `BoletoService` consulta a blacklist do tenant.
 6. `BoletoService` confirma que o provider está ativo no catálogo e habilitado para o tenant em `tenant_providers`.
-7. `DefaultPayerBuilder` converte `Customer` para `types.Payer`.
-8. A factory recebe `provider.name` e retorna o adapter.
-9. O adapter executa `IssueBoleto`.
-10. O service persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
+7. `BoletoService` monta `ProviderConfig` usando `tenant_providers.config`.
+8. `DefaultPayerBuilder` converte `Customer` para `types.Payer`.
+9. A factory recebe `provider.name` e retorna o adapter.
+10. O adapter executa `IssueBoleto`.
+11. O service persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
 
 Provider não habilitado retorna HTTP `403` com `error.code = "PROVIDER_NOT_ALLOWED"`.
 

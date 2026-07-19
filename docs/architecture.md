@@ -41,6 +41,7 @@ Fluxo de emissão
 - O fluxo é fail-closed: sem `BlacklistService`, sem documento do customer ou com erro na blacklist, a emissão é interrompida.
 - `adapter.IssueBoleto` só é chamado dentro de `BoletoService.Emit`, após autorização tenant-scoped e validação de Compliance.
 - Provider não habilitado retorna `PROVIDER_NOT_ALLOWED` com HTTP 403.
+- A configuração usada na factory vem de `tenant_providers.config`; `providers.config` é fallback apenas para configuração comum não sensível.
 - O retorno padronizado persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
 - Logs estruturados registram tenant, provider, request id, boleto id, latência e resultado.
 
@@ -58,6 +59,7 @@ Autorização multi-tenant
 - Usuários comuns obtêm seus tenants por `GET /api/v1/me/tenants` ou pela sessão/JWT, sem acesso à listagem global.
 - Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção.
 - Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` permitem operação local controlada.
+- CORS aceita `*` em desenvolvimento local; em produção `CORS_ALLOWED_ORIGINS` deve listar origens explícitas.
 
 Estados de boleto
 - Status suportados: `CREATED`, `PROCESSING`, `ISSUED`, `FAILED`, `CANCELLED`, `PARTIAL`, `PAID`, `EXPIRED`.

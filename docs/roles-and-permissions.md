@@ -50,3 +50,5 @@ Consulta somente dados do próprio tenant:
 | Usuários do tenant | Não | Sim | Não | Parcial |
 
 O painel do tenant é operacional e consultivo. A criação de clientes, boletos e solicitações de emissão permanece no contrato REST tenant-scoped para integrações externas.
+
+O backend aplica RBAC nas mutações sensíveis. `TENANT_USER` recebe HTTP `403` ao tentar criar/editar/remover blacklist, bloquear/desbloquear documentos ou gerenciar usuários.

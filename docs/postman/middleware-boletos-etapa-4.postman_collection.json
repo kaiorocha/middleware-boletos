@@ -193,7 +193,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Tenant Etapa 4\",\n  \"admin\": {\n    \"name\": \"Administrador Tenant\",\n    \"email\": \"{{tenantAdminEmail}}\",\n    \"password\": \"{{tenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{providerId}}\",\n      \"active\": true\n    }\n  ]\n}",
+              "raw": "{\n  \"name\": \"Tenant Etapa 4\",\n  \"admin\": {\n    \"name\": \"Administrador Tenant\",\n    \"email\": \"{{tenantAdminEmail}}\",\n    \"password\": \"{{tenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{providerId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"delay_ms\\\":0}\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -461,6 +461,164 @@
               }
             }
           ]
+        },
+        {
+          "name": "Get Provider Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/providers/{{providerId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Provider",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/providers/{{providerId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Mock\",\n  \"type\": \"BANK\",\n  \"status\": \"ACTIVE\",\n  \"metadata\": \"{\\\"managed_by\\\":\\\"platform\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate Provider",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/providers/{{providerId}}/deactivate",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate Provider",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/providers/{{providerId}}/activate",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -491,6 +649,42 @@
                   "pm.test(\"summary has totals\", function () {",
                   "  pm.expect(json.data).to.have.property(\"total_boletos\");",
                   "  pm.expect(json.data).to.have.property(\"valor_total_emitido\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant Transactions Paginated",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/transactions?limit=50&offset=0&document=12345678900&external_id={{externalId}}&our_number={{ourNumber}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenantAdminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
                   "});"
                 ]
               }
@@ -1522,6 +1716,14 @@
     },
     {
       "key": "tenantAdminAccessToken",
+      "value": ""
+    },
+    {
+      "key": "externalId",
+      "value": ""
+    },
+    {
+      "key": "ourNumber",
       "value": ""
     }
   ],
