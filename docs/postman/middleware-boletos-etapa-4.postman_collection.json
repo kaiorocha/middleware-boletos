@@ -1,0 +1,464 @@
+{
+  "info": {
+    "_postman_id": "b0a38977-8d5c-4f56-bc1a-cb6f045a4e40",
+    "name": "middleware-boletos - Etapa 4",
+    "description": "Validação do painel operacional, dashboard e módulo Compliance/Blacklist da Etapa 4.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Create Tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tenant Etapa 4\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "pm.test(\"tenantId is captured\", function () {",
+                  "  pm.expect(json.data.id).to.exist;",
+                  "  pm.collectionVariables.set(\"tenantId\", json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Cliente Compliance\",\n  \"document\": \"123.456.789-00\",\n  \"email\": \"cliente@example.com\",\n  \"address\": \"Rua Um\",\n  \"number\": \"123\",\n  \"district\": \"Centro\",\n  \"city\": \"Sao Paulo\",\n  \"state\": \"SP\",\n  \"postal_code\": \"12345-678\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/customers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "pm.test(\"customerId is captured\", function () {",
+                  "  pm.expect(json.data.id).to.exist;",
+                  "  pm.collectionVariables.set(\"customerId\", json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Mock Provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Mock Etapa 4\",\n  \"config\": \"{\\\"delay_ms\\\":0}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/providers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "pm.test(\"providerId is captured\", function () {",
+                  "  pm.expect(json.data.id).to.exist;",
+                  "  pm.collectionVariables.set(\"providerId\", json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/dashboard"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "pm.test(\"summary has totals\", function () {",
+                  "  pm.expect(json.data).to.have.property(\"total_boletos\");",
+                  "  pm.expect(json.data).to.have.property(\"valor_total_emitido\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Compliance",
+      "item": [
+        {
+          "name": "Create Blacklist Entry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document\": \"123.456.789-00\",\n  \"name\": \"Cliente Compliance\",\n  \"reason\": \"Solicitação do cliente\",\n  \"notes\": \"Não emitir novas cobranças.\",\n  \"source\": \"MANUAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "pm.test(\"blacklistId is captured\", function () {",
+                  "  pm.expect(json.data.id).to.exist;",
+                  "  pm.collectionVariables.set(\"blacklistId\", json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check Blacklist Blocked",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/check?document=123.456.789-00"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"document is blocked\", function () {",
+                  "  pm.expect(json).to.have.property(\"blocked\", true);",
+                  "  pm.expect(json).to.have.property(\"reason\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate Blacklist Entry - 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document\": \"12345678900\",\n  \"name\": \"Cliente Compliance\",\n  \"reason\": \"Duplicado\",\n  \"source\": \"MANUAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 409\", function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"error code is DUPLICATE_RESOURCE\", function () {",
+                  "  pm.expect(json).to.have.property(\"error\");",
+                  "  pm.expect(json.error).to.have.property(\"code\", \"DUPLICATE_RESOURCE\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unblock Blacklist Entry",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistId}}/unblock"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "pm.test(\"entry is inactive\", function () {",
+                  "  pm.expect(json.data).to.have.property(\"active\", false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Block Blacklist Entry",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistId}}/block"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "pm.test(\"entry is active\", function () {",
+                  "  pm.expect(json.data).to.have.property(\"active\", true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Blocked Emission",
+      "item": [
+        {
+          "name": "Create Blocked Boleto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "pm.test(\"blockedBoletoId is captured\", function () {",
+                  "  pm.expect(json.data.id).to.exist;",
+                  "  pm.collectionVariables.set(\"blockedBoletoId\", json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Emit Blocked Boleto - 409",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{blockedBoletoId}}/emit"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 409\", function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"error code is CUSTOMER_BLOCKED\", function () {",
+                  "  pm.expect(json).to.have.property(\"error\");",
+                  "  pm.expect(json.error).to.have.property(\"code\", \"CUSTOMER_BLOCKED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": ""
+    },
+    {
+      "key": "providerId",
+      "value": ""
+    },
+    {
+      "key": "blacklistId",
+      "value": ""
+    },
+    {
+      "key": "blockedBoletoId",
+      "value": ""
+    }
+  ]
+}
