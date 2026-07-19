@@ -1,7 +1,7 @@
 # middleware-boletos
 
 Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
-**Status atual:** Etapa 4 (Painel Administrativo e Compliance) implementada com painel web operacional, dashboard, gestão de recursos e blacklist por tenant para bloquear emissões.
+**Status atual:** Etapa 4 (Painel Administrativo e Compliance) implementada com separação entre gestão global da plataforma, portal operacional do tenant e APIs de integração.
 
 ## Stack
 
@@ -62,6 +62,11 @@ Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de
 
 O fluxo demonstrável da Etapa 4 está documentado em `docs/demo.md`.
 
+Documentação complementar:
+
+- `docs/roles-and-permissions.md`
+- `docs/provider-management.md`
+
 Credenciais locais de desenvolvimento, quando `.env.example` é usado:
 
 - Platform Admin: `admin@middleware.local`
@@ -85,6 +90,12 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 - `GET /api/v1/me/tenants`
 - `POST /api/v1/admin/tenants`
 
+### Admin
+- `GET /api/v1/admin/dashboard`
+- `GET /api/v1/admin/transactions`
+- `GET /api/v1/admin/providers`
+- `POST /api/v1/admin/providers`
+
 ### Users
 - `POST /api/v1/users`
 - `GET /api/v1/users/:id`
@@ -97,7 +108,6 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 - `PUT /api/v1/tenants/:tenantId/customers/:id`
 
 ### Providers
-- `POST /api/v1/tenants/:tenantId/providers`
 - `GET /api/v1/tenants/:tenantId/providers`
 - `GET /api/v1/tenants/:tenantId/providers/:id`
 - `GET /api/v1/providers/health`
@@ -111,6 +121,7 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 - `POST /api/v1/tenants/:tenantId/boletos/:id/emit`
 
 ### Dashboard
+- `GET /api/v1/admin/dashboard`
 - `GET /api/v1/tenants/:tenantId/dashboard`
 
 ### Compliance

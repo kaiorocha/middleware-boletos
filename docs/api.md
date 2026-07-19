@@ -115,6 +115,10 @@ Rotas globais:
 | `GET /api/v1/tenants` | `PLATFORM_ADMIN` |
 | `POST /api/v1/tenants` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/tenants` | `PLATFORM_ADMIN`; cria tenant e opcionalmente `TENANT_ADMIN` |
+| `GET /api/v1/admin/dashboard` | `PLATFORM_ADMIN` |
+| `GET /api/v1/admin/transactions` | `PLATFORM_ADMIN` |
+| `GET /api/v1/admin/providers` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers` | `PLATFORM_ADMIN` |
 | `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
 | `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
 | `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |
@@ -213,6 +217,47 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>
 
 ## Dashboard
 
+### GET /api/v1/admin/dashboard
+
+Retorna indicadores globais da plataforma. Requer `PLATFORM_ADMIN`.
+
+Filtros opcionais:
+
+- `from`
+- `to`
+- `tenant_id`
+- `provider_id`
+- `status`
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/dashboard?from=2026-07-01&to=2026-07-31" \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
+Resposta resumida:
+
+```json
+{
+  "data": {
+    "totals": {
+      "tenants": 10,
+      "boletos": 1000,
+      "amount_cents": 50000000,
+      "issued": 900,
+      "paid": 700,
+      "failed": 10,
+      "success_rate": 0.9,
+      "failure_rate": 0.01,
+      "average_ticket_cents": 50000
+    },
+    "by_tenant": [],
+    "by_provider": [],
+    "by_status": [],
+    "timeline": []
+  }
+}
+```
+
 ### GET /api/v1/tenants/:tenantId/dashboard
 
 Retorna indicadores operacionais do tenant, com filtros opcionais `from` e `to` no formato `YYYY-MM-DD`.
@@ -231,7 +276,29 @@ Indicadores retornados em `data`:
 - `boletos_cancelados`
 - `boletos_com_falha`
 - `valor_total_emitido`
+- `taxa_sucesso`
+- `taxa_falha`
+- `ticket_medio`
 - `by_status`
+
+### GET /api/v1/admin/transactions
+
+Lista transações globais da plataforma com paginação. Requer `PLATFORM_ADMIN`.
+
+Filtros opcionais:
+
+- `from`
+- `to`
+- `tenant_id`
+- `provider_id`
+- `status`
+- `limit`
+- `offset`
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/transactions?status=ISSUED&limit=50&offset=0" \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
 
 ## Users
 
@@ -332,15 +399,17 @@ curl -s -X PUT http://localhost:8080/api/v1/tenants/<tenantId>/customers/<custom
 
 ## Providers
 
-### POST /api/v1/tenants/:tenantId/providers
+### POST /api/v1/admin/providers
 
-Cria um provedor bancário/gateway vinculado ao tenant.
+Cria um provider no catálogo global da plataforma. Requer `PLATFORM_ADMIN`.
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+curl -s -X POST http://localhost:8080/api/v1/admin/providers \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name":"Mock",
+    "type":"BANK",
     "config":"{\"delay_ms\":0}"
   }'
 ```
@@ -348,17 +417,28 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
 Exemplo para Moncalieri Capital, sem credencial real:
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+curl -s -X POST http://localhost:8080/api/v1/admin/providers \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name":"Moncalieri Capital",
+    "type":"BANK",
     "config":"{\"base_url\":\"https://dev.moncaliericapital.com.br\",\"api_key\":\"REPLACE_WITH_SECRET\",\"codigo_canal\":0,\"codigo_cliente\":0,\"timeout_seconds\":30,\"instrucoes\":\"Pagar ate o vencimento.\"}"
   }'
 ```
 
+### GET /api/v1/admin/providers
+
+Lista o catálogo global de providers. Requer `PLATFORM_ADMIN`.
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/providers \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
 ### GET /api/v1/tenants/:tenantId/providers
 
-Lista provedores por tenant.
+Lista providers habilitados para o tenant autenticado. Configurações sensíveis são mascaradas.
 
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers
@@ -366,7 +446,7 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers
 
 ### GET /api/v1/tenants/:tenantId/providers/:id
 
-Busca provedor por ID dentro do tenant.
+Busca provider habilitado por ID dentro do tenant.
 
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers/<providerId>

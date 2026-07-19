@@ -123,6 +123,10 @@ Rotas globais protegidas por `PLATFORM_ADMIN`:
 - `GET /api/v1/tenants`
 - `POST /api/v1/tenants`
 - `POST /api/v1/admin/tenants`
+- `GET /api/v1/admin/dashboard`
+- `GET /api/v1/admin/transactions`
+- `GET /api/v1/admin/providers`
+- `POST /api/v1/admin/providers`
 
 Usuários sem `PLATFORM_ADMIN` recebem HTTP `403` nessas rotas, mesmo com JWT válido.
 

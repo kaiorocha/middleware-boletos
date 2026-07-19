@@ -149,8 +149,15 @@ func (r *duplicateProviderRepo) FindByID(string) (*domain.Provider, error) {
 func (r *duplicateProviderRepo) ListByTenant(string) ([]domain.Provider, error) {
 	return nil, nil
 }
+func (r *duplicateProviderRepo) ListCatalog() ([]domain.Provider, error) {
+	return nil, nil
+}
 func (r *duplicateProviderRepo) Update(*domain.Provider) error { return nil }
 func (r *duplicateProviderRepo) Delete(string, string) error   { return nil }
+func (r *duplicateProviderRepo) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
+	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, nil
+}
+func (r *duplicateProviderRepo) IsAllowedForTenant(string, string) (bool, error) { return true, nil }
 
 type duplicateBoletoRepo struct{}
 
@@ -173,8 +180,13 @@ func (r *apiProviderRepo) FindByID(string) (*domain.Provider, error) {
 	return r.item, nil
 }
 func (r *apiProviderRepo) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
+func (r *apiProviderRepo) ListCatalog() ([]domain.Provider, error)        { return nil, nil }
 func (r *apiProviderRepo) Update(*domain.Provider) error                  { return nil }
 func (r *apiProviderRepo) Delete(string, string) error                    { return nil }
+func (r *apiProviderRepo) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
+	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, nil
+}
+func (r *apiProviderRepo) IsAllowedForTenant(string, string) (bool, error) { return true, nil }
 
 type apiCustomerRepo struct {
 	item *domain.Customer
@@ -204,6 +216,17 @@ func (r *apiBoletoRepo) Update(b *domain.Boleto) error {
 	return nil
 }
 func (r *apiBoletoRepo) Delete(string, string) error { return nil }
+func (r *apiBoletoRepo) AdminDashboard(domain.BoletoFilters) (*domain.AdminDashboard, error) {
+	return &domain.AdminDashboard{Totals: domain.AdminDashboardTotals{Tenants: 1, Boletos: 1, Issued: 1, AmountCents: 15000}}, nil
+}
+func (r *apiBoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.PaginatedTransactions, error) {
+	return &domain.PaginatedTransactions{
+		Items:  []domain.BoletoTransaction{{ID: "550e8400-e29b-41d4-a716-446655440003", TenantID: "550e8400-e29b-41d4-a716-446655440000", TenantName: "Tenant Demo", AmountCents: 15000, Status: "ISSUED", CreatedAt: time.Now()}},
+		Limit:  filters.Limit,
+		Offset: filters.Offset,
+		Total:  1,
+	}, nil
+}
 
 type apiBlacklistRepo struct {
 	item    *domain.BlacklistEntry
@@ -764,10 +787,11 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 	validCustomerID := "550e8400-e29b-41d4-a716-446655440001"
 
 	tests := []struct {
-		name string
-		app  *App
-		path string
-		body string
+		name     string
+		app      *App
+		path     string
+		body     string
+		platform bool
 	}{
 		{
 			name: "user",
@@ -782,10 +806,11 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 			body: `{"name":"Customer","document":"123.456.789-00"}`,
 		},
 		{
-			name: "provider",
-			app:  authenticatedTestApp(&App{ProviderSvc: service.NewProviderService(&duplicateProviderRepo{})}),
-			path: "/api/v1/tenants/" + validTenantID + "/providers",
-			body: `{"name":"Banco Demo"}`,
+			name:     "provider",
+			app:      authenticatedTestApp(&App{ProviderSvc: service.NewProviderService(&duplicateProviderRepo{})}),
+			path:     "/api/v1/admin/providers",
+			body:     `{"name":"Banco Demo"}`,
+			platform: true,
 		},
 		{
 			name: "boleto",
@@ -799,7 +824,11 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
-			authorizeTenant(req, validTenantID)
+			if tt.platform {
+				authorizePlatformAdmin(req)
+			} else {
+				authorizeTenant(req, validTenantID)
+			}
 			rr := httptest.NewRecorder()
 
 			tt.app.routes().ServeHTTP(rr, req)
@@ -818,6 +847,36 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 			}
 			if payload.Error.Code != "DUPLICATE_RESOURCE" {
 				t.Fatalf("expected DUPLICATE_RESOURCE, got %q", payload.Error.Code)
+			}
+		})
+	}
+}
+
+func TestAdminDashboardAndTransactionsRequirePlatformAdmin(t *testing.T) {
+	app := authenticatedTestApp(&App{BoletoSvc: service.NewBoletoService(&apiBoletoRepo{})})
+	tests := []struct {
+		name       string
+		path       string
+		authorize  func(*http.Request)
+		wantStatus int
+	}{
+		{name: "dashboard unauthenticated", path: "/api/v1/admin/dashboard", wantStatus: http.StatusUnauthorized},
+		{name: "dashboard tenant user forbidden", path: "/api/v1/admin/dashboard", authorize: func(req *http.Request) { authorizeTenant(req, "550e8400-e29b-41d4-a716-446655440000") }, wantStatus: http.StatusForbidden},
+		{name: "dashboard platform admin", path: "/api/v1/admin/dashboard", authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, wantStatus: http.StatusOK},
+		{name: "transactions platform admin", path: "/api/v1/admin/transactions?limit=10", authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, wantStatus: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.authorize != nil {
+				tt.authorize(req)
+			}
+			rr := httptest.NewRecorder()
+
+			app.routes().ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", tt.wantStatus, rr.Code, rr.Body.String())
 			}
 		})
 	}

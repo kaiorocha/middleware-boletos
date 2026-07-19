@@ -65,6 +65,8 @@ type providerRepoMock struct {
 	err     error
 	last    *domain.Provider
 	found   *domain.Provider
+	allowed bool
+	denied  bool
 }
 
 func (m *providerRepoMock) Create(p *domain.Provider) error {
@@ -79,8 +81,18 @@ func (m *providerRepoMock) FindByID(string) (*domain.Provider, error) {
 	return &domain.Provider{}, m.err
 }
 func (m *providerRepoMock) ListByTenant(string) ([]domain.Provider, error) { return nil, nil }
+func (m *providerRepoMock) ListCatalog() ([]domain.Provider, error)        { return nil, nil }
 func (m *providerRepoMock) Update(p *domain.Provider) error                { m.last = p; return m.err }
 func (m *providerRepoMock) Delete(string, string) error                    { return nil }
+func (m *providerRepoMock) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
+	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, m.err
+}
+func (m *providerRepoMock) IsAllowedForTenant(string, string) (bool, error) {
+	if m.denied {
+		return false, m.err
+	}
+	return true, m.err
+}
 
 type boletoRepoMock struct {
 	created bool
@@ -838,6 +850,32 @@ func TestBoletoServiceEmitAllowedCustomerCallsProvider(t *testing.T) {
 	}
 	if got.Status != "ISSUED" || spy.builds != 1 || adapter.issues != 1 {
 		t.Fatalf("expected provider call and issued boleto, builds=%d issues=%d boleto=%+v", spy.builds, adapter.issues, got)
+	}
+}
+
+func TestBoletoServiceEmitRejectsProviderNotAllowedForTenant(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
+
+	_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+	}}).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(&providerRepoMock{
+			found:  &domain.Provider{ID: validProviderUUID, Name: "Mock", Status: "ACTIVE"},
+			denied: true,
+		}).
+		WithBlacklistService(&blacklistComplianceMock{}).
+		WithProviderFactory(spy).
+		Emit(context.Background(), validTenantUUID, boletoID)
+	if !errors.Is(err, ErrProviderNotAllowed) {
+		t.Fatalf("expected provider not allowed, got %v", err)
+	}
+	if spy.builds != 0 || spy.adapter.issues != 0 {
+		t.Fatalf("expected no provider interaction, builds=%d issues=%d", spy.builds, spy.adapter.issues)
 	}
 }
 

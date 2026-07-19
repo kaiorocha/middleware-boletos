@@ -4,6 +4,8 @@
 
 A integração bancária fica isolada em `backend/internal/providers`. O restante do sistema usa interfaces e tipos padronizados, sem depender de contratos específicos de bancos.
 
+O catálogo de integrações é responsabilidade do `PLATFORM_ADMIN`. Tenants apenas consultam os providers habilitados para sua conta.
+
 ## Estrutura
 
 - `contracts`: interface `ProviderAdapter` e interface de factory.
@@ -24,10 +26,14 @@ A integração bancária fica isolada em `backend/internal/providers`. O restant
 2. A API chama `POST /api/v1/tenants/:tenantId/boletos/:id/emit`.
 3. `BoletoService` valida tenant, boleto, provider e estado.
 4. `BoletoService` busca o `Customer`.
-5. `DefaultPayerBuilder` converte `Customer` para `types.Payer`.
-6. A factory recebe `provider.name` e retorna o adapter.
-7. O adapter executa `IssueBoleto`.
-8. O service persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
+5. `BoletoService` consulta a blacklist do tenant.
+6. `BoletoService` confirma que o provider está ativo no catálogo e habilitado para o tenant em `tenant_providers`.
+7. `DefaultPayerBuilder` converte `Customer` para `types.Payer`.
+8. A factory recebe `provider.name` e retorna o adapter.
+9. O adapter executa `IssueBoleto`.
+10. O service persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
+
+Provider não habilitado retorna HTTP `403` com `error.code = "PROVIDER_NOT_ALLOWED"`.
 
 ## PayerBuilder
 

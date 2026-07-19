@@ -28,6 +28,8 @@ Docker Compose
 
 Preparação para múltiplos provedores
 - A camada `backend/internal/providers` isola integrações bancárias por contrato.
+- `providers` representa o catálogo global gerenciado pela plataforma.
+- `tenant_providers` representa providers habilitados para cada tenant.
 - `contracts.ProviderAdapter` define as operações comuns: emissão, consulta, listagem, cancelamento, webhook, saldo e health.
 - `factory.ProviderFactory` é o único ponto de seleção de adapter por `provider.name`.
 - Services consomem apenas interfaces e tipos padronizados; nenhum service conhece contratos específicos de bancos.
@@ -35,9 +37,10 @@ Preparação para múltiplos provedores
 
 Fluxo de emissão
 - API recebe `POST /api/v1/tenants/:tenantId/boletos/:id/emit`.
-- `BoletoService` valida dependências obrigatórias, tenant/boleto/provider, verifica idempotência, busca o customer e consulta a blacklist antes de montar pagador ou provider.
+- `BoletoService` valida dependências obrigatórias, tenant/boleto/provider, verifica idempotência, busca o customer, consulta a blacklist e confirma que o provider global está ativo e habilitado para o tenant antes de montar o adapter.
 - O fluxo é fail-closed: sem `BlacklistService`, sem documento do customer ou com erro na blacklist, a emissão é interrompida.
 - `adapter.IssueBoleto` só é chamado dentro de `BoletoService.Emit`, após autorização tenant-scoped e validação de Compliance.
+- Provider não habilitado retorna `PROVIDER_NOT_ALLOWED` com HTTP 403.
 - O retorno padronizado persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
 - Logs estruturados registram tenant, provider, request id, boleto id, latência e resultado.
 

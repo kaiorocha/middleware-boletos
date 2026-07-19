@@ -60,28 +60,30 @@ O bootstrap continua idempotente: se já existir `PLATFORM_ADMIN`, outro usuári
 
 1. Acesse `http://localhost:3000/login`.
 2. Faça login como `admin@middleware.local`.
-3. No painel da plataforma, abra `Tenants`.
-4. Crie o tenant `Cliente Demonstração`.
-5. Informe o administrador do tenant:
+3. No painel da plataforma, abra `Providers`.
+4. Crie o provider `Mock` no catálogo, com config `{"delay_ms":0}`.
+5. Abra `Tenants`.
+6. Crie o tenant `Cliente Demonstração`.
+7. Informe o administrador do tenant:
    - Nome: `Administrador Cliente`
    - E-mail: `cliente@demo.local`
    - Senha: `Cliente123456!`
-6. Faça logout.
-7. Faça login como `cliente@demo.local`.
-8. O painel entra no tenant autorizado pelo JWT; se houver mais de um tenant, selecione apenas entre os tenants permitidos.
-9. Cadastre um cliente/pagador com CPF/CNPJ.
-10. Cadastre o provider `Mock` com config `{"delay_ms":0}`.
-11. Crie um boleto para o cliente e provider.
-12. Clique em `Emitir`.
-13. Veja a operação em `Dashboard` e `Transações`.
-14. Em `Compliance`, bloqueie o CPF/CNPJ do cliente.
-15. Crie novo boleto para o mesmo cliente.
-16. Tente emitir e confirme retorno `CUSTOMER_BLOCKED`.
+8. Selecione o provider `Mock` para habilitá-lo no onboarding.
+9. Faça logout.
+10. Faça login como `cliente@demo.local`.
+11. O painel entra no tenant autorizado pelo JWT; se houver mais de um tenant, selecione apenas entre os tenants permitidos.
+12. Confira `Dashboard`, `Transações`, `Boletos`, `Clientes` e `Providers` em modo consultivo/operacional.
+13. Use a collection Postman ou chamadas REST para criar customer, criar boleto e solicitar emissão via API.
+14. Veja a operação refletida em `Dashboard` e `Transações` do tenant.
+15. Em `Compliance`, bloqueie o CPF/CNPJ do cliente.
+16. Pela API, crie novo boleto para o mesmo cliente e tente emitir.
+17. Confirme retorno `CUSTOMER_BLOCKED`.
 
 ## Conceitos
 
 - Tenant: empresa que usa a plataforma.
 - User: pessoa que acessa o painel.
 - Customer: pagador/sacado do boleto.
+- Provider: integração bancária criada no catálogo global e habilitada por tenant.
 
 `TENANT_ADMIN` não é customer. Ele administra recursos do tenant autorizado.

@@ -68,64 +68,6 @@
           ]
         },
         {
-          "name": "Login Tenant Admin",
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{tenantAdminEmail}}\",\n  \"password\": \"{{tenantAdminPassword}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "login"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"HTTP 200\", function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const response = pm.response.json();",
-                  "pm.test(\"response has data\", function () {",
-                  "  pm.expect(response).to.have.property(\"data\");",
-                  "});",
-                  "",
-                  "if (response.data && response.data.access_token) {",
-                  "  pm.collectionVariables.set(\"tenantAdminAccessToken\", response.data.access_token);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "Login Invalid - 401",
           "request": {
             "auth": {
@@ -185,7 +127,7 @@
       "name": "Setup",
       "item": [
         {
-          "name": "Create Tenant",
+          "name": "Create Catalog Mock Provider",
           "request": {
             "method": "POST",
             "header": [
@@ -196,14 +138,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Tenant Etapa 4\"\n}",
+              "raw": "{\n  \"name\": \"Mock\",\n  \"type\": \"BANK\",\n  \"config\": \"{\\\"delay_ms\\\":0}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "url": "{{baseUrl}}/api/v1/tenants",
+            "url": "{{baseUrl}}/api/v1/admin/providers",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -230,10 +172,133 @@
                   "  pm.expect(json).to.have.property(\"data\");",
                   "});",
                   "",
-                  "pm.test(\"tenantId is captured\", function () {",
+                  "pm.test(\"providerId is captured\", function () {",
                   "  pm.expect(json.data.id).to.exist;",
-                  "  pm.collectionVariables.set(\"tenantId\", json.data.id);",
+                  "  pm.collectionVariables.set(\"providerId\", json.data.id);",
                   "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Tenant With Admin and Provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tenant Etapa 4\",\n  \"admin\": {\n    \"name\": \"Administrador Tenant\",\n    \"email\": \"{{tenantAdminEmail}}\",\n    \"password\": \"{{tenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{providerId}}\",\n      \"active\": true\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/v1/admin/tenants",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const runId = Date.now();",
+                  "pm.collectionVariables.set(\"tenantAdminEmail\", `cliente+${runId}@demo.local`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "pm.test(\"tenantId is captured\", function () {",
+                  "  pm.expect(json.data.tenant.id).to.exist;",
+                  "  pm.collectionVariables.set(\"tenantId\", json.data.tenant.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Tenant Admin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{tenantAdminEmail}}\",\n  \"password\": \"{{tenantAdminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(response).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "if (response.data && response.data.access_token) {",
+                  "  pm.collectionVariables.set(\"tenantAdminAccessToken\", response.data.access_token);",
+                  "}"
                 ]
               }
             }
@@ -283,27 +348,28 @@
               }
             }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "name": "Admin Analytics",
+      "item": [
         {
-          "name": "Create Mock Provider",
+          "name": "Global Dashboard",
           "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Mock Etapa 4\",\n  \"config\": \"{\\\"delay_ms\\\":0}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/dashboard",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
                 }
-              }
-            },
-            "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/providers"
+              ]
+            }
           },
           "event": [
             {
@@ -311,18 +377,85 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"status is 201\", function () {",
-                  "  pm.response.to.have.status(201);",
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
                   "});",
                   "",
                   "const json = pm.response.json();",
                   "pm.test(\"response has data\", function () {",
                   "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Global Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/transactions?limit=50&offset=0",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
                   "});",
                   "",
-                  "pm.test(\"providerId is captured\", function () {",
-                  "  pm.expect(json.data.id).to.exist;",
-                  "  pm.collectionVariables.set(\"providerId\", json.data.id);",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Global Provider Catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/providers",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(json).to.have.property(\"data\");",
                   "});"
                 ]
               }

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -122,4 +124,188 @@ func (r *BoletoRepo) Update(b *domain.Boleto) error {
 func (r *BoletoRepo) Delete(id string, tenantID string) error {
 	_, err := r.db.Exec(`UPDATE boletos SET deleted_at = $1, updated_at = $1, status = 'INACTIVE' WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL`, time.Now().UTC(), id, tenantID)
 	return err
+}
+
+func (r *BoletoRepo) AdminDashboard(filters domain.BoletoFilters) (*domain.AdminDashboard, error) {
+	where, args := adminBoletoWhere(filters)
+	var dash domain.AdminDashboard
+	var totalAmount sql.NullInt64
+	err := r.db.QueryRow(`
+		SELECT
+			COUNT(DISTINCT t.id),
+			COUNT(b.id),
+			COALESCE(SUM(b.amount_cents), 0),
+			COUNT(*) FILTER (WHERE b.status = 'ISSUED'),
+			COUNT(*) FILTER (WHERE b.status = 'PAID'),
+			COUNT(*) FILTER (WHERE b.status = 'FAILED'),
+			COUNT(*) FILTER (WHERE b.status = 'CREATED'),
+			COUNT(*) FILTER (WHERE b.status = 'PROCESSING'),
+			COUNT(*) FILTER (WHERE b.status = 'EXPIRED'),
+			COUNT(*) FILTER (WHERE b.status = 'CANCELLED')
+		FROM tenants t
+		LEFT JOIN boletos b ON b.tenant_id = t.id AND b.deleted_at IS NULL
+		LEFT JOIN providers p ON p.id = b.provider_id
+		`+where, args...).Scan(
+		&dash.Totals.Tenants,
+		&dash.Totals.Boletos,
+		&totalAmount,
+		&dash.Totals.Issued,
+		&dash.Totals.Paid,
+		&dash.Totals.Failed,
+		&dash.Totals.Created,
+		&dash.Totals.Processing,
+		&dash.Totals.Expired,
+		&dash.Totals.Cancelled,
+	)
+	if err != nil {
+		return nil, err
+	}
+	dash.Totals.AmountCents = totalAmount.Int64
+	if dash.Totals.Boletos > 0 {
+		dash.Totals.SuccessRate = float64(dash.Totals.Issued+dash.Totals.Paid) / float64(dash.Totals.Boletos)
+		dash.Totals.FailureRate = float64(dash.Totals.Failed) / float64(dash.Totals.Boletos)
+		dash.Totals.AverageTicketCents = dash.Totals.AmountCents / int64(dash.Totals.Boletos)
+	}
+
+	if dash.ByTenant, err = r.metricRows(`SELECT t.id::text, t.name, COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM tenants t LEFT JOIN boletos b ON b.tenant_id = t.id AND b.deleted_at IS NULL LEFT JOIN providers p ON p.id = b.provider_id `+where+` GROUP BY t.id, t.name ORDER BY COUNT(b.id) DESC, t.name ASC LIMIT 10`, args...); err != nil {
+		return nil, err
+	}
+	if dash.ByProvider, err = r.metricRows(`SELECT COALESCE(p.id::text,''), COALESCE(p.name,'Sem provider'), COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY p.id, p.name ORDER BY COUNT(b.id) DESC, COALESCE(p.name,'Sem provider') ASC LIMIT 10`, args...); err != nil {
+		return nil, err
+	}
+	if dash.ByStatus, err = r.metricRows(`SELECT COALESCE(b.status,''), COALESCE(b.status,'Sem status'), COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY b.status ORDER BY COUNT(b.id) DESC`, args...); err != nil {
+		return nil, err
+	}
+	if dash.Timeline, err = r.timelineRows(`SELECT to_char(date_trunc('day', b.created_at), 'YYYY-MM-DD'), COUNT(b.id), COALESCE(SUM(b.amount_cents),0) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY date_trunc('day', b.created_at) ORDER BY date_trunc('day', b.created_at) ASC`, args...); err != nil {
+		return nil, err
+	}
+	return &dash, nil
+}
+
+func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.PaginatedTransactions, error) {
+	if filters.Limit <= 0 || filters.Limit > 200 {
+		filters.Limit = 50
+	}
+	if filters.Offset < 0 {
+		filters.Offset = 0
+	}
+	where, args := adminBoletoWhere(filters)
+	var total int
+	if err := r.db.QueryRow(`SELECT COUNT(b.id) FROM boletos b LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where, args...).Scan(&total); err != nil {
+		return nil, err
+	}
+	args = append(args, filters.Limit, filters.Offset)
+	query := fmt.Sprintf(`
+		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line
+		FROM boletos b
+		LEFT JOIN tenants t ON t.id = b.tenant_id
+		LEFT JOIN customers c ON c.id = b.customer_id
+		LEFT JOIN providers p ON p.id = b.provider_id
+		%s
+		ORDER BY b.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, where, len(args)-1, len(args))
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := domain.PaginatedTransactions{Items: []domain.BoletoTransaction{}, Limit: filters.Limit, Offset: filters.Offset, Total: total}
+	for rows.Next() {
+		var item domain.BoletoTransaction
+		var providerID sql.NullString
+		var providerName sql.NullString
+		var externalID sql.NullString
+		var ourNumber sql.NullString
+		var issuedAt sql.NullTime
+		var digitableLine sql.NullString
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &item.CustomerID, &item.CustomerName, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine); err != nil {
+			return nil, err
+		}
+		if providerID.Valid {
+			v := providerID.String
+			item.ProviderID = &v
+		}
+		if providerName.Valid {
+			v := providerName.String
+			item.ProviderName = &v
+		}
+		if externalID.Valid {
+			v := externalID.String
+			item.ExternalID = &v
+		}
+		if ourNumber.Valid {
+			v := ourNumber.String
+			item.OurNumber = &v
+		}
+		if issuedAt.Valid {
+			v := issuedAt.Time
+			item.IssuedAt = &v
+		}
+		if digitableLine.Valid {
+			v := digitableLine.String
+			item.DigitableLine = &v
+		}
+		out.Items = append(out.Items, item)
+	}
+	return &out, rows.Err()
+}
+
+func adminBoletoWhere(filters domain.BoletoFilters) (string, []any) {
+	clauses := []string{"t.deleted_at IS NULL", "b.deleted_at IS NULL"}
+	args := []any{}
+	add := func(sql string, value any) {
+		args = append(args, value)
+		clauses = append(clauses, fmt.Sprintf(sql, len(args)))
+	}
+	if filters.From != nil {
+		add("b.created_at >= $%d", *filters.From)
+	}
+	if filters.To != nil {
+		add("b.created_at < $%d", filters.To.Add(24*time.Hour))
+	}
+	if filters.TenantID != "" {
+		add("t.id = $%d", filters.TenantID)
+	}
+	if filters.ProviderID != "" {
+		add("b.provider_id = $%d", filters.ProviderID)
+	}
+	if filters.Status != "" {
+		add("b.status = $%d", strings.ToUpper(strings.TrimSpace(filters.Status)))
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func (r *BoletoRepo) metricRows(query string, args ...any) ([]domain.MetricRow, error) {
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.MetricRow{}
+	for rows.Next() {
+		var row domain.MetricRow
+		if err := rows.Scan(&row.ID, &row.Label, &row.Count, &row.AmountCents); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *BoletoRepo) timelineRows(query string, args ...any) ([]domain.TimelineRow, error) {
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.TimelineRow{}
+	for rows.Next() {
+		var row domain.TimelineRow
+		if err := rows.Scan(&row.Date, &row.Count, &row.AmountCents); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }

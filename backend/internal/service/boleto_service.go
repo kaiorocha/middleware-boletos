@@ -35,6 +35,11 @@ type BoletoService struct {
 	logger       *slog.Logger
 }
 
+type adminBoletoReader interface {
+	AdminDashboard(domain.BoletoFilters) (*domain.AdminDashboard, error)
+	ListTransactions(domain.BoletoFilters) (*domain.PaginatedTransactions, error)
+}
+
 func NewBoletoService(repo boletoRepo) *BoletoService {
 	return &BoletoService{repo: repo, payerBuilder: base.NewDefaultPayerBuilder(), logger: slog.Default()}
 }
@@ -114,6 +119,28 @@ func (s *BoletoService) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 	return s.repo.ListByTenant(tenantID)
 }
 
+func (s *BoletoService) AdminDashboard(filters domain.BoletoFilters) (*domain.AdminDashboard, error) {
+	if err := validateBoletoFilters(filters); err != nil {
+		return nil, err
+	}
+	reader, ok := s.repo.(adminBoletoReader)
+	if !ok {
+		return nil, ErrValidation
+	}
+	return reader.AdminDashboard(filters)
+}
+
+func (s *BoletoService) ListTransactions(filters domain.BoletoFilters) (*domain.PaginatedTransactions, error) {
+	if err := validateBoletoFilters(filters); err != nil {
+		return nil, err
+	}
+	reader, ok := s.repo.(adminBoletoReader)
+	if !ok {
+		return nil, ErrValidation
+	}
+	return reader.ListTransactions(filters)
+}
+
 func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*domain.Boleto, error) {
 	if !IsValidUUID(tenantID) || !IsValidUUID(boletoID) {
 		return nil, ErrValidation
@@ -188,11 +215,18 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if provider.TenantID != tenantID {
-		return nil, ErrValidation
+	if provider.Status != "ACTIVE" {
+		return nil, ErrProviderNotAllowed
+	}
+	allowed, err := s.providers.IsAllowedForTenant(tenantID, *boleto.ProviderID)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, ErrProviderNotAllowed
 	}
 
-	cfg := types.ProviderConfig{ID: provider.ID, TenantID: provider.TenantID, Name: provider.Name}
+	cfg := types.ProviderConfig{ID: provider.ID, TenantID: tenantID, Name: provider.Name}
 	if provider.Config != nil {
 		cfg.Config = *provider.Config
 	}
@@ -254,6 +288,19 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		"result", boleto.Status,
 	)
 	return boleto, nil
+}
+
+func validateBoletoFilters(filters domain.BoletoFilters) error {
+	if filters.TenantID != "" && !IsValidUUID(filters.TenantID) {
+		return ErrValidation
+	}
+	if filters.ProviderID != "" && !IsValidUUID(filters.ProviderID) {
+		return ErrValidation
+	}
+	if filters.From != nil && filters.To != nil && filters.From.After(*filters.To) {
+		return ErrValidation
+	}
+	return nil
 }
 
 func NormalizeDueDate(dateOnly string) (time.Time, error) {
