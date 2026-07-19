@@ -48,6 +48,11 @@ http://localhost:8080
 21. Duplicate External ID - 409
 22. Create Boleto With Our Number - 201
 23. Duplicate Our Number - 409
+24. GET Tenants as Common User - 403
+25. GET Tenants as Platform Admin - 200
+26. POST Tenant as Common User - 403
+27. POST Tenant as Platform Admin - 201
+28. My Tenants - 200
 
 Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
 
@@ -62,6 +67,8 @@ Os requests de criação capturam automaticamente os IDs retornados em `data.id`
 Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento manual.
 
 As rotas protegidas usam `Authorization: Bearer {{access_token}}`. Para execução local, a collection pode gerar um JWT HS256 automaticamente quando `autoGenerateAccessToken=true`, usando `jwtSecret`, `jwtIssuer`, `jwtAudience`, `jwtUserId` e o `tenantId` capturado.
+
+Operações globais de tenant usam `{{platform_admin_access_token}}`, que inclui `roles: ["PLATFORM_ADMIN"]`.
 
 Para validar contra um emissor real, preencha `access_token` manualmente e altere `autoGenerateAccessToken=false`.
 
@@ -80,5 +87,6 @@ A collection da Etapa 4 inclui requests esperados com HTTP `400` e `409`:
 - `Emit Blocked Boleto - 409` valida `error.code = CUSTOMER_BLOCKED`.
 - A pasta `Duplicate Validation` valida duplicidade por tenant para users, customers, providers, `external_id` e `our_number`.
 - A pasta `Auth Examples` valida `401 Unauthorized`, token malformado e `403 Forbidden` por cross-tenant.
+- A pasta `RBAC` valida `PLATFORM_ADMIN` em `GET/POST /api/v1/tenants` e `GET /api/v1/me/tenants`.
 
 A collection da Etapa 2 mantém a pasta histórica `Validation Errors`.

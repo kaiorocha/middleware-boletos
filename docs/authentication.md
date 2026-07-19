@@ -21,10 +21,11 @@ O backend valida:
 - assinatura HMAC-SHA256;
 - algoritmo exatamente `HS256`;
 - expiração (`exp`);
-- issuer (`iss`), quando `JWT_ISSUER` estiver configurado;
-- audience (`aud`), quando `JWT_AUDIENCE` estiver configurado;
+- issuer (`iss`);
+- audience (`aud`);
 - `sub` como UUID;
 - `tenant_id` e/ou `tenant_ids` como UUIDs.
+- `roles` como lista de strings normalizadas para uppercase.
 
 Tokens com `alg=none`, algoritmo diferente, assinatura inválida, expiração vencida, issuer inválido ou audience inválida retornam HTTP `401`.
 
@@ -36,6 +37,7 @@ Token com tenant único:
 {
   "sub": "550e8400-e29b-41d4-a716-446655449999",
   "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "roles": [],
   "exp": 1784500000,
   "iss": "middleware-boletos-local",
   "aud": "middleware-boletos-api"
@@ -51,11 +53,50 @@ Token com múltiplos tenants:
     "550e8400-e29b-41d4-a716-446655440000",
     "550e8400-e29b-41d4-a716-446655440099"
   ],
+  "roles": [],
   "exp": 1784500000,
   "iss": "middleware-boletos-local",
   "aud": "middleware-boletos-api"
 }
 ```
+
+Token com administração global:
+
+```json
+{
+  "sub": "550e8400-e29b-41d4-a716-446655449999",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "roles": ["PLATFORM_ADMIN"],
+  "exp": 1784500000,
+  "iss": "middleware-boletos-local",
+  "aud": "middleware-boletos-api"
+}
+```
+
+## RBAC
+
+Roles vêm exclusivamente do JWT validado. A API normaliza roles com trim + uppercase e remove duplicidades.
+
+Role global atual:
+
+- `PLATFORM_ADMIN`: permite administração global da plataforma.
+
+Rotas globais protegidas por `PLATFORM_ADMIN`:
+
+- `GET /api/v1/tenants`
+- `POST /api/v1/tenants`
+
+Usuários sem `PLATFORM_ADMIN` recebem HTTP `403` nessas rotas, mesmo com JWT válido.
+
+## Tenants do usuário
+
+Usuários comuns não devem usar `GET /api/v1/tenants`. Para descobrir tenants acessíveis, use:
+
+```http
+GET /api/v1/me/tenants
+```
+
+Esse endpoint lê `tenant_id`/`tenant_ids` da Identity autenticada e retorna somente tenants presentes nas claims.
 
 ## Autorização por tenant
 
@@ -88,5 +129,4 @@ JWT_ISSUER=<issuer-esperado>
 JWT_AUDIENCE=<audience-esperada>
 ```
 
-Em produção, `JWT_SECRET` é obrigatório. Se estiver ausente, a API falha no startup para evitar modo inseguro.
-
+Em produção, `JWT_SECRET`, `JWT_ISSUER` e `JWT_AUDIENCE` são obrigatórios. `JWT_SECRET` deve ter pelo menos 32 caracteres. Se qualquer requisito estiver ausente, a API falha no startup com `auth config invalid`.

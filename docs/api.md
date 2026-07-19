@@ -98,7 +98,7 @@ Exceção pública:
 
 - `GET /health`
 
-O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
+O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. A claim `roles` é usada para RBAC. Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
 
 Respostas de autorização:
 
@@ -106,6 +106,18 @@ Respostas de autorização:
 - HTTP `403` com `FORBIDDEN` quando o usuário não puder operar o tenant solicitado.
 
 Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` podem ser usados para operação local controlada. Esses headers são ignorados em produção.
+
+Rotas globais:
+
+| Rota | Política |
+|---|---|
+| `GET /health` | Pública |
+| `GET /api/v1/tenants` | `PLATFORM_ADMIN` |
+| `POST /api/v1/tenants` | `PLATFORM_ADMIN` |
+| `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
+| `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
+| `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |
+| `/api/v1/providers/*` | JWT autenticado; quando `provider_id` é informado, `tenant_id` deve estar autorizado |
 
 ## Health Check
 
@@ -131,20 +143,31 @@ Resposta esperada:
 
 ### POST /api/v1/tenants
 
-Cria um tenant/empresa.
+Cria um tenant/empresa. Requer role `PLATFORM_ADMIN`.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Tenant A"}'
 ```
 
 ### GET /api/v1/tenants
 
-Lista tenants cadastrados.
+Lista tenants cadastrados. Requer role `PLATFORM_ADMIN`.
 
 ```bash
-curl -s http://localhost:8080/api/v1/tenants
+curl -s http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
+### GET /api/v1/me/tenants
+
+Lista somente os tenants presentes nas claims `tenant_id`/`tenant_ids` do JWT autenticado.
+
+```bash
+curl -s http://localhost:8080/api/v1/me/tenants \
+  -H "Authorization: Bearer <token>"
 ```
 
 ### GET /api/v1/tenants/:id

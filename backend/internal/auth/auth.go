@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 )
 
 var (
@@ -11,13 +12,41 @@ var (
 	ErrNoIdentity   = errors.New("identity not found")
 )
 
+const RolePlatformAdmin = "PLATFORM_ADMIN"
+
 type Identity struct {
 	UserID    string
 	TenantIDs []string
+	Roles     []string
 }
 
 func (i Identity) HasTenant(tenantID string) bool {
 	return slices.Contains(i.TenantIDs, tenantID)
+}
+
+func (i Identity) HasRole(role string) bool {
+	return slices.Contains(i.Roles, NormalizeRole(role))
+}
+
+func NormalizeRole(role string) string {
+	return strings.ToUpper(strings.TrimSpace(role))
+}
+
+func NormalizeRoles(roles []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		role = NormalizeRole(role)
+		if role == "" {
+			continue
+		}
+		if _, ok := seen[role]; ok {
+			continue
+		}
+		seen[role] = struct{}{}
+		out = append(out, role)
+	}
+	return out
 }
 
 type contextKey struct{}

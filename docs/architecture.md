@@ -49,6 +49,8 @@ Autorização multi-tenant
 - Rotas sob `/api/v1/tenants/{tenantId}/...` passam por autorização centralizada antes dos handlers.
 - A identidade autenticada vem de JWT Bearer validado e informa tenants permitidos por `tenant_id` ou `tenant_ids`.
 - Sem identidade, a API retorna HTTP 401. Com identidade sem acesso ao tenant, retorna HTTP 403.
+- RBAC usa a claim `roles`; `PLATFORM_ADMIN` é exigido para operações globais como listar e criar tenants.
+- Usuários comuns obtêm seus tenants por `GET /api/v1/me/tenants` ou pela sessão/JWT, sem acesso à listagem global.
 - Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção.
 - Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` permitem operação local controlada.
 

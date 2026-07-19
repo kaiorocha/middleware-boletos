@@ -54,6 +54,38 @@ func (r *duplicateUserRepo) ListByTenant(string) ([]domain.User, error) { return
 func (r *duplicateUserRepo) Update(*domain.User) error                  { return nil }
 func (r *duplicateUserRepo) Delete(string, string) error                { return nil }
 
+type apiTenantRepo struct {
+	items   map[string]*domain.Tenant
+	created *domain.Tenant
+}
+
+func (r *apiTenantRepo) Create(t *domain.Tenant) error {
+	if t.ID == "" {
+		t.ID = "550e8400-e29b-41d4-a716-446655440077"
+	}
+	r.created = t
+	if r.items == nil {
+		r.items = map[string]*domain.Tenant{}
+	}
+	r.items[t.ID] = t
+	return nil
+}
+func (r *apiTenantRepo) FindByID(id string) (*domain.Tenant, error) {
+	if item, ok := r.items[id]; ok {
+		return item, nil
+	}
+	return nil, service.ErrValidation
+}
+func (r *apiTenantRepo) List() ([]domain.Tenant, error) {
+	out := make([]domain.Tenant, 0, len(r.items))
+	for _, item := range r.items {
+		out = append(out, *item)
+	}
+	return out, nil
+}
+func (r *apiTenantRepo) Update(*domain.Tenant) error { return nil }
+func (r *apiTenantRepo) Delete(string) error         { return nil }
+
 type duplicateCustomerRepo struct{}
 
 func (r *duplicateCustomerRepo) Create(*domain.Customer) error {
@@ -262,6 +294,10 @@ func authorizeTenants(req *http.Request, tenantIDs ...string) {
 	req.Header.Set("Authorization", "Bearer "+testJWT(testUserID, tenantIDs, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
 }
 
+func authorizePlatformAdmin(req *http.Request, tenantIDs ...string) {
+	req.Header.Set("Authorization", "Bearer "+testJWTWithRoles(testUserID, tenantIDs, []string{authn.RolePlatformAdmin}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
+}
+
 func authenticatedTestApp(app *App) *App {
 	validator, err := authn.NewHMACValidator(authn.JWTConfig{
 		Secret:   testJWTSecret,
@@ -283,11 +319,18 @@ func developmentTestApp(app *App) *App {
 }
 
 func testJWT(userID string, tenantIDs []string, exp time.Time, issuer, audience, secret string) string {
+	return testJWTWithRoles(userID, tenantIDs, nil, exp, issuer, audience, secret)
+}
+
+func testJWTWithRoles(userID string, tenantIDs []string, roles []string, exp time.Time, issuer, audience, secret string) string {
 	header := map[string]any{"alg": "HS256", "typ": "JWT"}
 	claims := map[string]any{
 		"sub":        userID,
 		"tenant_ids": tenantIDs,
 		"exp":        exp.Unix(),
+	}
+	if roles != nil {
+		claims["roles"] = roles
 	}
 	if len(tenantIDs) == 1 {
 		claims["tenant_id"] = tenantIDs[0]
@@ -310,6 +353,119 @@ func encodeJWTPart(value any) string {
 		panic(err)
 	}
 	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func TestGlobalTenantRoutesRequirePlatformAdmin(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &apiTenantRepo{items: map[string]*domain.Tenant{
+		tenantID: {ID: tenantID, Name: "Tenant A"},
+	}}
+	app := authenticatedTestApp(&App{TenantSvc: service.NewTenantService(repo)})
+
+	tests := []struct {
+		name   string
+		method string
+		body   string
+		token  string
+		want   int
+	}{
+		{name: "GET without token", method: http.MethodGet, want: http.StatusUnauthorized},
+		{
+			name:   "GET authenticated without platform admin",
+			method: http.MethodGet,
+			token:  testJWT(testUserID, []string{tenantID}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusForbidden,
+		},
+		{
+			name:   "GET invalid role",
+			method: http.MethodGet,
+			token:  testJWTWithRoles(testUserID, []string{tenantID}, []string{"TENANT_ADMIN"}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusForbidden,
+		},
+		{
+			name:   "GET lowercase platform admin role normalized",
+			method: http.MethodGet,
+			token:  testJWTWithRoles(testUserID, []string{tenantID}, []string{"platform_admin"}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusOK,
+		},
+		{
+			name:   "GET platform admin",
+			method: http.MethodGet,
+			token:  testJWTWithRoles(testUserID, []string{tenantID}, []string{authn.RolePlatformAdmin}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusOK,
+		},
+		{name: "POST without token", method: http.MethodPost, body: `{"name":"Tenant Novo"}`, want: http.StatusUnauthorized},
+		{
+			name:   "POST authenticated without platform admin",
+			method: http.MethodPost,
+			body:   `{"name":"Tenant Novo"}`,
+			token:  testJWT(testUserID, []string{tenantID}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusForbidden,
+		},
+		{
+			name:   "POST invalid role",
+			method: http.MethodPost,
+			body:   `{"name":"Tenant Novo"}`,
+			token:  testJWTWithRoles(testUserID, []string{tenantID}, []string{"ADMIN"}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusForbidden,
+		},
+		{
+			name:   "POST platform admin",
+			method: http.MethodPost,
+			body:   `{"name":"Tenant Novo"}`,
+			token:  testJWTWithRoles(testUserID, []string{tenantID}, []string{authn.RolePlatformAdmin}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:   http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/api/v1/tenants", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			if tt.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tt.token)
+			}
+			rr := httptest.NewRecorder()
+			app.routes().ServeHTTP(rr, req)
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestMyTenantsReturnsOnlyClaimTenants(t *testing.T) {
+	tenantA := "550e8400-e29b-41d4-a716-446655440000"
+	tenantB := "550e8400-e29b-41d4-a716-446655440099"
+	tenantC := "550e8400-e29b-41d4-a716-446655440088"
+	app := authenticatedTestApp(&App{TenantSvc: service.NewTenantService(&apiTenantRepo{items: map[string]*domain.Tenant{
+		tenantA: {ID: tenantA, Name: "Tenant A"},
+		tenantB: {ID: tenantB, Name: "Tenant B"},
+		tenantC: {ID: tenantC, Name: "Tenant C"},
+	}})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/tenants", nil)
+	authorizeTenants(req, tenantA, tenantB)
+	rr := httptest.NewRecorder()
+	app.routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var payload struct {
+		Data []domain.Tenant `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(payload.Data) != 2 {
+		t.Fatalf("expected 2 tenants, got %+v", payload.Data)
+	}
+	for _, tenant := range payload.Data {
+		if tenant.ID == tenantC {
+			t.Fatalf("tenant outside claims was returned: %+v", payload.Data)
+		}
+	}
 }
 
 func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {

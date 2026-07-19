@@ -28,7 +28,17 @@
                 }
               }
             },
-            "url": "{{baseUrl}}/api/v1/tenants"
+            "url": "{{baseUrl}}/api/v1/tenants",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
           "event": [
             {
@@ -816,6 +826,248 @@
           ]
         }
       ]
+    },
+    {
+      "name": "RBAC",
+      "item": [
+        {
+          "name": "GET Tenants as Common User - 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is FORBIDDEN\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"FORBIDDEN\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Tenants as Platform Admin - 200",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(response).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Tenant as Common User - 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tenant RBAC Common\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is FORBIDDEN\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"FORBIDDEN\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Tenant as Platform Admin - 201",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tenant RBAC Admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(response).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My Tenants - 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/me/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "me",
+                "tenants"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(response).to.have.property(\"data\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -878,6 +1130,10 @@
     {
       "key": "crossTenantId",
       "value": "550e8400-e29b-41d4-a716-446655440099"
+    },
+    {
+      "key": "platform_admin_access_token",
+      "value": ""
     }
   ],
   "auth": {
@@ -907,7 +1163,7 @@
           "    .replace(/\\//g, \"_\");",
           "}",
           "",
-          "function signToken(tenantId) {",
+          "function signToken(tenantId, roles) {",
           "  const secret = pm.collectionVariables.get(\"jwtSecret\");",
           "  const issuer = pm.collectionVariables.get(\"jwtIssuer\");",
           "  const audience = pm.collectionVariables.get(\"jwtAudience\");",
@@ -918,6 +1174,7 @@
           "    sub: userId,",
           "    tenant_id: tenantId,",
           "    tenant_ids: [tenantId],",
+          "    roles: roles || [],",
           "    iss: issuer,",
           "    aud: audience,",
           "    exp: now + 3600",
@@ -928,8 +1185,9 @@
           "}",
           "",
           "const tenantId = pm.collectionVariables.get(\"tenantId\") || pm.collectionVariables.get(\"jwtTenantId\");",
-          "pm.collectionVariables.set(\"access_token\", signToken(tenantId));",
-          "pm.collectionVariables.set(\"forbidden_access_token\", signToken(pm.collectionVariables.get(\"crossTenantId\")));"
+          "pm.collectionVariables.set(\"access_token\", signToken(tenantId, []));",
+          "pm.collectionVariables.set(\"platform_admin_access_token\", signToken(tenantId, [\"PLATFORM_ADMIN\"]));",
+          "pm.collectionVariables.set(\"forbidden_access_token\", signToken(pm.collectionVariables.get(\"crossTenantId\"), []));"
         ]
       }
     }

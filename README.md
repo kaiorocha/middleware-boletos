@@ -45,6 +45,7 @@ curl -s http://localhost:8080/health
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Tenant Demo"}'
 ```
@@ -66,6 +67,7 @@ Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de
 - `POST /api/v1/tenants`
 - `GET /api/v1/tenants`
 - `GET /api/v1/tenants/:id`
+- `GET /api/v1/me/tenants`
 
 ### Users
 - `POST /api/v1/users`
@@ -164,9 +166,13 @@ O bloqueio é aplicado no backend, no fluxo central de emissão, para evitar byp
 
 Rotas administrativas e operacionais exigem `Authorization: Bearer <JWT>`. A exceção pública é `GET /health`.
 
-O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. Rotas tenant-scoped validam o tenant da URL contra os tenants presentes na identidade autenticada. Sem token ou com token inválido, a API retorna HTTP `401` com `UNAUTHORIZED`. Se o usuário autenticado não tiver acesso ao tenant da URL, retorna HTTP `403` com `FORBIDDEN`.
+O JWT deve conter `sub`, `tenant_id` ou `tenant_ids`, e pode conter `roles`. Rotas tenant-scoped validam o tenant da URL contra os tenants presentes na identidade autenticada. Sem token ou com token inválido, a API retorna HTTP `401` com `UNAUTHORIZED`. Se o usuário autenticado não tiver acesso ao tenant da URL, retorna HTTP `403` com `FORBIDDEN`.
 
 Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção. Em desenvolvimento local, somente com `APP_ENV=development`, é possível usar `X-Dev-User-ID` e `X-Dev-Tenant-ID`.
+
+`GET /api/v1/tenants` e `POST /api/v1/tenants` exigem role `PLATFORM_ADMIN`. Usuários comuns obtêm seus tenants por `GET /api/v1/me/tenants` ou diretamente da sessão/JWT.
+
+Em produção, `JWT_SECRET`, `JWT_ISSUER` e `JWT_AUDIENCE` são obrigatórios; `JWT_SECRET` deve ter pelo menos 32 caracteres. Configuração inválida encerra o startup com `auth config invalid`.
 
 Detalhes: `docs/authentication.md`.
 
@@ -175,6 +181,7 @@ Detalhes: `docs/authentication.md`.
 ### Criar Tenant
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Tenant A"}'
 ```

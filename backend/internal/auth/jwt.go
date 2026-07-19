@@ -84,6 +84,7 @@ type jwtClaims struct {
 	Subject   string          `json:"sub"`
 	TenantID  string          `json:"tenant_id"`
 	TenantIDs []string        `json:"tenant_ids"`
+	Roles     []string        `json:"roles"`
 	ExpiresAt int64           `json:"exp"`
 	Issuer    string          `json:"iss"`
 	Audience  json.RawMessage `json:"aud"`
@@ -118,7 +119,7 @@ func (v *HMACValidator) identityFromClaims(claims jwtClaims) (Identity, error) {
 		return Identity{}, ErrInvalidToken
 	}
 
-	return Identity{UserID: claims.Subject, TenantIDs: tenants}, nil
+	return Identity{UserID: claims.Subject, TenantIDs: tenants, Roles: NormalizeRoles(claims.Roles)}, nil
 }
 
 func uniqueValidUUIDs(values []string) []string {

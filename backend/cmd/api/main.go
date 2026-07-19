@@ -15,13 +15,20 @@ import (
 
 func main() {
 	cfg := config.Load()
-	jwtValidator, err := authn.NewHMACValidator(authn.JWTConfig{
-		Secret:   cfg.JWTSecret,
-		Issuer:   cfg.JWTIssuer,
-		Audience: cfg.JWTAudience,
-	})
-	if err != nil && !isDevelopmentEnv(cfg.Env) {
-		log.Fatalf("auth config: %v", err)
+	if err := config.ValidateAuthConfig(cfg); err != nil {
+		log.Fatalf("auth config invalid: %v", err)
+	}
+	var jwtValidator authn.TokenValidator
+	if strings.TrimSpace(cfg.JWTSecret) != "" {
+		validator, err := authn.NewHMACValidator(authn.JWTConfig{
+			Secret:   cfg.JWTSecret,
+			Issuer:   cfg.JWTIssuer,
+			Audience: cfg.JWTAudience,
+		})
+		if err != nil {
+			log.Fatalf("auth config invalid: %v", err)
+		}
+		jwtValidator = validator
 	}
 	db, err := storage.Connect(cfg)
 	if err != nil {
@@ -68,8 +75,4 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.Port, h); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
-}
-
-func isDevelopmentEnv(env string) bool {
-	return strings.EqualFold(strings.TrimSpace(env), "development")
 }

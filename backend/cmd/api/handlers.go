@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
 	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
@@ -100,6 +101,7 @@ func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", a.handleHealth)
 	mux.HandleFunc("/api/v1/tenants", a.handleTenants)
+	mux.HandleFunc("/api/v1/me/tenants", a.handleMyTenants)
 	mux.HandleFunc("/api/v1/providers/", a.handleProvidersIntegration)
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
@@ -116,6 +118,9 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleTenants(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePlatformAdmin(w, r) {
+		return
+	}
 	switch r.Method {
 	case http.MethodPost:
 		var in domain.Tenant
@@ -138,6 +143,41 @@ func (a *App) handleTenants(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 	}
+}
+
+func (a *App) handleMyTenants(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	identity, ok := authn.IdentityFromContext(r.Context())
+	if !ok || identity.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	}
+	items := make([]domain.Tenant, 0, len(identity.TenantIDs))
+	for _, tenantID := range identity.TenantIDs {
+		item, err := a.TenantSvc.Get(tenantID)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		items = append(items, *item)
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *App) requirePlatformAdmin(w http.ResponseWriter, r *http.Request) bool {
+	identity, ok := authn.IdentityFromContext(r.Context())
+	if !ok || identity.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return false
+	}
+	if !identity.HasRole(authn.RolePlatformAdmin) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
+		return false
+	}
+	return true
 }
 
 func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
