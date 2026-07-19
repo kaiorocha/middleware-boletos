@@ -564,9 +564,10 @@ func TestLogin(t *testing.T) {
 	}
 }
 
-func TestBootstrapPlatformAdmin(t *testing.T) {
+func TestBootstrapPlatformAdminDevelopment(t *testing.T) {
 	repo := &apiUserRepo{}
 	cfg := &config.Config{
+		Env:                    "development",
 		BootstrapAdminEmail:    "admin@middleware.local",
 		BootstrapAdminPassword: "ChangeMe123456!",
 		BootstrapAdminName:     "Administrador",
@@ -586,6 +587,83 @@ func TestBootstrapPlatformAdmin(t *testing.T) {
 	}
 	if len(repo.created) != 1 {
 		t.Fatalf("expected idempotent bootstrap, created=%d", len(repo.created))
+	}
+}
+
+func TestBootstrapPlatformAdminProductionPolicy(t *testing.T) {
+	validCfg := func() *config.Config {
+		return &config.Config{
+			Env:                    "production",
+			EnableAdminBootstrap:   true,
+			BootstrapAdminEmail:    "admin@middleware.local",
+			BootstrapAdminPassword: "ChangeMe123456!",
+			BootstrapAdminName:     "Administrador",
+		}
+	}
+
+	tests := []struct {
+		name       string
+		cfg        *config.Config
+		wantCreate bool
+		wantErr    bool
+	}{
+		{
+			name: "production without ENABLE_ADMIN_BOOTSTRAP",
+			cfg: &config.Config{
+				Env:                    "production",
+				BootstrapAdminEmail:    "admin@middleware.local",
+				BootstrapAdminPassword: "ChangeMe123456!",
+				BootstrapAdminName:     "Administrador",
+			},
+		},
+		{
+			name: "production with ENABLE_ADMIN_BOOTSTRAP false",
+			cfg: &config.Config{
+				Env:                    "production",
+				EnableAdminBootstrap:   false,
+				BootstrapAdminEmail:    "admin@middleware.local",
+				BootstrapAdminPassword: "ChangeMe123456!",
+				BootstrapAdminName:     "Administrador",
+			},
+		},
+		{
+			name:       "production with ENABLE_ADMIN_BOOTSTRAP true and complete config",
+			cfg:        validCfg(),
+			wantCreate: true,
+		},
+		{
+			name: "production with ENABLE_ADMIN_BOOTSTRAP true and incomplete config",
+			cfg: &config.Config{
+				Env:                  "production",
+				EnableAdminBootstrap: true,
+				BootstrapAdminEmail:  "admin@middleware.local",
+			},
+			wantErr: true,
+		},
+		{
+			name: "production with ENABLE_ADMIN_BOOTSTRAP true and weak password",
+			cfg: &config.Config{
+				Env:                    "production",
+				EnableAdminBootstrap:   true,
+				BootstrapAdminEmail:    "admin@middleware.local",
+				BootstrapAdminPassword: "short",
+				BootstrapAdminName:     "Administrador",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &apiUserRepo{}
+			err := bootstrapPlatformAdmin(tt.cfg, service.NewUserService(repo))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+			if (len(repo.created) == 1) != tt.wantCreate {
+				t.Fatalf("expected created=%v, got %d", tt.wantCreate, len(repo.created))
+			}
+		})
 	}
 }
 

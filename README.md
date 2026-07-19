@@ -69,6 +69,10 @@ Credenciais locais de desenvolvimento, quando `.env.example` é usado:
 
 Após login, o `PLATFORM_ADMIN` cria tenants e administradores de tenant pelo painel. O `TENANT_ADMIN` acessa somente os tenants presentes no JWT, sem digitar UUID manualmente.
 
+Em production, o login inicia com campos vazios. `NEXT_PUBLIC_DEMO_ADMIN_EMAIL` e `NEXT_PUBLIC_DEMO_ADMIN_PASSWORD` são variáveis públicas apenas para desenvolvimento/demo local e nunca devem carregar senha real.
+
+Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=development`. Em `APP_ENV=production`, exige `ENABLE_ADMIN_BOOTSTRAP=true`; depois da primeira criação, volte para `false` e remova `BOOTSTRAP_ADMIN_PASSWORD`.
+
 ## Rotas disponíveis
 
 ### Health

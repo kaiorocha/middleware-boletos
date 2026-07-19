@@ -32,3 +32,19 @@ func TestValidateAuthConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestParseBoolOnlyTrueEnables(t *testing.T) {
+	tests := map[string]bool{
+		"true":  true,
+		"TRUE":  true,
+		"false": false,
+		"1":     false,
+		"yes":   false,
+		"":      false,
+	}
+	for raw, want := range tests {
+		if got := parseBool(raw); got != want {
+			t.Fatalf("parseBool(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

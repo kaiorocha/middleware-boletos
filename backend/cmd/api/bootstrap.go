@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"strings"
 
@@ -14,13 +15,26 @@ func bootstrapPlatformAdmin(cfg *config.Config, userSvc *service.UserService) er
 	if cfg == nil || userSvc == nil {
 		return nil
 	}
+	production := strings.EqualFold(strings.TrimSpace(cfg.Env), "production")
+	if production && !cfg.EnableAdminBootstrap {
+		log.Print("platform admin bootstrap disabled")
+		return nil
+	}
 	email := service.NormalizeEmail(cfg.BootstrapAdminEmail)
 	password := strings.TrimSpace(cfg.BootstrapAdminPassword)
 	name := strings.TrimSpace(cfg.BootstrapAdminName)
 	if email == "" || password == "" || name == "" {
+		if production && cfg.EnableAdminBootstrap {
+			return errors.New("bootstrap admin credentials are required")
+		}
+		log.Print("platform admin bootstrap disabled")
 		return nil
 	}
-	if len(password) < 8 {
+	minPasswordLength := 8
+	if production {
+		minPasswordLength = 12
+	}
+	if len(password) < minPasswordLength {
 		return service.ErrValidation
 	}
 
@@ -29,6 +43,7 @@ func bootstrapPlatformAdmin(cfg *config.Config, userSvc *service.UserService) er
 		return err
 	}
 	if exists {
+		log.Print("platform admin already exists")
 		return nil
 	}
 
@@ -46,6 +61,6 @@ func bootstrapPlatformAdmin(cfg *config.Config, userSvc *service.UserService) er
 	if err := userSvc.Create(user); err != nil {
 		return err
 	}
-	log.Printf("bootstrap platform admin created: %s", email)
+	log.Print("platform admin bootstrap created")
 	return nil
 }

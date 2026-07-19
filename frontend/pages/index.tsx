@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 
 const API_DEFAULT = 'http://localhost:8080'
 const SESSION_KEY = 'middleware-boletos-session'
+const IS_DEVELOPMENT = process.env.NEXT_PUBLIC_APP_ENV === 'development'
+const DEFAULT_EMAIL = IS_DEVELOPMENT
+  ? process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || 'admin@middleware.local'
+  : ''
+const DEFAULT_PASSWORD = IS_DEVELOPMENT ? process.env.NEXT_PUBLIC_DEMO_ADMIN_PASSWORD || '' : ''
 
 const statusLabels = {
   CREATED: 'Criado',
@@ -113,8 +118,8 @@ export default function SaaSPanel() {
 }
 
 function LoginView({ baseUrl, setBaseUrl, login, error, setError }) {
-  const [email, setEmail] = useState('admin@middleware.local')
-  const [password, setPassword] = useState('ChangeMe123456!')
+  const [email, setEmail] = useState(DEFAULT_EMAIL)
+  const [password, setPassword] = useState(DEFAULT_PASSWORD)
   const [loading, setLoading] = useState(false)
 
   const submit = async (event) => {

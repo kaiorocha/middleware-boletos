@@ -148,6 +148,12 @@ BOOTSTRAP_ADMIN_NAME=Administrador
 
 O bootstrap roda somente quando as variáveis estão preenchidas e ainda não existe `PLATFORM_ADMIN`. Ele não deve ser usado com credenciais demo em produção.
 
+Em `APP_ENV=development`, o bootstrap pode executar automaticamente com as variáveis configuradas.
+
+Em `APP_ENV=production`, o bootstrap só executa quando `ENABLE_ADMIN_BOOTSTRAP=true`. A ausência da flag, `false` ou qualquer outro valor equivale a desabilitado. Com a flag habilitada, credenciais incompletas ou senha com menos de 12 caracteres falham de forma segura.
+
+Após o primeiro bootstrap produtivo, defina `ENABLE_ADMIN_BOOTSTRAP=false` e remova `BOOTSTRAP_ADMIN_PASSWORD` do ambiente.
+
 ## Autorização por tenant
 
 Após validar o JWT, a API cria uma identidade autenticada no contexto da request. Rotas tenant-scoped com `/api/v1/tenants/{tenantId}/...` só continuam quando `{tenantId}` está presente em `tenant_id` ou `tenant_ids`.

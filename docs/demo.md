@@ -21,9 +21,13 @@ APP_ENV=development
 JWT_SECRET=local-development-secret-change-me
 JWT_ISSUER=middleware-boletos-local
 JWT_AUDIENCE=middleware-boletos-api
+ENABLE_ADMIN_BOOTSTRAP=false
 BOOTSTRAP_ADMIN_EMAIL=admin@middleware.local
 BOOTSTRAP_ADMIN_PASSWORD=ChangeMe123456!
 BOOTSTRAP_ADMIN_NAME=Administrador
+NEXT_PUBLIC_APP_ENV=development
+NEXT_PUBLIC_DEMO_ADMIN_EMAIL=admin@middleware.local
+NEXT_PUBLIC_DEMO_ADMIN_PASSWORD=ChangeMe123456!
 ```
 
 O backend cria o primeiro `PLATFORM_ADMIN` somente quando ainda não existe usuário com essa role e quando as variáveis estão explicitamente preenchidas. A operação é idempotente e a senha não é registrada em logs.
@@ -34,6 +38,23 @@ Credenciais demo:
 - Senha: `ChangeMe123456!`
 
 Use essas credenciais apenas em desenvolvimento.
+
+`NEXT_PUBLIC_DEMO_ADMIN_PASSWORD` serve somente para preencher a tela de login em desenvolvimento/demo local. Nunca configure essa variável com senha real em produção.
+
+## Bootstrap em produção
+
+Por padrão, production não executa bootstrap automático mesmo que `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` e `BOOTSTRAP_ADMIN_NAME` estejam configurados.
+
+Procedimento controlado:
+
+1. Configure temporariamente `ENABLE_ADMIN_BOOTSTRAP=true`.
+2. Configure `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` e `BOOTSTRAP_ADMIN_NAME`.
+3. Inicie a aplicação.
+4. Confirme a criação do `PLATFORM_ADMIN`.
+5. Altere `ENABLE_ADMIN_BOOTSTRAP=false`.
+6. Remova `BOOTSTRAP_ADMIN_PASSWORD` do ambiente.
+
+O bootstrap continua idempotente: se já existir `PLATFORM_ADMIN`, outro usuário não é criado.
 
 ## Fluxo de apresentação
 
@@ -64,4 +85,3 @@ Use essas credenciais apenas em desenvolvimento.
 - Customer: pagador/sacado do boleto.
 
 `TENANT_ADMIN` não é customer. Ele administra recursos do tenant autorizado.
-

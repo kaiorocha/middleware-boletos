@@ -16,6 +16,7 @@ type Config struct {
 	JWTSecret              string
 	JWTIssuer              string
 	JWTAudience            string
+	EnableAdminBootstrap   bool
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
 	BootstrapAdminName     string
@@ -33,11 +34,16 @@ func Load() *Config {
 		JWTSecret:              getEnv("JWT_SECRET", ""),
 		JWTIssuer:              getEnv("JWT_ISSUER", ""),
 		JWTAudience:            getEnv("JWT_AUDIENCE", ""),
+		EnableAdminBootstrap:   parseBool(getEnv("ENABLE_ADMIN_BOOTSTRAP", "false")),
 		BootstrapAdminEmail:    getEnv("BOOTSTRAP_ADMIN_EMAIL", ""),
 		BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
 		BootstrapAdminName:     getEnv("BOOTSTRAP_ADMIN_NAME", ""),
 	}
 	return cfg
+}
+
+func parseBool(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
 
 func getEnv(key, fallback string) string {
