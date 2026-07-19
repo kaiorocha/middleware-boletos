@@ -564,6 +564,70 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+func TestLoginCORSPreflight(t *testing.T) {
+	app := authenticatedTestApp(&App{})
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	rr := httptest.NewRecorder()
+
+	app.routes().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 preflight, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if rr.Header().Get("Access-Control-Allow-Origin") == "" {
+		t.Fatal("expected CORS headers")
+	}
+}
+
+func TestLoginTokenAccessesProtectedTenantRoute(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	hash, err := authn.HashPassword("Senha123456!")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	user := &domain.User{
+		ID:           testUserID,
+		TenantID:     tenantID,
+		Email:        "tenant@example.com",
+		Name:         "Tenant Admin",
+		Status:       "ACTIVE",
+		Roles:        []string{authn.RoleTenantAdmin},
+		PasswordHash: hash,
+	}
+	app := authenticatedTestApp(&App{
+		UserSvc:     service.NewUserService(&apiUserRepo{item: user}),
+		CustomerSvc: service.NewCustomerService(&apiCustomerRepo{}),
+	})
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"tenant@example.com","password":"Senha123456!"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRR := httptest.NewRecorder()
+	app.routes().ServeHTTP(loginRR, loginReq)
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRR.Code, loginRR.Body.String())
+	}
+
+	var loginPayload struct {
+		Data struct {
+			AccessToken string `json:"access_token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &loginPayload); err != nil {
+		t.Fatalf("invalid login json: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+tenantID+"/customers", nil)
+	req.Header.Set("Authorization", "Bearer "+loginPayload.Data.AccessToken)
+	rr := httptest.NewRecorder()
+	app.routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected protected route 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestBootstrapPlatformAdminDevelopment(t *testing.T) {
 	repo := &apiUserRepo{}
 	cfg := &config.Config{

@@ -111,7 +111,21 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
 	mux.HandleFunc("/api/v1/users/", a.handleUsersByID)
-	return a.authenticationMiddleware(mux)
+	return corsMiddleware(a.authenticationMiddleware(mux))
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+		w.Header().Set("Access-Control-Max-Age", "600")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
