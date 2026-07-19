@@ -52,7 +52,6 @@ http://localhost:8080
 Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
 
 - `tenantId`
-- `userId`
 - `customerId`
 - `providerId`
 - `boletoId`
@@ -62,7 +61,9 @@ Os requests de criação capturam automaticamente os IDs retornados em `data.id`
 
 Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento manual.
 
-As rotas tenant-scoped enviam `X-User-ID` e `X-Tenant-ID`. A variável `userId` vem preenchida com um UUID de demonstração para validar a camada explícita de autorização multi-tenant.
+As rotas protegidas usam `Authorization: Bearer {{access_token}}`. Para execução local, a collection pode gerar um JWT HS256 automaticamente quando `autoGenerateAccessToken=true`, usando `jwtSecret`, `jwtIssuer`, `jwtAudience`, `jwtUserId` e o `tenantId` capturado.
+
+Para validar contra um emissor real, preencha `access_token` manualmente e altere `autoGenerateAccessToken=false`.
 
 ## Collections disponíveis
 
@@ -78,5 +79,6 @@ A collection da Etapa 4 inclui requests esperados com HTTP `400` e `409`:
 - `Duplicate Mock Provider - 409` valida `error.code = DUPLICATE_RESOURCE`.
 - `Emit Blocked Boleto - 409` valida `error.code = CUSTOMER_BLOCKED`.
 - A pasta `Duplicate Validation` valida duplicidade por tenant para users, customers, providers, `external_id` e `our_number`.
+- A pasta `Auth Examples` valida `401 Unauthorized`, token malformado e `403 Forbidden` por cross-tenant.
 
 A collection da Etapa 2 mantém a pasta histórica `Validation Errors`.

@@ -96,9 +96,6 @@ Rotas tenant-scoped são protegidas por autorização centralizada:
 - Identidade autenticada sem acesso ao tenant solicitado: HTTP `403` com `FORBIDDEN`.
 - Identidade autorizada: a requisição segue para o handler.
 
-Enquanto não há autenticação completa, a API usa uma camada explícita e testável baseada em headers:
+A identidade autenticada é extraída de JWT Bearer validado e contém os tenants autorizados por `tenant_id` ou `tenant_ids`. Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção.
 
-- `X-User-ID`
-- `X-Tenant-ID` ou `X-Tenant-IDs`
-
-Em desenvolvimento, e somente com `APP_ENV=development`, o header `X-Dev-Tenant-ID` pode ser usado para operar localmente. Esse modo não é habilitado por padrão em produção.
+Em desenvolvimento, e somente com `APP_ENV=development`, os headers `X-Dev-User-ID` e `X-Dev-Tenant-ID` podem ser usados para operar localmente. Esse modo não é habilitado por padrão em produção.

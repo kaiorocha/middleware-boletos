@@ -162,9 +162,13 @@ O bloqueio é aplicado no backend, no fluxo central de emissão, para evitar byp
 
 ## Autorização multi-tenant
 
-Rotas tenant-scoped exigem identidade autenticada e validação do tenant permitido. Sem identidade, a API retorna HTTP `401` com `UNAUTHORIZED`. Se o usuário autenticado não tiver acesso ao tenant da URL, retorna HTTP `403` com `FORBIDDEN`.
+Rotas administrativas e operacionais exigem `Authorization: Bearer <JWT>`. A exceção pública é `GET /health`.
 
-Enquanto a autenticação completa não está implementada, a camada explícita de autorização usa `X-User-ID` e `X-Tenant-ID`/`X-Tenant-IDs`. Em desenvolvimento local, somente com `APP_ENV=development`, é possível usar `X-Dev-Tenant-ID`.
+O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. Rotas tenant-scoped validam o tenant da URL contra os tenants presentes na identidade autenticada. Sem token ou com token inválido, a API retorna HTTP `401` com `UNAUTHORIZED`. Se o usuário autenticado não tiver acesso ao tenant da URL, retorna HTTP `403` com `FORBIDDEN`.
+
+Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção. Em desenvolvimento local, somente com `APP_ENV=development`, é possível usar `X-Dev-User-ID` e `X-Dev-Tenant-ID`.
+
+Detalhes: `docs/authentication.md`.
 
 ## Exemplos de request
 

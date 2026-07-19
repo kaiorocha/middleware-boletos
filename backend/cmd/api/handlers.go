@@ -24,14 +24,15 @@ var (
 )
 
 type App struct {
-	TenantSvc    *service.TenantService
-	UserSvc      *service.UserService
-	CustomerSvc  *service.CustomerService
-	ProviderSvc  *service.ProviderService
-	BoletoSvc    *service.BoletoService
-	BlacklistSvc *service.BlacklistService
-	Factory      contracts.ProviderFactory
-	Authorizer   TenantAuthorizer
+	TenantSvc     *service.TenantService
+	UserSvc       *service.UserService
+	CustomerSvc   *service.CustomerService
+	ProviderSvc   *service.ProviderService
+	BoletoSvc     *service.BoletoService
+	BlacklistSvc  *service.BlacklistService
+	Factory       contracts.ProviderFactory
+	Authorizer    TenantAuthorizer
+	Authenticator *RequestAuthenticator
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -92,7 +93,7 @@ func (a *App) tenantAuthorizer() TenantAuthorizer {
 	if a.Authorizer != nil {
 		return a.Authorizer
 	}
-	return NewHeaderTenantAuthorizer(defaultAppEnv())
+	return NewIdentityTenantAuthorizer()
 }
 
 func (a *App) routes() http.Handler {
@@ -103,7 +104,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
 	mux.HandleFunc("/api/v1/users/", a.handleUsersByID)
-	return mux
+	return a.authenticationMiddleware(mux)
 }
 
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +150,17 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
 		return
 	}
+	if !service.IsValidUUID(in.TenantID) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid tenant id")
+		return
+	}
+	if decision := a.tenantAuthorizer().AuthorizeTenant(r, in.TenantID); !decision.Authenticated {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	} else if !decision.Allowed {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
+		return
+	}
 	if err := a.UserSvc.Create(&in); err != nil {
 		writeServiceError(w, err)
 		return
@@ -169,6 +181,13 @@ func (a *App) handleUsersByID(w http.ResponseWriter, r *http.Request) {
 	item, err := a.UserSvc.Get(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
+		return
+	}
+	if decision := a.tenantAuthorizer().AuthorizeTenant(r, item.TenantID); !decision.Authenticated {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	} else if !decision.Allowed {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

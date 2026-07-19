@@ -88,20 +88,24 @@ Eventos de compliance são registrados em `audit_logs` para bloqueio, desbloquei
 
 ## Autorização multi-tenant
 
-Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
+Todas as rotas administrativas e operacionais exigem autenticação JWT:
 
-Headers esperados enquanto a autenticação completa não está disponível:
+```http
+Authorization: Bearer <JWT>
+```
 
-- `X-User-ID`: UUID do usuário autenticado.
-- `X-Tenant-ID`: UUID do tenant autorizado.
-- `X-Tenant-IDs`: lista separada por vírgula para usuários com múltiplos tenants.
+Exceção pública:
+
+- `GET /health`
+
+O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
 
 Respostas de autorização:
 
 - HTTP `401` com `UNAUTHORIZED` quando não houver identidade autenticada.
 - HTTP `403` com `FORBIDDEN` quando o usuário não puder operar o tenant solicitado.
 
-Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-Tenant-ID` pode ser usado para operação local controlada. Não confie apenas no `tenantId` da URL em produção.
+Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` podem ser usados para operação local controlada. Esses headers são ignorados em produção.
 
 ## Health Check
 

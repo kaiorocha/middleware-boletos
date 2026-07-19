@@ -6,6 +6,7 @@ const IS_DEVELOPMENT =
   process.env.NEXT_PUBLIC_APP_ENV === 'development' || process.env.NODE_ENV === 'development'
 const SESSION_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID || ''
 const SESSION_USER_ID = process.env.NEXT_PUBLIC_USER_ID || ''
+const SESSION_ACCESS_TOKEN = process.env.NEXT_PUBLIC_ACCESS_TOKEN || ''
 
 const navItems = [
   'Dashboard',
@@ -55,10 +56,31 @@ async function apiFetch(baseUrl: string, path: string, options: RequestInit = {}
   return payload
 }
 
+function tenantsFromToken(token: string): string[] {
+  const parts = token.trim().split('.')
+  if (parts.length !== 3 || typeof window === 'undefined') return []
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(window.atob(base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')))
+    const tenants = new Set<string>()
+    if (typeof payload.tenant_id === 'string') tenants.add(payload.tenant_id)
+    if (Array.isArray(payload.tenant_ids)) {
+      payload.tenant_ids.forEach((id: unknown) => {
+        if (typeof id === 'string') tenants.add(id)
+      })
+    }
+    return Array.from(tenants)
+  } catch {
+    return []
+  }
+}
+
 export default function AdminPanel() {
   const [baseUrl, setBaseUrl] = useState(API_DEFAULT)
   const [tenantId, setTenantId] = useState(SESSION_TENANT_ID)
   const [userId, setUserId] = useState(SESSION_USER_ID)
+  const [accessToken, setAccessToken] = useState(SESSION_ACCESS_TOKEN)
+  const [authorizedTenantIds, setAuthorizedTenantIds] = useState<string[]>([])
   const [active, setActive] = useState('Dashboard')
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -93,19 +115,19 @@ export default function AdminPanel() {
     source: 'MANUAL',
   })
 
-  const ready = Boolean(tenantId.trim())
+  const ready = Boolean(tenantId.trim() && (accessToken.trim() || (IS_DEVELOPMENT && userId.trim())))
 
   const authHeaders = () => {
-    if (IS_DEVELOPMENT && tenantId.trim()) {
+    if (accessToken.trim()) {
+      return { Authorization: `Bearer ${accessToken.trim()}` }
+    }
+    if (IS_DEVELOPMENT && tenantId.trim() && userId.trim()) {
       return {
+        'X-Dev-User-ID': userId.trim(),
         'X-Dev-Tenant-ID': tenantId.trim(),
-        ...(userId.trim() ? { 'X-User-ID': userId.trim(), 'X-Tenant-ID': tenantId.trim() } : {}),
       }
     }
-    return {
-      'X-User-ID': userId.trim(),
-      'X-Tenant-ID': tenantId.trim(),
-    }
+    return {}
   }
 
   const callApi = (path: string, options: RequestInit = {}) =>
@@ -149,6 +171,14 @@ export default function AdminPanel() {
   useEffect(() => {
     loadAll()
   }, [tenantId])
+
+  useEffect(() => {
+    const tenants = tenantsFromToken(accessToken)
+    setAuthorizedTenantIds(tenants)
+    if (!IS_DEVELOPMENT && tenants.length > 0 && (!tenantId || !tenants.includes(tenantId))) {
+      setTenantId(tenants[0])
+    }
+  }, [accessToken])
 
   const blockedDocuments = useMemo(() => {
     return new Set(blacklist.filter((entry) => entry.active).map((entry) => entry.document))
@@ -345,7 +375,26 @@ export default function AdminPanel() {
                     onChange={(event) => setUserId(event.target.value)}
                   />
                 </label>
+                <label>
+                  Access Token
+                  <input
+                    value={accessToken}
+                    placeholder="JWT Bearer opcional"
+                    onChange={(event) => setAccessToken(event.target.value)}
+                  />
+                </label>
               </>
+            ) : authorizedTenantIds.length > 1 ? (
+              <label>
+                Tenant da sessão
+                <select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+                  {authorizedTenantIds.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ) : (
               <div className="sessionTenant">
                 <span>Tenant da sessão</span>
@@ -360,7 +409,13 @@ export default function AdminPanel() {
 
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="errorBox">{error}</div>}
-        {!ready && <div className="empty">Informe o Tenant ID para carregar os dados operacionais.</div>}
+        {!ready && (
+          <div className="empty">
+            {IS_DEVELOPMENT
+              ? 'Informe Tenant ID e User ID, ou um JWT Bearer, para carregar os dados operacionais.'
+              : 'Sessão autenticada indisponível para carregar os dados operacionais.'}
+          </div>
+        )}
 
         {ready && active === 'Dashboard' && (
           <Dashboard dashboard={dashboard} filters={filters} setFilters={setFilters} loading={loading} />

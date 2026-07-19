@@ -62,14 +62,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -115,14 +107,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -169,16 +153,7 @@
           "name": "Dashboard Summary",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
-              }
-            ],
+            "header": [],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/dashboard"
           },
           "event": [
@@ -217,14 +192,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -266,16 +233,7 @@
           "name": "Check Blacklist Blocked",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
-              }
-            ],
+            "header": [],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/check?document=123.456.789-00"
           },
           "event": [
@@ -306,14 +264,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -351,16 +301,7 @@
           "name": "Unblock Blacklist Entry",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
-              }
-            ],
+            "header": [],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistId}}/unblock"
           },
           "event": [
@@ -389,16 +330,7 @@
           "name": "Block Blacklist Entry",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
-              }
-            ],
+            "header": [],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistId}}/block"
           },
           "event": [
@@ -436,14 +368,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -485,16 +409,7 @@
           "name": "Emit Blocked Boleto - 409",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
-              }
-            ],
+            "header": [],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{blockedBoletoId}}/emit"
           },
           "event": [
@@ -530,14 +445,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -594,14 +501,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -658,14 +557,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -722,14 +613,6 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
-              },
-              {
-                "key": "X-User-ID",
-                "value": "{{userId}}"
-              },
-              {
-                "key": "X-Tenant-ID",
-                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -779,6 +662,160 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Auth Examples",
+      "item": [
+        {
+          "name": "401 Unauthorized - Missing Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "dashboard"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is UNAUTHORIZED\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"UNAUTHORIZED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "401 Unauthorized - Malformed Token",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not-a-jwt",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "dashboard"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is UNAUTHORIZED\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"UNAUTHORIZED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "403 Forbidden - Cross Tenant Denied",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{forbidden_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "dashboard"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is FORBIDDEN\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"FORBIDDEN\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
@@ -807,8 +844,94 @@
       "value": ""
     },
     {
-      "key": "userId",
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "forbidden_access_token",
+      "value": ""
+    },
+    {
+      "key": "autoGenerateAccessToken",
+      "value": "true"
+    },
+    {
+      "key": "jwtSecret",
+      "value": "local-development-secret-change-me"
+    },
+    {
+      "key": "jwtIssuer",
+      "value": "middleware-boletos-local"
+    },
+    {
+      "key": "jwtAudience",
+      "value": "middleware-boletos-api"
+    },
+    {
+      "key": "jwtUserId",
       "value": "550e8400-e29b-41d4-a716-446655449999"
+    },
+    {
+      "key": "jwtTenantId",
+      "value": "550e8400-e29b-41d4-a716-446655440000"
+    },
+    {
+      "key": "crossTenantId",
+      "value": "550e8400-e29b-41d4-a716-446655440099"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.collectionVariables.get(\"autoGenerateAccessToken\") !== \"true\") {",
+          "  return;",
+          "}",
+          "",
+          "function base64Url(input) {",
+          "  return CryptoJS.enc.Base64.stringify(input)",
+          "    .replace(/=+$/, \"\")",
+          "    .replace(/\\+/g, \"-\")",
+          "    .replace(/\\//g, \"_\");",
+          "}",
+          "",
+          "function signToken(tenantId) {",
+          "  const secret = pm.collectionVariables.get(\"jwtSecret\");",
+          "  const issuer = pm.collectionVariables.get(\"jwtIssuer\");",
+          "  const audience = pm.collectionVariables.get(\"jwtAudience\");",
+          "  const userId = pm.collectionVariables.get(\"jwtUserId\");",
+          "  const header = { alg: \"HS256\", typ: \"JWT\" };",
+          "  const now = Math.floor(Date.now() / 1000);",
+          "  const payload = {",
+          "    sub: userId,",
+          "    tenant_id: tenantId,",
+          "    tenant_ids: [tenantId],",
+          "    iss: issuer,",
+          "    aud: audience,",
+          "    exp: now + 3600",
+          "  };",
+          "  const unsigned = base64Url(CryptoJS.enc.Utf8.parse(JSON.stringify(header))) + \".\" + base64Url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+          "  const signature = base64Url(CryptoJS.HmacSHA256(unsigned, secret));",
+          "  return unsigned + \".\" + signature;",
+          "}",
+          "",
+          "const tenantId = pm.collectionVariables.get(\"tenantId\") || pm.collectionVariables.get(\"jwtTenantId\");",
+          "pm.collectionVariables.set(\"access_token\", signToken(tenantId));",
+          "pm.collectionVariables.set(\"forbidden_access_token\", signToken(pm.collectionVariables.get(\"crossTenantId\")));"
+        ]
+      }
     }
   ]
 }

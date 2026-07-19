@@ -3,7 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 
+	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/config"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/repository"
@@ -13,6 +15,14 @@ import (
 
 func main() {
 	cfg := config.Load()
+	jwtValidator, err := authn.NewHMACValidator(authn.JWTConfig{
+		Secret:   cfg.JWTSecret,
+		Issuer:   cfg.JWTIssuer,
+		Audience: cfg.JWTAudience,
+	})
+	if err != nil && !isDevelopmentEnv(cfg.Env) {
+		log.Fatalf("auth config: %v", err)
+	}
 	db, err := storage.Connect(cfg)
 	if err != nil {
 		log.Fatalf("db connect: %v", err)
@@ -42,14 +52,15 @@ func main() {
 		WithProviderFactory(providerFactory)
 
 	app := &App{
-		TenantSvc:    tenantSvc,
-		UserSvc:      userSvc,
-		CustomerSvc:  customerSvc,
-		ProviderSvc:  providerSvc,
-		BoletoSvc:    boletoSvc,
-		BlacklistSvc: blacklistSvc,
-		Factory:      providerFactory,
-		Authorizer:   NewHeaderTenantAuthorizer(cfg.Env),
+		TenantSvc:     tenantSvc,
+		UserSvc:       userSvc,
+		CustomerSvc:   customerSvc,
+		ProviderSvc:   providerSvc,
+		BoletoSvc:     boletoSvc,
+		BlacklistSvc:  blacklistSvc,
+		Factory:       providerFactory,
+		Authorizer:    NewIdentityTenantAuthorizer(),
+		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator),
 	}
 
 	h := app.routes()
@@ -57,4 +68,8 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.Port, h); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
+}
+
+func isDevelopmentEnv(env string) bool {
+	return strings.EqualFold(strings.TrimSpace(env), "development")
 }

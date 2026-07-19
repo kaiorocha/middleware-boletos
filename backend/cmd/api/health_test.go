@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,9 +11,17 @@ import (
 	"testing"
 	"time"
 
+	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
+)
+
+const (
+	testJWTSecret = "test-secret-with-enough-entropy"
+	testJWTIssuer = "middleware-boletos-tests"
+	testJWTAud    = "middleware-boletos-api"
+	testUserID    = "550e8400-e29b-41d4-a716-446655449999"
 )
 
 func TestHealth(t *testing.T) {
@@ -176,7 +187,7 @@ func completeAPICustomer(tenantID string) *domain.Customer {
 
 func TestBlacklistCheckRouteReturnsRawBlockedPayload(t *testing.T) {
 	validTenantID := "550e8400-e29b-41d4-a716-446655440000"
-	app := &App{
+	app := authenticatedTestApp(&App{
 		BlacklistSvc: service.NewBlacklistService(&apiBlacklistRepo{
 			blocked: true,
 			item: &domain.BlacklistEntry{
@@ -187,7 +198,7 @@ func TestBlacklistCheckRouteReturnsRawBlockedPayload(t *testing.T) {
 				Active:   true,
 			},
 		}),
-	}
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+validTenantID+"/blacklist/check?document=123.456.789-00", nil)
 	authorizeTenant(req, validTenantID)
@@ -211,11 +222,11 @@ func TestBlacklistCheckRouteReturnsRawBlockedPayload(t *testing.T) {
 
 func TestBlacklistCreateDuplicateReturnsConflict(t *testing.T) {
 	validTenantID := "550e8400-e29b-41d4-a716-446655440000"
-	app := &App{
+	app := authenticatedTestApp(&App{
 		BlacklistSvc: service.NewBlacklistService(&apiBlacklistRepo{
 			err: service.NewDuplicateResource("Este documento já está bloqueado neste tenant."),
 		}),
-	}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/blacklist", strings.NewReader(`{"document":"12345678900","reason":"Solicitação do cliente"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -244,8 +255,61 @@ func apiStringPtr(value string) *string {
 }
 
 func authorizeTenant(req *http.Request, tenantID string) {
-	req.Header.Set("X-User-ID", "550e8400-e29b-41d4-a716-446655449999")
-	req.Header.Set("X-Tenant-ID", tenantID)
+	authorizeTenants(req, tenantID)
+}
+
+func authorizeTenants(req *http.Request, tenantIDs ...string) {
+	req.Header.Set("Authorization", "Bearer "+testJWT(testUserID, tenantIDs, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
+}
+
+func authenticatedTestApp(app *App) *App {
+	validator, err := authn.NewHMACValidator(authn.JWTConfig{
+		Secret:   testJWTSecret,
+		Issuer:   testJWTIssuer,
+		Audience: testJWTAud,
+	})
+	if err != nil {
+		panic(err)
+	}
+	app.Authenticator = NewRequestAuthenticator("production", validator)
+	app.Authorizer = NewIdentityTenantAuthorizer()
+	return app
+}
+
+func developmentTestApp(app *App) *App {
+	app.Authenticator = NewRequestAuthenticator("development", nil)
+	app.Authorizer = NewIdentityTenantAuthorizer()
+	return app
+}
+
+func testJWT(userID string, tenantIDs []string, exp time.Time, issuer, audience, secret string) string {
+	header := map[string]any{"alg": "HS256", "typ": "JWT"}
+	claims := map[string]any{
+		"sub":        userID,
+		"tenant_ids": tenantIDs,
+		"exp":        exp.Unix(),
+	}
+	if len(tenantIDs) == 1 {
+		claims["tenant_id"] = tenantIDs[0]
+	}
+	if issuer != "" {
+		claims["iss"] = issuer
+	}
+	if audience != "" {
+		claims["aud"] = audience
+	}
+	unsigned := encodeJWTPart(header) + "." + encodeJWTPart(claims)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(unsigned))
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func encodeJWTPart(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
 func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
@@ -260,25 +324,25 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 	}{
 		{
 			name: "user",
-			app:  &App{UserSvc: service.NewUserService(&duplicateUserRepo{})},
+			app:  authenticatedTestApp(&App{UserSvc: service.NewUserService(&duplicateUserRepo{})}),
 			path: "/api/v1/users",
 			body: `{"tenant_id":"` + validTenantID + `","email":"user@example.com","name":"User"}`,
 		},
 		{
 			name: "customer",
-			app:  &App{CustomerSvc: service.NewCustomerService(&duplicateCustomerRepo{})},
+			app:  authenticatedTestApp(&App{CustomerSvc: service.NewCustomerService(&duplicateCustomerRepo{})}),
 			path: "/api/v1/tenants/" + validTenantID + "/customers",
 			body: `{"name":"Customer","document":"123.456.789-00"}`,
 		},
 		{
 			name: "provider",
-			app:  &App{ProviderSvc: service.NewProviderService(&duplicateProviderRepo{})},
+			app:  authenticatedTestApp(&App{ProviderSvc: service.NewProviderService(&duplicateProviderRepo{})}),
 			path: "/api/v1/tenants/" + validTenantID + "/providers",
 			body: `{"name":"Banco Demo"}`,
 		},
 		{
 			name: "boleto",
-			app:  &App{BoletoSvc: service.NewBoletoService(&duplicateBoletoRepo{})},
+			app:  authenticatedTestApp(&App{BoletoSvc: service.NewBoletoService(&duplicateBoletoRepo{})}),
 			path: "/api/v1/tenants/" + validTenantID + "/boletos",
 			body: `{"customer_id":"` + validCustomerID + `","amount_cents":15000,"due_date":"2026-07-30","status":"CREATED","external_id":"ext-123"}`,
 		},
@@ -288,9 +352,7 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
-			if strings.Contains(tt.path, "/api/v1/tenants/") {
-				authorizeTenant(req, validTenantID)
-			}
+			authorizeTenant(req, validTenantID)
 			rr := httptest.NewRecorder()
 
 			tt.app.routes().ServeHTTP(rr, req)
@@ -336,7 +398,7 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 		Status:      "CREATED",
 	}}
 	providerFactory := factory.NewProviderFactory()
-	app := &App{
+	app := authenticatedTestApp(&App{
 		ProviderSvc: service.NewProviderService(providerRepo),
 		BoletoSvc: service.NewBoletoService(boletoRepo).
 			WithCustomerRepository(&apiCustomerRepo{item: completeAPICustomer(validTenantID)}).
@@ -344,7 +406,7 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 			WithBlacklistService(service.NewBlacklistService(&apiBlacklistRepo{})).
 			WithProviderFactory(providerFactory),
 		Factory: providerFactory,
-	}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/boletos/"+validBoletoID+"/emit", nil)
 	authorizeTenant(req, validTenantID)
@@ -396,14 +458,14 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 		},
 	})
 	providerFactory := factory.NewProviderFactory()
-	app := &App{
+	app := authenticatedTestApp(&App{
 		BoletoSvc: service.NewBoletoService(boletoRepo).
 			WithCustomerRepository(&apiCustomerRepo{item: completeAPICustomer(validTenantID)}).
 			WithProviderRepository(&apiProviderRepo{}).
 			WithBlacklistService(blacklistSvc).
 			WithProviderFactory(providerFactory),
 		Factory: providerFactory,
-	}
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/boletos/"+validBoletoID+"/emit", nil)
 	authorizeTenant(req, validTenantID)
@@ -432,11 +494,11 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 func TestTenantScopedAuthorization(t *testing.T) {
 	tenantA := "550e8400-e29b-41d4-a716-446655440000"
 	tenantB := "550e8400-e29b-41d4-a716-446655440099"
-	app := &App{
+	app := authenticatedTestApp(&App{
 		CustomerSvc:  service.NewCustomerService(&apiCustomerRepo{}),
 		BoletoSvc:    service.NewBoletoService(&apiBoletoRepo{}),
 		BlacklistSvc: service.NewBlacklistService(&apiBlacklistRepo{}),
-	}
+	})
 
 	tests := []struct {
 		name          string
@@ -504,11 +566,8 @@ func TestTenantScopedAuthorization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			if tt.userID != "" {
-				req.Header.Set("X-User-ID", tt.userID)
-			}
-			if tt.allowedTenant != "" {
-				req.Header.Set("X-Tenant-ID", tt.allowedTenant)
+			if tt.userID != "" && tt.allowedTenant != "" {
+				req.Header.Set("Authorization", "Bearer "+testJWT(tt.userID, []string{tt.allowedTenant}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
 			}
 			rr := httptest.NewRecorder()
 			app.routes().ServeHTTP(rr, req)
@@ -516,6 +575,142 @@ func TestTenantScopedAuthorization(t *testing.T) {
 				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+func TestJWTAuthentication(t *testing.T) {
+	tenantA := "550e8400-e29b-41d4-a716-446655440000"
+	path := "/api/v1/tenants/" + tenantA + "/customers"
+	app := authenticatedTestApp(&App{CustomerSvc: service.NewCustomerService(&apiCustomerRepo{})})
+
+	tests := []struct {
+		name      string
+		token     string
+		want      int
+		noAuth    bool
+		malformed bool
+	}{
+		{
+			name:  "valid token",
+			token: testJWT(testUserID, []string{tenantA}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:  http.StatusOK,
+		},
+		{
+			name:   "without token",
+			noAuth: true,
+			want:   http.StatusUnauthorized,
+		},
+		{
+			name:      "malformed token",
+			malformed: true,
+			want:      http.StatusUnauthorized,
+		},
+		{
+			name:  "expired token",
+			token: testJWT(testUserID, []string{tenantA}, time.Now().Add(-time.Minute), testJWTIssuer, testJWTAud, testJWTSecret),
+			want:  http.StatusUnauthorized,
+		},
+		{
+			name:  "invalid signature",
+			token: testJWT(testUserID, []string{tenantA}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, "wrong-secret"),
+			want:  http.StatusUnauthorized,
+		},
+		{
+			name:  "invalid issuer",
+			token: testJWT(testUserID, []string{tenantA}, time.Now().Add(time.Hour), "wrong-issuer", testJWTAud, testJWTSecret),
+			want:  http.StatusUnauthorized,
+		},
+		{
+			name:  "invalid audience",
+			token: testJWT(testUserID, []string{tenantA}, time.Now().Add(time.Hour), testJWTIssuer, "wrong-audience", testJWTSecret),
+			want:  http.StatusUnauthorized,
+		},
+		{
+			name:  "alg none rejected",
+			token: encodeJWTPart(map[string]any{"alg": "none", "typ": "JWT"}) + "." + encodeJWTPart(map[string]any{"sub": testUserID, "tenant_id": tenantA, "exp": time.Now().Add(time.Hour).Unix(), "iss": testJWTIssuer, "aud": testJWTAud}) + ".",
+			want:  http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			switch {
+			case tt.noAuth:
+			case tt.malformed:
+				req.Header.Set("Authorization", "Bearer not-a-jwt")
+			default:
+				req.Header.Set("Authorization", "Bearer "+tt.token)
+			}
+			rr := httptest.NewRecorder()
+			app.routes().ServeHTTP(rr, req)
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestJWTTenantAuthorization(t *testing.T) {
+	tenantA := "550e8400-e29b-41d4-a716-446655440000"
+	tenantB := "550e8400-e29b-41d4-a716-446655440099"
+	tenantC := "550e8400-e29b-41d4-a716-446655440088"
+	app := authenticatedTestApp(&App{CustomerSvc: service.NewCustomerService(&apiCustomerRepo{})})
+
+	tests := []struct {
+		name       string
+		pathTenant string
+		claims     []string
+		want       int
+	}{
+		{name: "tenant A accesses tenant A", pathTenant: tenantA, claims: []string{tenantA}, want: http.StatusOK},
+		{name: "tenant A denied tenant B", pathTenant: tenantB, claims: []string{tenantA}, want: http.StatusForbidden},
+		{name: "multi tenant allows tenant B", pathTenant: tenantB, claims: []string{tenantA, tenantB}, want: http.StatusOK},
+		{name: "multi tenant denies absent tenant", pathTenant: tenantC, claims: []string{tenantA, tenantB}, want: http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+tt.pathTenant+"/customers", nil)
+			req.Header.Set("Authorization", "Bearer "+testJWT(testUserID, tt.claims, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret))
+			rr := httptest.NewRecorder()
+			app.routes().ServeHTTP(rr, req)
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestDevelopmentHeadersAreEnvironmentScoped(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	path := "/api/v1/tenants/" + tenantID + "/customers"
+
+	devReq := httptest.NewRequest(http.MethodGet, path, nil)
+	devReq.Header.Set("X-Dev-User-ID", testUserID)
+	devReq.Header.Set("X-Dev-Tenant-ID", tenantID)
+	devRR := httptest.NewRecorder()
+	developmentTestApp(&App{CustomerSvc: service.NewCustomerService(&apiCustomerRepo{})}).routes().ServeHTTP(devRR, devReq)
+	if devRR.Code != http.StatusOK {
+		t.Fatalf("development headers expected 200, got %d: %s", devRR.Code, devRR.Body.String())
+	}
+
+	prodReq := httptest.NewRequest(http.MethodGet, path, nil)
+	prodReq.Header.Set("X-Dev-User-ID", testUserID)
+	prodReq.Header.Set("X-Dev-Tenant-ID", tenantID)
+	prodRR := httptest.NewRecorder()
+	authenticatedTestApp(&App{CustomerSvc: service.NewCustomerService(&apiCustomerRepo{})}).routes().ServeHTTP(prodRR, prodReq)
+	if prodRR.Code != http.StatusUnauthorized {
+		t.Fatalf("production must ignore dev headers; expected 401, got %d: %s", prodRR.Code, prodRR.Body.String())
+	}
+
+	legacyReq := httptest.NewRequest(http.MethodGet, path, nil)
+	legacyReq.Header.Set("X-User-ID", testUserID)
+	legacyReq.Header.Set("X-Tenant-ID", tenantID)
+	legacyRR := httptest.NewRecorder()
+	authenticatedTestApp(&App{CustomerSvc: service.NewCustomerService(&apiCustomerRepo{})}).routes().ServeHTTP(legacyRR, legacyReq)
+	if legacyRR.Code != http.StatusUnauthorized {
+		t.Fatalf("production must ignore legacy headers; expected 401, got %d: %s", legacyRR.Code, legacyRR.Body.String())
 	}
 }
 
@@ -529,10 +724,10 @@ func TestProviderHealthBalanceAndWebhookRoutes(t *testing.T) {
 		Status:   "ACTIVE",
 	}}
 	providerFactory := factory.NewProviderFactory()
-	app := &App{
+	app := authenticatedTestApp(&App{
 		ProviderSvc: service.NewProviderService(providerRepo),
 		Factory:     providerFactory,
-	}
+	})
 
 	tests := []struct {
 		name   string

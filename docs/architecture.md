@@ -47,9 +47,10 @@ Compliance
 
 Autorização multi-tenant
 - Rotas sob `/api/v1/tenants/{tenantId}/...` passam por autorização centralizada antes dos handlers.
-- A identidade autenticada informa tenants permitidos por `X-Tenant-ID` ou `X-Tenant-IDs`.
+- A identidade autenticada vem de JWT Bearer validado e informa tenants permitidos por `tenant_id` ou `tenant_ids`.
 - Sem identidade, a API retorna HTTP 401. Com identidade sem acesso ao tenant, retorna HTTP 403.
-- Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-Tenant-ID` permite operação local controlada.
+- Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção.
+- Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` permitem operação local controlada.
 
 Estados de boleto
 - Status suportados: `CREATED`, `PROCESSING`, `ISSUED`, `FAILED`, `CANCELLED`, `PARTIAL`, `PAID`, `EXPIRED`.
