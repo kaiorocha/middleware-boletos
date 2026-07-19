@@ -190,6 +190,7 @@ func TestBlacklistCheckRouteReturnsRawBlockedPayload(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+validTenantID+"/blacklist/check?document=123.456.789-00", nil)
+	authorizeTenant(req, validTenantID)
 	rr := httptest.NewRecorder()
 	app.routes().ServeHTTP(rr, req)
 
@@ -218,6 +219,7 @@ func TestBlacklistCreateDuplicateReturnsConflict(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/blacklist", strings.NewReader(`{"document":"12345678900","reason":"Solicitação do cliente"}`))
 	req.Header.Set("Content-Type", "application/json")
+	authorizeTenant(req, validTenantID)
 	rr := httptest.NewRecorder()
 	app.routes().ServeHTTP(rr, req)
 
@@ -239,6 +241,11 @@ func TestBlacklistCreateDuplicateReturnsConflict(t *testing.T) {
 
 func apiStringPtr(value string) *string {
 	return &value
+}
+
+func authorizeTenant(req *http.Request, tenantID string) {
+	req.Header.Set("X-User-ID", "550e8400-e29b-41d4-a716-446655449999")
+	req.Header.Set("X-Tenant-ID", tenantID)
 }
 
 func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
@@ -281,6 +288,9 @@ func TestCreateHandlersReturnConflictOnDuplicateResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
+			if strings.Contains(tt.path, "/api/v1/tenants/") {
+				authorizeTenant(req, validTenantID)
+			}
 			rr := httptest.NewRecorder()
 
 			tt.app.routes().ServeHTTP(rr, req)
@@ -331,11 +341,13 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 		BoletoSvc: service.NewBoletoService(boletoRepo).
 			WithCustomerRepository(&apiCustomerRepo{item: completeAPICustomer(validTenantID)}).
 			WithProviderRepository(providerRepo).
+			WithBlacklistService(service.NewBlacklistService(&apiBlacklistRepo{})).
 			WithProviderFactory(providerFactory),
 		Factory: providerFactory,
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/boletos/"+validBoletoID+"/emit", nil)
+	authorizeTenant(req, validTenantID)
 	rr := httptest.NewRecorder()
 
 	app.routes().ServeHTTP(rr, req)
@@ -394,6 +406,7 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/"+validTenantID+"/boletos/"+validBoletoID+"/emit", nil)
+	authorizeTenant(req, validTenantID)
 	rr := httptest.NewRecorder()
 	app.routes().ServeHTTP(rr, req)
 
@@ -413,6 +426,96 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 	}
 	if boletoRepo.updated != 0 {
 		t.Fatalf("expected no boleto update/provider flow, got %d updates", boletoRepo.updated)
+	}
+}
+
+func TestTenantScopedAuthorization(t *testing.T) {
+	tenantA := "550e8400-e29b-41d4-a716-446655440000"
+	tenantB := "550e8400-e29b-41d4-a716-446655440099"
+	app := &App{
+		CustomerSvc:  service.NewCustomerService(&apiCustomerRepo{}),
+		BoletoSvc:    service.NewBoletoService(&apiBoletoRepo{}),
+		BlacklistSvc: service.NewBlacklistService(&apiBlacklistRepo{}),
+	}
+
+	tests := []struct {
+		name          string
+		path          string
+		allowedTenant string
+		userID        string
+		want          int
+	}{
+		{
+			name:          "customer allowed",
+			path:          "/api/v1/tenants/" + tenantA + "/customers",
+			allowedTenant: tenantA,
+			userID:        "550e8400-e29b-41d4-a716-446655449999",
+			want:          http.StatusOK,
+		},
+		{
+			name:          "customer forbidden",
+			path:          "/api/v1/tenants/" + tenantB + "/customers",
+			allowedTenant: tenantA,
+			userID:        "550e8400-e29b-41d4-a716-446655449999",
+			want:          http.StatusForbidden,
+		},
+		{
+			name: "customer unauthenticated",
+			path: "/api/v1/tenants/" + tenantA + "/customers",
+			want: http.StatusUnauthorized,
+		},
+		{
+			name:          "customer invalid user",
+			path:          "/api/v1/tenants/" + tenantA + "/customers",
+			allowedTenant: tenantA,
+			userID:        "not-a-uuid",
+			want:          http.StatusUnauthorized,
+		},
+		{
+			name:          "boleto allowed",
+			path:          "/api/v1/tenants/" + tenantA + "/boletos",
+			allowedTenant: tenantA,
+			userID:        "550e8400-e29b-41d4-a716-446655449999",
+			want:          http.StatusOK,
+		},
+		{
+			name:          "boleto forbidden",
+			path:          "/api/v1/tenants/" + tenantB + "/boletos",
+			allowedTenant: tenantA,
+			userID:        "550e8400-e29b-41d4-a716-446655449999",
+			want:          http.StatusForbidden,
+		},
+		{
+			name:          "blacklist allowed",
+			path:          "/api/v1/tenants/" + tenantA + "/blacklist",
+			allowedTenant: tenantA,
+			userID:        "550e8400-e29b-41d4-a716-446655449999",
+			want:          http.StatusOK,
+		},
+		{
+			name:          "blacklist forbidden",
+			path:          "/api/v1/tenants/" + tenantB + "/blacklist",
+			allowedTenant: tenantA,
+			userID:        "550e8400-e29b-41d4-a716-446655449999",
+			want:          http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.userID != "" {
+				req.Header.Set("X-User-ID", tt.userID)
+			}
+			if tt.allowedTenant != "" {
+				req.Header.Set("X-Tenant-ID", tt.allowedTenant)
+			}
+			rr := httptest.NewRecorder()
+			app.routes().ServeHTTP(rr, req)
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+		})
 	}
 }
 
@@ -459,6 +562,7 @@ func TestProviderHealthBalanceAndWebhookRoutes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
+			authorizeTenant(req, validTenantID)
 			rr := httptest.NewRecorder()
 
 			app.routes().ServeHTTP(rr, req)

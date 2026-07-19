@@ -118,7 +118,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if !IsValidUUID(tenantID) || !IsValidUUID(boletoID) {
 		return nil, ErrValidation
 	}
-	if s.customers == nil || s.providers == nil || s.factory == nil || s.payerBuilder == nil {
+	if s.customers == nil || s.providers == nil || s.blacklist == nil || s.factory == nil || s.payerBuilder == nil {
 		return nil, ErrValidation
 	}
 
@@ -155,23 +155,28 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return nil, ErrValidation
 	}
 
-	if s.blacklist != nil && customer.Document != nil {
-		entry, blocked, err := s.blacklist.IsBlocked(tenantID, *customer.Document)
-		if err != nil {
-			return nil, err
-		}
-		if blocked {
-			s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
-			s.logger.Info("boleto emission blocked by compliance",
-				"tenant", tenantID,
-				"request_id", requestID(ctx),
-				"boleto_id", boleto.ID,
-				"customer_id", customer.ID,
-				"latency_ms", time.Since(start).Milliseconds(),
-				"result", "blocked",
-			)
-			return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
-		}
+	if customer.Document == nil {
+		return nil, ErrValidation
+	}
+	document := normalizeDocumentValue(*customer.Document)
+	if document == "" {
+		return nil, ErrValidation
+	}
+	entry, blocked, err := s.blacklist.IsBlocked(tenantID, document)
+	if err != nil {
+		return nil, err
+	}
+	if blocked {
+		s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+		s.logger.Info("boleto emission blocked by compliance",
+			"tenant", tenantID,
+			"request_id", requestID(ctx),
+			"boleto_id", boleto.ID,
+			"customer_id", customer.ID,
+			"latency_ms", time.Since(start).Milliseconds(),
+			"result", "blocked",
+		)
+		return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
 	}
 
 	payer, err := s.payerBuilder.Build(*customer)

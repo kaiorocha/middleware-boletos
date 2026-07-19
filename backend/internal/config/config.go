@@ -18,7 +18,7 @@ func Load() *Config {
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/middleware?sslmode=disable"),
 		RedisURL:    getEnv("REDIS_URL", "redis://redis:6379/0"),
-		Env:         getEnv("BACKEND_ENV", "development"),
+		Env:         getEnv("APP_ENV", getEnv("BACKEND_ENV", "production")),
 	}
 	return cfg
 }

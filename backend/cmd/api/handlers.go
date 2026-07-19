@@ -18,6 +18,11 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
 )
 
+var (
+	ErrUnauthorized = errors.New("unauthorized")
+	ErrForbidden    = errors.New("forbidden")
+)
+
 type App struct {
 	TenantSvc    *service.TenantService
 	UserSvc      *service.UserService
@@ -26,6 +31,7 @@ type App struct {
 	BoletoSvc    *service.BoletoService
 	BlacklistSvc *service.BlacklistService
 	Factory      contracts.ProviderFactory
+	Authorizer   TenantAuthorizer
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -47,6 +53,14 @@ func writeRawJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrUnauthorized) {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	}
+	if errors.Is(err, ErrForbidden) {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
+		return
+	}
 	if errors.Is(err, service.ErrCustomerBlocked) {
 		writeError(w, http.StatusConflict, "CUSTOMER_BLOCKED", err.Error())
 		return
@@ -72,6 +86,13 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "unexpected error")
+}
+
+func (a *App) tenantAuthorizer() TenantAuthorizer {
+	if a.Authorizer != nil {
+		return a.Authorizer
+	}
+	return NewHeaderTenantAuthorizer(defaultAppEnv())
 }
 
 func (a *App) routes() http.Handler {
@@ -164,6 +185,13 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 	tenantID := parts[0]
 	if !service.IsValidUUID(tenantID) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid tenant id")
+		return
+	}
+	if decision := a.tenantAuthorizer().AuthorizeTenant(r, tenantID); !decision.Authenticated {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	} else if !decision.Allowed {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
 		return
 	}
 
@@ -595,6 +623,11 @@ func (a *App) providerConfigAndAdapterFromRequest(r *http.Request) (types.Provid
 	if providerID != "" {
 		if !service.IsValidUUID(providerID) || !service.IsValidUUID(tenantID) || a.ProviderSvc == nil {
 			return cfg, nil, service.ErrValidation
+		}
+		if decision := a.tenantAuthorizer().AuthorizeTenant(r, tenantID); !decision.Authenticated {
+			return cfg, nil, ErrUnauthorized
+		} else if !decision.Allowed {
+			return cfg, nil, ErrForbidden
 		}
 		provider, err := a.ProviderSvc.Get(providerID)
 		if err != nil {

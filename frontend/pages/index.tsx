@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 
 const API_DEFAULT = 'http://localhost:8080'
 type ApiPayload = Record<string, any>
+const IS_DEVELOPMENT =
+  process.env.NEXT_PUBLIC_APP_ENV === 'development' || process.env.NODE_ENV === 'development'
+const SESSION_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID || ''
+const SESSION_USER_ID = process.env.NEXT_PUBLIC_USER_ID || ''
 
 const navItems = [
   'Dashboard',
@@ -53,7 +57,8 @@ async function apiFetch(baseUrl: string, path: string, options: RequestInit = {}
 
 export default function AdminPanel() {
   const [baseUrl, setBaseUrl] = useState(API_DEFAULT)
-  const [tenantId, setTenantId] = useState('')
+  const [tenantId, setTenantId] = useState(SESSION_TENANT_ID)
+  const [userId, setUserId] = useState(SESSION_USER_ID)
   const [active, setActive] = useState('Dashboard')
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -90,6 +95,28 @@ export default function AdminPanel() {
 
   const ready = Boolean(tenantId.trim())
 
+  const authHeaders = () => {
+    if (IS_DEVELOPMENT && tenantId.trim()) {
+      return {
+        'X-Dev-Tenant-ID': tenantId.trim(),
+        ...(userId.trim() ? { 'X-User-ID': userId.trim(), 'X-Tenant-ID': tenantId.trim() } : {}),
+      }
+    }
+    return {
+      'X-User-ID': userId.trim(),
+      'X-Tenant-ID': tenantId.trim(),
+    }
+  }
+
+  const callApi = (path: string, options: RequestInit = {}) =>
+    apiFetch(baseUrl, path, {
+      ...options,
+      headers: {
+        ...authHeaders(),
+        ...(options.headers || {}),
+      },
+    })
+
   const loadAll = async () => {
     if (!ready) return
     setLoading(true)
@@ -99,12 +126,12 @@ export default function AdminPanel() {
       if (filters.periodFrom) query.set('from', filters.periodFrom)
       if (filters.periodTo) query.set('to', filters.periodTo)
       const [dash, boletosRes, customersRes, providersRes, blacklistRes, usersRes] = await Promise.all([
-        apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/dashboard?${query.toString()}`),
-        apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/boletos`),
-        apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/customers`),
-        apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/providers`),
-        apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/blacklist`),
-        apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/users`),
+        callApi(`/api/v1/tenants/${tenantId}/dashboard?${query.toString()}`),
+        callApi(`/api/v1/tenants/${tenantId}/boletos`),
+        callApi(`/api/v1/tenants/${tenantId}/customers`),
+        callApi(`/api/v1/tenants/${tenantId}/providers`),
+        callApi(`/api/v1/tenants/${tenantId}/blacklist`),
+        callApi(`/api/v1/tenants/${tenantId}/users`),
       ])
       setDashboard(dash.data)
       setBoletos(boletosRes.data || [])
@@ -188,13 +215,13 @@ export default function AdminPanel() {
     await mutate(async () => {
       const body = JSON.stringify(customerForm)
       if (customerForm.id) {
-        await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/customers/${customerForm.id}`, {
+        await callApi(`/api/v1/tenants/${tenantId}/customers/${customerForm.id}`, {
           method: 'PUT',
           body,
         })
         flash('Cliente atualizado.')
       } else {
-        await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/customers`, { method: 'POST', body })
+        await callApi(`/api/v1/tenants/${tenantId}/customers`, { method: 'POST', body })
         flash('Cliente cadastrado.')
       }
       setCustomerForm(emptyCustomer())
@@ -204,7 +231,7 @@ export default function AdminPanel() {
   const saveProvider = async (event) => {
     event.preventDefault()
     await mutate(async () => {
-      await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/providers`, {
+      await callApi(`/api/v1/tenants/${tenantId}/providers`, {
         method: 'POST',
         body: JSON.stringify(providerForm),
       })
@@ -216,7 +243,7 @@ export default function AdminPanel() {
   const saveBlacklistEntry = async (event) => {
     event.preventDefault()
     await mutate(async () => {
-      await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/blacklist`, {
+      await callApi(`/api/v1/tenants/${tenantId}/blacklist`, {
         method: 'POST',
         body: JSON.stringify(blacklistForm),
       })
@@ -244,14 +271,14 @@ export default function AdminPanel() {
 
   const emitBoleto = async (boleto) => {
     await mutate(async () => {
-      await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/boletos/${boleto.id}/emit`, { method: 'POST' })
+      await callApi(`/api/v1/tenants/${tenantId}/boletos/${boleto.id}/emit`, { method: 'POST' })
       flash('Emissão solicitada.')
     })
   }
 
   const blacklistAction = async (entry, action) => {
     await mutate(async () => {
-      await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/blacklist/${entry.id}/${action}`, {
+      await callApi(`/api/v1/tenants/${tenantId}/blacklist/${entry.id}/${action}`, {
         method: 'POST',
       })
       flash(action === 'block' ? 'Bloqueio ativado.' : 'Bloqueio desativado.')
@@ -260,7 +287,7 @@ export default function AdminPanel() {
 
   const deleteBlacklistEntry = async (entry) => {
     await mutate(async () => {
-      await apiFetch(baseUrl, `/api/v1/tenants/${tenantId}/blacklist/${entry.id}`, { method: 'DELETE' })
+      await callApi(`/api/v1/tenants/${tenantId}/blacklist/${entry.id}`, { method: 'DELETE' })
       flash('Bloqueio excluído logicamente.')
     })
   }
@@ -300,14 +327,31 @@ export default function AdminPanel() {
               API
               <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
             </label>
-            <label>
-              Tenant ID
-              <input
-                value={tenantId}
-                placeholder="UUID do tenant"
-                onChange={(event) => setTenantId(event.target.value)}
-              />
-            </label>
+            {IS_DEVELOPMENT ? (
+              <>
+                <label>
+                  Tenant ID
+                  <input
+                    value={tenantId}
+                    placeholder="UUID do tenant"
+                    onChange={(event) => setTenantId(event.target.value)}
+                  />
+                </label>
+                <label>
+                  User ID
+                  <input
+                    value={userId}
+                    placeholder="UUID do usuário"
+                    onChange={(event) => setUserId(event.target.value)}
+                  />
+                </label>
+              </>
+            ) : (
+              <div className="sessionTenant">
+                <span>Tenant da sessão</span>
+                <strong>{tenantId ? `${tenantId.slice(0, 8)}...` : 'indisponível'}</strong>
+              </div>
+            )}
             <button type="button" onClick={loadAll} disabled={!ready || loading}>
               Atualizar
             </button>

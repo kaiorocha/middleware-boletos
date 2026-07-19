@@ -62,6 +62,14 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -107,6 +115,14 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -153,7 +169,16 @@
           "name": "Dashboard Summary",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/dashboard"
           },
           "event": [
@@ -192,6 +217,14 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -233,7 +266,16 @@
           "name": "Check Blacklist Blocked",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/check?document=123.456.789-00"
           },
           "event": [
@@ -264,6 +306,14 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -301,7 +351,16 @@
           "name": "Unblock Blacklist Entry",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistId}}/unblock"
           },
           "event": [
@@ -330,7 +389,16 @@
           "name": "Block Blacklist Entry",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistId}}/block"
           },
           "event": [
@@ -368,6 +436,14 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
               }
             ],
             "body": {
@@ -409,7 +485,16 @@
           "name": "Emit Blocked Boleto - 409",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{blockedBoletoId}}/emit"
           },
           "event": [
@@ -426,6 +511,267 @@
                   "pm.test(\"error code is CUSTOMER_BLOCKED\", function () {",
                   "  pm.expect(json).to.have.property(\"error\");",
                   "  pm.expect(json.error).to.have.property(\"code\", \"CUSTOMER_BLOCKED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Duplicate Validation",
+      "item": [
+        {
+          "name": "Create Boleto With External ID - 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\",\n  \"external_id\": \"external-demo-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(response).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "if (response.data && response.data.id) {",
+                  "  pm.collectionVariables.set(\"boletoId\", response.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate External ID - 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\",\n  \"external_id\": \"external-demo-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is DUPLICATE_RESOURCE\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"DUPLICATE_RESOURCE\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Boleto With Our Number - 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\",\n  \"our_number\": \"nosso-numero-demo-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has data\", function () {",
+                  "  pm.expect(response).to.have.property(\"data\");",
+                  "});",
+                  "",
+                  "if (response.data && response.data.id) {",
+                  "  pm.collectionVariables.set(\"boletoId\", response.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate Our Number - 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{userId}}"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenantId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customerId}}\",\n  \"provider_id\": \"{{providerId}}\",\n  \"amount_cents\": 15000,\n  \"due_date\": \"2026-07-30\",\n  \"status\": \"CREATED\",\n  \"our_number\": \"nosso-numero-demo-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const response = pm.response.json();",
+                  "pm.test(\"response has error\", function () {",
+                  "  pm.expect(response).to.have.property(\"error\");",
+                  "});",
+                  "",
+                  "pm.test(\"error code is DUPLICATE_RESOURCE\", function () {",
+                  "  pm.expect(response.error.code).to.eql(\"DUPLICATE_RESOURCE\");",
                   "});"
                 ]
               }
@@ -459,6 +805,10 @@
     {
       "key": "blockedBoletoId",
       "value": ""
+    },
+    {
+      "key": "userId",
+      "value": "550e8400-e29b-41d4-a716-446655449999"
     }
   ]
 }

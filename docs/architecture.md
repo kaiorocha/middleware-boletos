@@ -34,9 +34,22 @@ Preparação para múltiplos provedores
 
 Fluxo de emissão
 - API recebe `POST /api/v1/tenants/:tenantId/boletos/:id/emit`.
-- `BoletoService` valida tenant/boleto/provider, verifica idempotência, consulta o provider, monta o adapter na factory e chama `IssueBoleto`.
+- `BoletoService` valida dependências obrigatórias, tenant/boleto/provider, verifica idempotência, busca o customer e consulta a blacklist antes de montar pagador ou provider.
+- O fluxo é fail-closed: sem `BlacklistService`, sem documento do customer ou com erro na blacklist, a emissão é interrompida.
+- `adapter.IssueBoleto` só é chamado dentro de `BoletoService.Emit`, após autorização tenant-scoped e validação de Compliance.
 - O retorno padronizado persiste `status`, `external_id`, `barcode`, `digitable_line`, `our_number` e `issued_at`.
 - Logs estruturados registram tenant, provider, request id, boleto id, latência e resultado.
+
+Compliance
+- A tabela `blacklist` armazena documentos bloqueados por tenant, com soft delete e índice único parcial para bloqueio ativo.
+- `BlacklistService.IsBlocked` é obrigatório antes de qualquer emissão.
+- Tentativas bloqueadas retornam `CUSTOMER_BLOCKED` com HTTP 409 e registram auditoria.
+
+Autorização multi-tenant
+- Rotas sob `/api/v1/tenants/{tenantId}/...` passam por autorização centralizada antes dos handlers.
+- A identidade autenticada informa tenants permitidos por `X-Tenant-ID` ou `X-Tenant-IDs`.
+- Sem identidade, a API retorna HTTP 401. Com identidade sem acesso ao tenant, retorna HTTP 403.
+- Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-Tenant-ID` permite operação local controlada.
 
 Estados de boleto
 - Status suportados: `CREATED`, `PROCESSING`, `ISSUED`, `FAILED`, `CANCELLED`, `PARTIAL`, `PAID`, `EXPIRED`.
@@ -58,4 +71,4 @@ Ambientes
 - Produção: infraestrutura com orquestração (Kubernetes/managed services), backups, escalabilidade e alta disponibilidade.
 
 Notas
-- Não há integração bancária real nesta etapa; o foco é scaffolding, domínio e infra para desenvolvimento.
+- Credenciais de provider não devem ser retornadas completas por endpoints de consulta nem exibidas em texto aberto no frontend.

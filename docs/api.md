@@ -86,6 +86,23 @@ HTTP `409 Conflict`
 
 Eventos de compliance são registrados em `audit_logs` para bloqueio, desbloqueio e tentativa de emissão bloqueada.
 
+## Autorização multi-tenant
+
+Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
+
+Headers esperados enquanto a autenticação completa não está disponível:
+
+- `X-User-ID`: UUID do usuário autenticado.
+- `X-Tenant-ID`: UUID do tenant autorizado.
+- `X-Tenant-IDs`: lista separada por vírgula para usuários com múltiplos tenants.
+
+Respostas de autorização:
+
+- HTTP `401` com `UNAUTHORIZED` quando não houver identidade autenticada.
+- HTTP `403` com `FORBIDDEN` quando o usuário não puder operar o tenant solicitado.
+
+Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-Tenant-ID` pode ser usado para operação local controlada. Não confie apenas no `tenantId` da URL em produção.
+
 ## Health Check
 
 ### GET /health

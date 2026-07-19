@@ -160,6 +160,12 @@ Se o documento estiver bloqueado, a API interrompe a emissão e retorna HTTP `40
 
 O bloqueio é aplicado no backend, no fluxo central de emissão, para evitar bypass por painel, API externa ou integrações futuras.
 
+## Autorização multi-tenant
+
+Rotas tenant-scoped exigem identidade autenticada e validação do tenant permitido. Sem identidade, a API retorna HTTP `401` com `UNAUTHORIZED`. Se o usuário autenticado não tiver acesso ao tenant da URL, retorna HTTP `403` com `FORBIDDEN`.
+
+Enquanto a autenticação completa não está implementada, a camada explícita de autorização usa `X-User-ID` e `X-Tenant-ID`/`X-Tenant-IDs`. Em desenvolvimento local, somente com `APP_ENV=development`, é possível usar `X-Dev-Tenant-ID`.
+
 ## Exemplos de request
 
 ### Criar Tenant

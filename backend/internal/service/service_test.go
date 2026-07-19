@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
 	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
 
 type tenantRepoMock struct{ created bool }
@@ -156,6 +158,57 @@ func (m *blacklistComplianceMock) IsBlocked(string, string) (*domain.BlacklistEn
 }
 func (m *blacklistComplianceMock) RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto) {
 	m.attempts++
+}
+
+type providerFactorySpy struct {
+	builds  int
+	adapter *providerAdapterSpy
+	err     error
+}
+
+func (f *providerFactorySpy) Build(types.ProviderConfig) (contracts.ProviderAdapter, error) {
+	f.builds++
+	if f.adapter == nil {
+		f.adapter = &providerAdapterSpy{}
+	}
+	return f.adapter, f.err
+}
+
+type providerAdapterSpy struct {
+	issues int
+}
+
+func (a *providerAdapterSpy) IssueBoleto(context.Context, types.IssueRequest) (types.IssueResponse, error) {
+	a.issues++
+	return types.IssueResponse{
+		ExternalID:    "spy-ext",
+		Barcode:       "spy-barcode",
+		DigitableLine: "spy-line",
+		OurNumber:     "spy-our",
+		Status:        types.StatusIssued,
+		IssuedAt:      time.Now(),
+	}, nil
+}
+func (a *providerAdapterSpy) GetBoleto(context.Context, types.GetRequest) (types.BoletoSummary, error) {
+	return types.BoletoSummary{}, nil
+}
+func (a *providerAdapterSpy) ListBoletos(context.Context, types.ListRequest) ([]types.BoletoSummary, error) {
+	return nil, nil
+}
+func (a *providerAdapterSpy) CancelBoleto(context.Context, types.CancelRequest) (types.BoletoSummary, error) {
+	return types.BoletoSummary{}, nil
+}
+func (a *providerAdapterSpy) RegisterWebhook(context.Context, types.RegisterWebhookRequest) error {
+	return nil
+}
+func (a *providerAdapterSpy) ValidateWebhook(context.Context, types.ValidateWebhookRequest) (types.WebhookEvent, error) {
+	return types.WebhookEvent{}, nil
+}
+func (a *providerAdapterSpy) GetBalance(context.Context, types.BalanceRequest) (types.BalanceResponse, error) {
+	return types.BalanceResponse{}, nil
+}
+func (a *providerAdapterSpy) Health(context.Context) (types.HealthResponse, error) {
+	return types.HealthResponse{}, nil
 }
 
 // ========== TenantService Tests ==========
@@ -625,6 +678,7 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(providerRepo).
+		WithBlacklistService(&blacklistComplianceMock{}).
 		WithProviderFactory(factory.NewProviderFactory())
 
 	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
@@ -685,6 +739,106 @@ func TestBoletoServiceEmitBlocksBlacklistedCustomerBeforeProvider(t *testing.T) 
 	}
 }
 
+func TestBoletoServiceEmitFailsClosedWithoutBlacklistService(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
+
+	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+	}}).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(&providerRepoMock{}).
+		WithProviderFactory(spy)
+
+	_, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if spy.builds != 0 || spy.adapter.issues != 0 {
+		t.Fatalf("expected no provider interaction, builds=%d issues=%d", spy.builds, spy.adapter.issues)
+	}
+}
+
+func TestBoletoServiceEmitRejectsCustomerWithoutDocument(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	customer := completeCustomer(validTenantUUID)
+	customer.Document = nil
+	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
+	blacklist := &blacklistComplianceMock{}
+
+	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+	}}).
+		WithCustomerRepository(&customerRepoMock{found: customer}).
+		WithProviderRepository(&providerRepoMock{}).
+		WithBlacklistService(blacklist).
+		WithProviderFactory(spy)
+
+	_, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if spy.builds != 0 || spy.adapter.issues != 0 || blacklist.attempts != 0 {
+		t.Fatalf("expected no provider/bypass interaction, builds=%d issues=%d attempts=%d", spy.builds, spy.adapter.issues, blacklist.attempts)
+	}
+}
+
+func TestBoletoServiceEmitStopsWhenBlacklistServiceErrors(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
+	blacklistErr := errors.New("blacklist unavailable")
+
+	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+	}}).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(&providerRepoMock{}).
+		WithBlacklistService(&blacklistComplianceMock{err: blacklistErr}).
+		WithProviderFactory(spy)
+
+	_, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if !errors.Is(err, blacklistErr) {
+		t.Fatalf("expected blacklist error, got %v", err)
+	}
+	if spy.builds != 0 || spy.adapter.issues != 0 {
+		t.Fatalf("expected no provider interaction, builds=%d issues=%d", spy.builds, spy.adapter.issues)
+	}
+}
+
+func TestBoletoServiceEmitAllowedCustomerCallsProvider(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+	providerRepo := &providerRepoMock{found: &domain.Provider{ID: validProviderUUID, TenantID: validTenantUUID, Name: "Mock", Status: "ACTIVE"}}
+	adapter := &providerAdapterSpy{}
+	spy := &providerFactorySpy{adapter: adapter}
+
+	got, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+	}}).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(providerRepo).
+		WithBlacklistService(&blacklistComplianceMock{}).
+		WithProviderFactory(spy).
+		Emit(context.Background(), validTenantUUID, boletoID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got.Status != "ISSUED" || spy.builds != 1 || adapter.issues != 1 {
+		t.Fatalf("expected provider call and issued boleto, builds=%d issues=%d boleto=%+v", spy.builds, adapter.issues, got)
+	}
+}
+
 func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
 	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
@@ -708,6 +862,7 @@ func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{}).
 		WithProviderRepository(&providerRepoMock{}).
+		WithBlacklistService(&blacklistComplianceMock{}).
 		WithProviderFactory(factory.NewProviderFactory())
 
 	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
@@ -749,6 +904,7 @@ func TestBoletoServiceEmitReturnsInvalidPayerForIncompleteCustomer(t *testing.T)
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{found: customer}).
 		WithProviderRepository(providerRepo).
+		WithBlacklistService(&blacklistComplianceMock{}).
 		WithProviderFactory(factory.NewProviderFactory())
 
 	_, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
@@ -817,6 +973,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(providerRepo).
+		WithBlacklistService(&blacklistComplianceMock{}).
 		WithProviderFactory(factory.NewProviderFactory())
 
 	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)

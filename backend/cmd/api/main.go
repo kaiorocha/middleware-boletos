@@ -49,6 +49,7 @@ func main() {
 		BoletoSvc:    boletoSvc,
 		BlacklistSvc: blacklistSvc,
 		Factory:      providerFactory,
+		Authorizer:   NewHeaderTenantAuthorizer(cfg.Env),
 	}
 
 	h := app.routes()
