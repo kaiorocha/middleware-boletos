@@ -58,6 +58,17 @@ A collection Postman da Etapa 4 está disponível em:
 
 Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de bloqueio e emissão bloqueada por compliance.
 
+## Demo SaaS
+
+O fluxo demonstrável da Etapa 4 está documentado em `docs/demo.md`.
+
+Credenciais locais de desenvolvimento, quando `.env.example` é usado:
+
+- Platform Admin: `admin@middleware.local`
+- Senha: `ChangeMe123456!`
+
+Após login, o `PLATFORM_ADMIN` cria tenants e administradores de tenant pelo painel. O `TENANT_ADMIN` acessa somente os tenants presentes no JWT, sem digitar UUID manualmente.
+
 ## Rotas disponíveis
 
 ### Health
@@ -68,6 +79,7 @@ Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de
 - `GET /api/v1/tenants`
 - `GET /api/v1/tenants/:id`
 - `GET /api/v1/me/tenants`
+- `POST /api/v1/admin/tenants`
 
 ### Users
 - `POST /api/v1/users`

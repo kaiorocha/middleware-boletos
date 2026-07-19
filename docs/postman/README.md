@@ -25,9 +25,11 @@ http://localhost:8080
 
 ## Ordem recomendada de execução
 
-1. Create Tenant
-2. Create Customer
-3. Create Mock Provider
+1. Login Platform Admin
+2. Create Tenant With Tenant Admin - 201
+3. Login Tenant Admin
+4. Create Customer
+5. Create Mock Provider
 4. Create Moncalieri Provider
 5. Create Boleto
 6. Create Moncalieri Boleto
@@ -86,6 +88,7 @@ A collection da Etapa 4 inclui requests esperados com HTTP `400` e `409`:
 - `Duplicate Mock Provider - 409` valida `error.code = DUPLICATE_RESOURCE`.
 - `Emit Blocked Boleto - 409` valida `error.code = CUSTOMER_BLOCKED`.
 - A pasta `Duplicate Validation` valida duplicidade por tenant para users, customers, providers, `external_id` e `our_number`.
+- A pasta `Auth Login` valida login do `PLATFORM_ADMIN`, login do `TENANT_ADMIN` e credenciais inválidas.
 - A pasta `Auth Examples` valida `401 Unauthorized`, token malformado e `403 Forbidden` por cross-tenant.
 - A pasta `RBAC` valida `PLATFORM_ADMIN` em `GET/POST /api/v1/tenants` e `GET /api/v1/me/tenants`.
 

@@ -11,6 +11,7 @@ Backend (Go)
 
 Frontend (Next.js)
 - Aplicação React/Next para interface do usuário e páginas administrativas.
+- Fluxo SaaS demonstrável com `/login`, `/admin` para `PLATFORM_ADMIN` e `/app` para tenants.
 - Separação de build e runtime para permitir CDN/Edge deployment no futuro.
 
 PostgreSQL
@@ -46,6 +47,7 @@ Compliance
 - Tentativas bloqueadas retornam `CUSTOMER_BLOCKED` com HTTP 409 e registram auditoria.
 
 Autorização multi-tenant
+- Login em `POST /api/v1/auth/login` valida senha com hash bcrypt e emite JWT HS256.
 - Rotas sob `/api/v1/tenants/{tenantId}/...` passam por autorização centralizada antes dos handlers.
 - A identidade autenticada vem de JWT Bearer validado e informa tenants permitidos por `tenant_id` ou `tenant_ids`.
 - Sem identidade, a API retorna HTTP 401. Com identidade sem acesso ao tenant, retorna HTTP 403.

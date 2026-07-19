@@ -1,24 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const API_DEFAULT = 'http://localhost:8080'
-type ApiPayload = Record<string, any>
-const IS_DEVELOPMENT =
-  process.env.NEXT_PUBLIC_APP_ENV === 'development' || process.env.NODE_ENV === 'development'
-const SESSION_TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID || ''
-const SESSION_USER_ID = process.env.NEXT_PUBLIC_USER_ID || ''
-const SESSION_ACCESS_TOKEN = process.env.NEXT_PUBLIC_ACCESS_TOKEN || ''
+const SESSION_KEY = 'middleware-boletos-session'
 
-const navItems = [
-  'Dashboard',
-  'Boletos',
-  'Clientes',
-  'Providers',
-  'Compliance',
-  'Usuários',
-  'Configurações',
-]
-
-const statusLabels: Record<string, string> = {
+const statusLabels = {
   CREATED: 'Criado',
   PROCESSING: 'Processando',
   ISSUED: 'Emitido',
@@ -28,21 +13,24 @@ const statusLabels: Record<string, string> = {
   FAILED: 'Falha',
 }
 
-const fmtCurrency = (cents: any) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(cents || 0) / 100))
+const tenantNav = ['Dashboard', 'Transações', 'Boletos', 'Clientes', 'Providers', 'Compliance', 'Usuários']
+const adminNav = ['Dashboard da Plataforma', 'Tenants', 'Usuários Administrativos']
 
-const fmtDate = (value: any) => {
+const fmtCurrency = (cents) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cents || 0) / 100)
+
+const fmtDate = (value) => {
   if (!value) return '-'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  return new Intl.DateTimeFormat('pt-BR').format(date)
+  return Number.isNaN(date.getTime()) ? '-' : new Intl.DateTimeFormat('pt-BR').format(date)
 }
 
-async function apiFetch(baseUrl: string, path: string, options: RequestInit = {}): Promise<ApiPayload> {
+async function apiFetch(baseUrl, path, token, options: any = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   })
@@ -56,1024 +44,333 @@ async function apiFetch(baseUrl: string, path: string, options: RequestInit = {}
   return payload
 }
 
-function tenantsFromToken(token: string): string[] {
-  const parts = token.trim().split('.')
-  if (parts.length !== 3 || typeof window === 'undefined') return []
+function targetPath(session) {
+  if (!session) return '/login'
+  return session.user?.roles?.includes('PLATFORM_ADMIN') ? '/admin' : '/app'
+}
+
+function readSession() {
+  if (typeof window === 'undefined') return null
   try {
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const payload = JSON.parse(window.atob(base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')))
-    const tenants = new Set<string>()
-    if (typeof payload.tenant_id === 'string') tenants.add(payload.tenant_id)
-    if (Array.isArray(payload.tenant_ids)) {
-      payload.tenant_ids.forEach((id: unknown) => {
-        if (typeof id === 'string') tenants.add(id)
-      })
-    }
-    return Array.from(tenants)
+    return JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null')
   } catch {
-    return []
+    return null
   }
 }
 
-export default function AdminPanel() {
+function saveSession(session) {
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+}
+
+function clearSession() {
+  window.localStorage.removeItem(SESSION_KEY)
+}
+
+export default function SaaSPanel() {
   const [baseUrl, setBaseUrl] = useState(API_DEFAULT)
-  const [tenantId, setTenantId] = useState(SESSION_TENANT_ID)
-  const [userId, setUserId] = useState(SESSION_USER_ID)
-  const [accessToken, setAccessToken] = useState(SESSION_ACCESS_TOKEN)
-  const [authorizedTenantIds, setAuthorizedTenantIds] = useState<string[]>([])
-  const [active, setActive] = useState('Dashboard')
-  const [loading, setLoading] = useState(false)
-  const [notice, setNotice] = useState('')
+  const [session, setSession] = useState(null)
+  const [route, setRoute] = useState('/login')
   const [error, setError] = useState('')
-  const [dashboard, setDashboard] = useState<any>(null)
-  const [boletos, setBoletos] = useState<any[]>([])
-  const [customers, setCustomers] = useState<any[]>([])
-  const [providers, setProviders] = useState<any[]>([])
-  const [blacklist, setBlacklist] = useState<any[]>([])
-  const [users, setUsers] = useState<any[]>([])
-  const [selectedBoleto, setSelectedBoleto] = useState<any>(null)
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
-  const [selectedProvider, setSelectedProvider] = useState<any>(null)
-  const [filters, setFilters] = useState({
-    periodFrom: '',
-    periodTo: '',
-    boletoSearch: '',
-    boletoStatus: '',
-    boletoProvider: '',
-    boletoCustomer: '',
-    customerSearch: '',
-    complianceSearch: '',
-    complianceActive: '',
-  })
-  const [customerForm, setCustomerForm] = useState(emptyCustomer())
-  const [providerForm, setProviderForm] = useState({ name: '', config: '', status: 'ACTIVE' })
-  const [blacklistForm, setBlacklistForm] = useState({
-    document: '',
-    name: '',
-    reason: '',
-    notes: '',
-    source: 'MANUAL',
-  })
 
-  const ready = Boolean(tenantId.trim() && (accessToken.trim() || (IS_DEVELOPMENT && userId.trim())))
+  useEffect(() => {
+    const current = readSession()
+    setSession(current)
+    const path = window.location.pathname === '/' ? targetPath(current) : window.location.pathname
+    setRoute(path)
+    if (window.location.pathname !== path) window.history.replaceState(null, '', path)
+  }, [])
 
-  const authHeaders = () => {
-    if (accessToken.trim()) {
-      return { Authorization: `Bearer ${accessToken.trim()}` }
-    }
-    if (IS_DEVELOPMENT && tenantId.trim() && userId.trim()) {
-      return {
-        'X-Dev-User-ID': userId.trim(),
-        'X-Dev-Tenant-ID': tenantId.trim(),
-      }
-    }
-    return {}
+  const navigate = (path) => {
+    setRoute(path)
+    window.history.pushState(null, '', path)
   }
 
-  const callApi = (path: string, options: RequestInit = {}) =>
-    apiFetch(baseUrl, path, {
-      ...options,
-      headers: {
-        ...authHeaders(),
-        ...(options.headers || {}),
-      },
-    })
+  const logout = () => {
+    clearSession()
+    setSession(null)
+    navigate('/login')
+  }
 
-  const loadAll = async () => {
-    if (!ready) return
+  const login = async (email, password) => {
+    setError('')
+    const payload = await apiFetch(baseUrl, '/api/v1/auth/login', '', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })
+    const next = payload.data
+    saveSession(next)
+    setSession(next)
+    navigate(targetPath(next))
+  }
+
+  if (route === '/login' || !session) {
+    return <LoginView baseUrl={baseUrl} setBaseUrl={setBaseUrl} login={login} error={error} setError={setError} />
+  }
+
+  const shellProps = { baseUrl, setBaseUrl, session, logout, error, setError }
+  if (route === '/admin') return <AdminView {...shellProps} />
+  return <TenantView {...shellProps} />
+}
+
+function LoginView({ baseUrl, setBaseUrl, login, error, setError }) {
+  const [email, setEmail] = useState('admin@middleware.local')
+  const [password, setPassword] = useState('ChangeMe123456!')
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (event) => {
+    event.preventDefault()
     setLoading(true)
     setError('')
     try {
-      const query = new URLSearchParams()
-      if (filters.periodFrom) query.set('from', filters.periodFrom)
-      if (filters.periodTo) query.set('to', filters.periodTo)
-      const [dash, boletosRes, customersRes, providersRes, blacklistRes, usersRes] = await Promise.all([
-        callApi(`/api/v1/tenants/${tenantId}/dashboard?${query.toString()}`),
-        callApi(`/api/v1/tenants/${tenantId}/boletos`),
-        callApi(`/api/v1/tenants/${tenantId}/customers`),
-        callApi(`/api/v1/tenants/${tenantId}/providers`),
-        callApi(`/api/v1/tenants/${tenantId}/blacklist`),
-        callApi(`/api/v1/tenants/${tenantId}/users`),
-      ])
-      setDashboard(dash.data)
-      setBoletos(boletosRes.data || [])
-      setCustomers(customersRes.data || [])
-      setProviders(providersRes.data || [])
-      setBlacklist(blacklistRes.data || [])
-      setUsers(usersRes.data || [])
+      await login(email, password)
     } catch (err) {
-      setError(`${err.code || err.status || 'ERRO'}: ${err.message}`)
+      setError(err.message || 'Credenciais inválidas.')
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    loadAll()
-  }, [tenantId])
-
-  useEffect(() => {
-    const tenants = tenantsFromToken(accessToken)
-    setAuthorizedTenantIds(tenants)
-    if (!IS_DEVELOPMENT && tenants.length > 0 && (!tenantId || !tenants.includes(tenantId))) {
-      setTenantId(tenants[0])
-    }
-  }, [accessToken])
-
-  const blockedDocuments = useMemo(() => {
-    return new Set(blacklist.filter((entry) => entry.active).map((entry) => entry.document))
-  }, [blacklist])
-
-  const customerById = useMemo(() => {
-    return Object.fromEntries(customers.map((customer) => [customer.id, customer]))
-  }, [customers])
-
-  const providerById = useMemo(() => {
-    return Object.fromEntries(providers.map((provider) => [provider.id, provider]))
-  }, [providers])
-
-  const filteredBoletos = useMemo(() => {
-    const search = filters.boletoSearch.trim().toLowerCase()
-    return boletos.filter((boleto) => {
-      const customer = customerById[boleto.customer_id]
-      const provider = boleto.provider_id ? providerById[boleto.provider_id] : null
-      const haystack = [
-        boleto.id,
-        boleto.our_number,
-        boleto.digitable_line,
-        boleto.barcode,
-        boleto.external_id,
-        customer?.document,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return (
-        (!search || haystack.includes(search)) &&
-        (!filters.boletoStatus || boleto.status === filters.boletoStatus) &&
-        (!filters.boletoProvider || provider?.id === filters.boletoProvider) &&
-        (!filters.boletoCustomer || customer?.id === filters.boletoCustomer)
-      )
-    })
-  }, [boletos, customerById, providerById, filters])
-
-  const filteredCustomers = useMemo(() => {
-    const search = filters.customerSearch.trim().toLowerCase()
-    return customers.filter((customer) => {
-      const haystack = [customer.name, customer.document].filter(Boolean).join(' ').toLowerCase()
-      return !search || haystack.includes(search)
-    })
-  }, [customers, filters.customerSearch])
-
-  const filteredBlacklist = useMemo(() => {
-    const search = filters.complianceSearch.trim().toLowerCase()
-    return blacklist.filter((entry) => {
-      const haystack = [entry.document, entry.name, entry.reason].filter(Boolean).join(' ').toLowerCase()
-      const activeMatch =
-        filters.complianceActive === '' || String(entry.active) === filters.complianceActive
-      return (!search || haystack.includes(search)) && activeMatch
-    })
-  }, [blacklist, filters.complianceSearch, filters.complianceActive])
-
-  const flash = (message) => {
-    setNotice(message)
-    setTimeout(() => setNotice(''), 3500)
-  }
-
-  const saveCustomer = async (event) => {
-    event.preventDefault()
-    await mutate(async () => {
-      const body = JSON.stringify(customerForm)
-      if (customerForm.id) {
-        await callApi(`/api/v1/tenants/${tenantId}/customers/${customerForm.id}`, {
-          method: 'PUT',
-          body,
-        })
-        flash('Cliente atualizado.')
-      } else {
-        await callApi(`/api/v1/tenants/${tenantId}/customers`, { method: 'POST', body })
-        flash('Cliente cadastrado.')
-      }
-      setCustomerForm(emptyCustomer())
-    })
-  }
-
-  const saveProvider = async (event) => {
-    event.preventDefault()
-    await mutate(async () => {
-      await callApi(`/api/v1/tenants/${tenantId}/providers`, {
-        method: 'POST',
-        body: JSON.stringify(providerForm),
-      })
-      setProviderForm({ name: '', config: '', status: 'ACTIVE' })
-      flash('Provider cadastrado.')
-    })
-  }
-
-  const saveBlacklistEntry = async (event) => {
-    event.preventDefault()
-    await mutate(async () => {
-      await callApi(`/api/v1/tenants/${tenantId}/blacklist`, {
-        method: 'POST',
-        body: JSON.stringify(blacklistForm),
-      })
-      setBlacklistForm({ document: '', name: '', reason: '', notes: '', source: 'MANUAL' })
-      flash('Bloqueio cadastrado.')
-    })
-  }
-
-  const mutate = async (fn) => {
-    if (!ready) {
-      setError('Informe um tenantId para operar o painel.')
-      return
-    }
-    setLoading(true)
-    setError('')
-    try {
-      await fn()
-      await loadAll()
-    } catch (err) {
-      setError(`${err.code || err.status || 'ERRO'}: ${err.message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const emitBoleto = async (boleto) => {
-    await mutate(async () => {
-      await callApi(`/api/v1/tenants/${tenantId}/boletos/${boleto.id}/emit`, { method: 'POST' })
-      flash('Emissão solicitada.')
-    })
-  }
-
-  const blacklistAction = async (entry, action) => {
-    await mutate(async () => {
-      await callApi(`/api/v1/tenants/${tenantId}/blacklist/${entry.id}/${action}`, {
-        method: 'POST',
-      })
-      flash(action === 'block' ? 'Bloqueio ativado.' : 'Bloqueio desativado.')
-    })
-  }
-
-  const deleteBlacklistEntry = async (entry) => {
-    await mutate(async () => {
-      await callApi(`/api/v1/tenants/${tenantId}/blacklist/${entry.id}`, { method: 'DELETE' })
-      flash('Bloqueio excluído logicamente.')
-    })
   }
 
   return (
-    <main className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brandMark">MB</span>
-          <div>
-            <strong>Middleware Boletos</strong>
-            <small>Painel Administrativo</small>
-          </div>
-        </div>
-        <nav>
-          {navItems.map((item) => (
-            <button
-              key={item}
-              className={active === item ? 'navActive' : ''}
-              type="button"
-              onClick={() => setActive(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </nav>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <h1>{active}</h1>
-            <p>Operação multi-tenant para emissão, provedores e compliance.</p>
-          </div>
-          <div className="tenantControls">
-            <label>
-              API
-              <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
-            </label>
-            {IS_DEVELOPMENT ? (
-              <>
-                <label>
-                  Tenant ID
-                  <input
-                    value={tenantId}
-                    placeholder="UUID do tenant"
-                    onChange={(event) => setTenantId(event.target.value)}
-                  />
-                </label>
-                <label>
-                  User ID
-                  <input
-                    value={userId}
-                    placeholder="UUID do usuário"
-                    onChange={(event) => setUserId(event.target.value)}
-                  />
-                </label>
-                <label>
-                  Access Token
-                  <input
-                    value={accessToken}
-                    placeholder="JWT Bearer opcional"
-                    onChange={(event) => setAccessToken(event.target.value)}
-                  />
-                </label>
-              </>
-            ) : authorizedTenantIds.length > 1 ? (
-              <label>
-                Tenant da sessão
-                <select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-                  {authorizedTenantIds.map((id) => (
-                    <option key={id} value={id}>
-                      {id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <div className="sessionTenant">
-                <span>Tenant da sessão</span>
-                <strong>{tenantId ? `${tenantId.slice(0, 8)}...` : 'indisponível'}</strong>
-              </div>
-            )}
-            <button type="button" onClick={loadAll} disabled={!ready || loading}>
-              Atualizar
-            </button>
-          </div>
-        </header>
-
-        {notice && <div className="notice">{notice}</div>}
+    <main className="loginPage">
+      <form className="loginCard" onSubmit={submit}>
+        <strong>Middleware Boletos</strong>
+        <h1>Entrar</h1>
+        <label>API<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+        <label>E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         {error && <div className="errorBox">{error}</div>}
-        {!ready && (
-          <div className="empty">
-            {IS_DEVELOPMENT
-              ? 'Informe Tenant ID e User ID, ou um JWT Bearer, para carregar os dados operacionais.'
-              : 'Sessão autenticada indisponível para carregar os dados operacionais.'}
-          </div>
-        )}
-
-        {ready && active === 'Dashboard' && (
-          <Dashboard dashboard={dashboard} filters={filters} setFilters={setFilters} loading={loading} />
-        )}
-        {ready && active === 'Boletos' && (
-          <BoletosView
-            boletos={filteredBoletos}
-            customers={customers}
-            providers={providers}
-            customerById={customerById}
-            providerById={providerById}
-            filters={filters}
-            setFilters={setFilters}
-            selectedBoleto={selectedBoleto}
-            setSelectedBoleto={setSelectedBoleto}
-            emitBoleto={emitBoleto}
-          />
-        )}
-        {ready && active === 'Clientes' && (
-          <ClientesView
-            customers={filteredCustomers}
-            blockedDocuments={blockedDocuments}
-            filters={filters}
-            setFilters={setFilters}
-            form={customerForm}
-            setForm={setCustomerForm}
-            saveCustomer={saveCustomer}
-            selectedCustomer={selectedCustomer}
-            setSelectedCustomer={setSelectedCustomer}
-            setActive={setActive}
-            setComplianceSearch={(document) =>
-              setFilters((current) => ({ ...current, complianceSearch: document || '', complianceActive: '' }))
-            }
-          />
-        )}
-        {ready && active === 'Providers' && (
-          <ProvidersView
-            providers={providers}
-            form={providerForm}
-            setForm={setProviderForm}
-            saveProvider={saveProvider}
-            selectedProvider={selectedProvider}
-            setSelectedProvider={setSelectedProvider}
-          />
-        )}
-        {ready && active === 'Compliance' && (
-          <ComplianceView
-            blacklist={filteredBlacklist}
-            filters={filters}
-            setFilters={setFilters}
-            form={blacklistForm}
-            setForm={setBlacklistForm}
-            saveBlacklistEntry={saveBlacklistEntry}
-            blacklistAction={blacklistAction}
-            deleteBlacklistEntry={deleteBlacklistEntry}
-          />
-        )}
-        {ready && active === 'Usuários' && <UsersView users={users} />}
-        {ready && active === 'Configurações' && (
-          <SettingsView baseUrl={baseUrl} tenantId={tenantId} providers={providers} />
-        )}
-      </section>
-
+        <button disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
+      </form>
       <style jsx>{styles}</style>
     </main>
   )
 }
 
-function Dashboard({ dashboard, filters, setFilters, loading }) {
-  const metrics = [
-    ['Total de boletos', dashboard?.total_boletos],
-    ['Emitidos', dashboard?.boletos_emitidos],
-    ['Processando', dashboard?.boletos_em_processamento],
-    ['Pagos', dashboard?.boletos_pagos],
-    ['Vencidos', dashboard?.boletos_vencidos],
-    ['Cancelados', dashboard?.boletos_cancelados],
-    ['Com falha', dashboard?.boletos_com_falha],
-    ['Valor emitido', fmtCurrency(dashboard?.valor_total_emitido)],
-  ]
+function Shell({ title, nav, active, setActive, children, baseUrl, setBaseUrl, session, logout, error }) {
   return (
-    <>
-      <div className="toolbar">
-        <label>
-          De
-          <input
-            type="date"
-            value={filters.periodFrom}
-            onChange={(event) => setFilters((current) => ({ ...current, periodFrom: event.target.value }))}
-          />
-        </label>
-        <label>
-          Até
-          <input
-            type="date"
-            value={filters.periodTo}
-            onChange={(event) => setFilters((current) => ({ ...current, periodTo: event.target.value }))}
-          />
-        </label>
-      </div>
-      <section className="metricGrid">
-        {metrics.map(([label, value]) => (
-          <article className="metric" key={label}>
-            <span>{label}</span>
-            <strong>{loading ? '...' : value ?? 0}</strong>
-          </article>
-        ))}
+    <main className="shell">
+      <aside className="sidebar">
+        <div className="brand"><span>MB</span><strong>Middleware Boletos</strong></div>
+        <nav>{nav.map((item) => <button key={item} className={active === item ? 'navActive' : ''} onClick={() => setActive(item)}>{item}</button>)}</nav>
+      </aside>
+      <section className="workspace">
+        <header className="topbar">
+          <div><h1>{title}</h1><p>{session.user.name} · {session.user.email}</p></div>
+          <div className="controls">
+            <label>API<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+            <button type="button" onClick={logout}>Sair</button>
+          </div>
+        </header>
+        {error && <div className="errorBox">{error}</div>}
+        {children}
       </section>
-      <section className="panel">
-        <h2>Distribuição por status</h2>
-        <div className="statusBars">
-          {Object.entries(dashboard?.by_status || {}).map(([status, count]) => (
-            <div className="statusLine" key={status}>
-              <span>{statusLabels[status] || status}</span>
-              <strong>{String(count)}</strong>
-            </div>
-          ))}
-          {!Object.keys(dashboard?.by_status || {}).length && <p className="muted">Sem boletos no período.</p>}
+      <style jsx>{styles}</style>
+    </main>
+  )
+}
+
+function AdminView(props) {
+  const { baseUrl, session, setError } = props
+  const [active, setActive] = useState(adminNav[0])
+  const [tenants, setTenants] = useState([])
+  const [notice, setNotice] = useState('')
+  const [form, setForm] = useState({
+    name: 'Cliente Demonstração',
+    adminName: 'Administrador Cliente',
+    adminEmail: 'cliente@demo.local',
+    adminPassword: 'Cliente123456!',
+  })
+
+  const load = async () => {
+    try {
+      const res = await apiFetch(baseUrl, '/api/v1/tenants', session.access_token)
+      setTenants(res.data || [])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+  useEffect(() => { load() }, [])
+
+  const createTenant = async (event) => {
+    event.preventDefault()
+    setError('')
+    const payload = {
+      name: form.name,
+      admin: { name: form.adminName, email: form.adminEmail, password: form.adminPassword },
+    }
+    try {
+      await apiFetch(baseUrl, '/api/v1/admin/tenants', session.access_token, { method: 'POST', body: JSON.stringify(payload) })
+      setNotice(`Tenant criado. Entregue login ${form.adminEmail} com a senha definida.`)
+      await load()
+    } catch (err) {
+      setError(`${err.code || err.status}: ${err.message}`)
+    }
+  }
+
+  return (
+    <Shell {...props} title="Painel da Plataforma" nav={adminNav} active={active} setActive={setActive}>
+      {notice && <div className="notice">{notice}</div>}
+      {active === 'Dashboard da Plataforma' && <Metrics items={[['Tenants', tenants.length], ['Administradores', tenants.filter((t) => t.owner_id).length]]} />}
+      {active === 'Tenants' && (
+        <div className="split">
+          <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at)])} /></section>
+          <FormPanel title="Novo Tenant" onSubmit={createTenant}>
+            <label>Nome do Tenant<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+            <label>Nome do Administrador<input value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} /></label>
+            <label>E-mail do Administrador<input value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} /></label>
+            <label>Senha inicial<input type="password" value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} /></label>
+            <button>Criar tenant e admin</button>
+          </FormPanel>
         </div>
-      </section>
-    </>
-  )
-}
-
-function BoletosView({
-  boletos,
-  customers,
-  providers,
-  customerById,
-  providerById,
-  filters,
-  setFilters,
-  selectedBoleto,
-  setSelectedBoleto,
-  emitBoleto,
-}) {
-  return (
-    <>
-      <div className="toolbar">
-        <input
-          placeholder="Buscar por nosso número, linha digitável, código de barras, external ID ou CPF/CNPJ"
-          value={filters.boletoSearch}
-          onChange={(event) => setFilters((current) => ({ ...current, boletoSearch: event.target.value }))}
-        />
-        <select
-          value={filters.boletoStatus}
-          onChange={(event) => setFilters((current) => ({ ...current, boletoStatus: event.target.value }))}
-        >
-          <option value="">Todos os status</option>
-          {Object.keys(statusLabels).map((status) => (
-            <option value={status} key={status}>
-              {statusLabels[status]}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.boletoProvider}
-          onChange={(event) => setFilters((current) => ({ ...current, boletoProvider: event.target.value }))}
-        >
-          <option value="">Todos os providers</option>
-          {providers.map((provider) => (
-            <option value={provider.id} key={provider.id}>
-              {provider.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.boletoCustomer}
-          onChange={(event) => setFilters((current) => ({ ...current, boletoCustomer: event.target.value }))}
-        >
-          <option value="">Todos os clientes</option>
-          {customers.map((customer) => (
-            <option value={customer.id} key={customer.id}>
-              {customer.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <DataTable
-        columns={['ID', 'Cliente', 'CPF/CNPJ', 'Valor', 'Vencimento', 'Status', 'Provider', 'Nosso Número', 'Criação', 'Ações']}
-        rows={boletos.map((boleto) => {
-          const customer = customerById[boleto.customer_id]
-          const provider = boleto.provider_id ? providerById[boleto.provider_id] : null
-          const canEmit = ['CREATED', 'FAILED'].includes(boleto.status)
-          return [
-            shortId(boleto.id),
-            customer?.name || '-',
-            customer?.document || '-',
-            fmtCurrency(boleto.amount_cents),
-            fmtDate(boleto.due_date),
-            <StatusBadge key="status" status={boleto.status} />,
-            provider?.name || '-',
-            boleto.our_number || '-',
-            fmtDate(boleto.created_at),
-            <div className="rowActions" key="actions">
-              <button type="button" onClick={() => setSelectedBoleto(boleto)}>
-                Detalhes
-              </button>
-              <button type="button" disabled={!canEmit} onClick={() => emitBoleto(boleto)}>
-                Emitir
-              </button>
-              <button type="button" disabled>
-                Consultar
-              </button>
-              <button type="button" disabled>
-                Baixar
-              </button>
-            </div>,
-          ]
-        })}
-      />
-      {selectedBoleto && (
-        <DetailPanel title="Detalhes do boleto" onClose={() => setSelectedBoleto(null)}>
-          <KeyValues
-            values={{
-              ID: selectedBoleto.id,
-              Cliente: customerById[selectedBoleto.customer_id]?.name || '-',
-              Provider: selectedBoleto.provider_id ? providerById[selectedBoleto.provider_id]?.name : '-',
-              Valor: fmtCurrency(selectedBoleto.amount_cents),
-              Vencimento: fmtDate(selectedBoleto.due_date),
-              Status: selectedBoleto.status,
-              'Nosso Número': selectedBoleto.our_number || '-',
-              'Linha Digitável': selectedBoleto.digitable_line || '-',
-              'Código de Barras': selectedBoleto.barcode || '-',
-              'External ID': selectedBoleto.external_id || '-',
-              'Data de emissão': fmtDate(selectedBoleto.issued_at),
-              'Data de criação': fmtDate(selectedBoleto.created_at),
-            }}
-          />
-          <Timeline status={selectedBoleto.status} />
-        </DetailPanel>
       )}
-    </>
+      {active === 'Usuários Administrativos' && <section className="panel"><p>Usuários `PLATFORM_ADMIN` são gerenciados por bootstrap seguro nesta etapa.</p></section>}
+    </Shell>
   )
 }
 
-function ClientesView({
-  customers,
-  blockedDocuments,
-  filters,
-  setFilters,
-  form,
-  setForm,
-  saveCustomer,
-  selectedCustomer,
-  setSelectedCustomer,
-  setActive,
-  setComplianceSearch,
-}) {
+function TenantView(props) {
+  const { baseUrl, session, setError } = props
+  const [active, setActive] = useState(tenantNav[0])
+  const [tenantId, setTenantId] = useState(session.user.tenant_ids?.[0] || '')
+  const [tenants, setTenants] = useState([])
+  const [dashboard, setDashboard] = useState(null)
+  const [boletos, setBoletos] = useState([])
+  const [customers, setCustomers] = useState([])
+  const [providers, setProviders] = useState([])
+  const [blacklist, setBlacklist] = useState([])
+  const [users, setUsers] = useState([])
+  const [filters, setFilters] = useState({ search: '', status: '', provider: '', from: '', to: '' })
+  const [customerForm, setCustomerForm] = useState(emptyCustomer())
+  const [providerForm, setProviderForm] = useState({ name: 'Mock', config: '{"delay_ms":0}', status: 'ACTIVE' })
+  const [boletoForm, setBoletoForm] = useState({ customer_id: '', provider_id: '', amount_cents: 15000, due_date: '2026-07-30', external_id: '' })
+  const [blacklistForm, setBlacklistForm] = useState({ document: '', name: '', reason: 'Solicitação do cliente', source: 'MANUAL' })
+
+  const call = (path, options = {}) => apiFetch(baseUrl, path, session.access_token, options)
+  const load = async () => {
+    if (!tenantId) return
+    try {
+      const q = new URLSearchParams()
+      if (filters.from) q.set('from', filters.from)
+      if (filters.to) q.set('to', filters.to)
+      const [me, dash, b, c, p, bl, u] = await Promise.all([
+        call('/api/v1/me/tenants'),
+        call(`/api/v1/tenants/${tenantId}/dashboard?${q.toString()}`),
+        call(`/api/v1/tenants/${tenantId}/boletos`),
+        call(`/api/v1/tenants/${tenantId}/customers`),
+        call(`/api/v1/tenants/${tenantId}/providers`),
+        call(`/api/v1/tenants/${tenantId}/blacklist`),
+        call(`/api/v1/tenants/${tenantId}/users`),
+      ])
+      setTenants(me.data || [])
+      setDashboard(dash.data)
+      setBoletos(b.data || [])
+      setCustomers(c.data || [])
+      setProviders(p.data || [])
+      setBlacklist(bl.data || [])
+      setUsers(u.data || [])
+    } catch (err) {
+      setError(`${err.code || err.status}: ${err.message}`)
+    }
+  }
+  useEffect(() => { load() }, [tenantId])
+
+  const mutate = async (fn) => { await fn(); await load() }
+  const saveCustomer = (event) => {
+    event.preventDefault()
+    mutate(() => call(`/api/v1/tenants/${tenantId}/customers`, { method: 'POST', body: JSON.stringify(customerForm) }))
+  }
+  const saveProvider = (event) => {
+    event.preventDefault()
+    mutate(() => call(`/api/v1/tenants/${tenantId}/providers`, { method: 'POST', body: JSON.stringify(providerForm) }))
+  }
+  const saveBoleto = (event) => {
+    event.preventDefault()
+    const body = {
+      ...boletoForm,
+      provider_id: boletoForm.provider_id || undefined,
+      status: 'CREATED',
+      amount_cents: Number(boletoForm.amount_cents),
+      external_id: boletoForm.external_id || undefined,
+    }
+    mutate(() => call(`/api/v1/tenants/${tenantId}/boletos`, { method: 'POST', body: JSON.stringify(body) }))
+  }
+  const emitBoleto = (boleto) => mutate(() => call(`/api/v1/tenants/${tenantId}/boletos/${boleto.id}/emit`, { method: 'POST' }))
+  const saveBlacklist = (event) => {
+    event.preventDefault()
+    mutate(() => call(`/api/v1/tenants/${tenantId}/blacklist`, { method: 'POST', body: JSON.stringify(blacklistForm) }))
+  }
+
+  const customerById = useMemo(() => Object.fromEntries(customers.map((c) => [c.id, c])), [customers])
+  const providerById = useMemo(() => Object.fromEntries(providers.map((p) => [p.id, p])), [providers])
+  const transactions = boletos.filter((b) => {
+    const customer = customerById[b.customer_id]
+    const provider = b.provider_id ? providerById[b.provider_id] : null
+    const haystack = [customer?.name, customer?.document, b.external_id, b.our_number].filter(Boolean).join(' ').toLowerCase()
+    return (!filters.search || haystack.includes(filters.search.toLowerCase())) && (!filters.status || b.status === filters.status) && (!filters.provider || provider?.id === filters.provider)
+  })
+
   return (
-    <div className="split">
-      <section>
-        <div className="toolbar">
-          <input
-            placeholder="Buscar por nome ou CPF/CNPJ"
-            value={filters.customerSearch}
-            onChange={(event) => setFilters((current) => ({ ...current, customerSearch: event.target.value }))}
-          />
-        </div>
-        <DataTable
-          columns={['Nome', 'CPF/CNPJ', 'Email', 'Cidade', 'Status', 'Compliance', 'Ações']}
-          rows={customers.map((customer) => {
-            const blocked = blockedDocuments.has(customer.document)
-            return [
-              customer.name,
-              customer.document || '-',
-              customer.email || '-',
-              customer.city || '-',
-              customer.status,
-              blocked ? <span className="blockedBadge">BLOQUEADO PARA EMISSÃO</span> : '-',
-              <div className="rowActions" key="actions">
-                <button type="button" onClick={() => setSelectedCustomer(customer)}>
-                  Detalhes
-                </button>
-                <button type="button" onClick={() => setForm(customerToForm(customer))}>
-                  Editar
-                </button>
-                {blocked && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComplianceSearch(customer.document)
-                      setActive('Compliance')
-                    }}
-                  >
-                    Gerenciar bloqueio
-                  </button>
-                )}
-              </div>,
-            ]
-          })}
-        />
-      </section>
-      <FormPanel title={form.id ? 'Editar cliente' : 'Novo cliente'} onSubmit={saveCustomer}>
-        {Object.keys(emptyCustomer()).map((field) => (
-          field !== 'id' && (
-            <label key={field}>
-              {customerLabels[field]}
-              <input value={form[field] || ''} onChange={(event) => setForm({ ...form, [field]: event.target.value })} />
-            </label>
-          )
-        ))}
-        <button type="submit">{form.id ? 'Salvar cliente' : 'Cadastrar cliente'}</button>
-      </FormPanel>
-      {selectedCustomer && (
-        <DetailPanel title="Detalhes do cliente" onClose={() => setSelectedCustomer(null)}>
-          <KeyValues values={selectedCustomer} />
-        </DetailPanel>
-      )}
-    </div>
+    <Shell {...props} title={tenants.find((t) => t.id === tenantId)?.name || 'Painel do Tenant'} nav={tenantNav} active={active} setActive={setActive}>
+      {tenants.length > 1 && <label className="tenantSelect">Tenant<select value={tenantId} onChange={(e) => setTenantId(e.target.value)}>{tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
+      {active === 'Dashboard' && <Dashboard dashboard={dashboard} filters={filters} setFilters={setFilters} />}
+      {active === 'Transações' && <Transactions rows={transactions} customerById={customerById} providerById={providerById} filters={filters} setFilters={setFilters} providers={providers} />}
+      {active === 'Boletos' && <Boletos rows={transactions} customers={customers} providers={providers} form={boletoForm} setForm={setBoletoForm} save={saveBoleto} emit={emitBoleto} customerById={customerById} providerById={providerById} />}
+      {active === 'Clientes' && <Customers rows={customers} form={customerForm} setForm={setCustomerForm} save={saveCustomer} />}
+      {active === 'Providers' && <Providers rows={providers} form={providerForm} setForm={setProviderForm} save={saveProvider} />}
+      {active === 'Compliance' && <Compliance rows={blacklist} form={blacklistForm} setForm={setBlacklistForm} save={saveBlacklist} />}
+      {active === 'Usuários' && <DataTable columns={['Nome', 'Email', 'Roles', 'Status']} rows={users.map((u) => [u.name, u.email, (u.roles || []).join(', '), u.status])} />}
+    </Shell>
   )
 }
 
-function ProvidersView({ providers, form, setForm, saveProvider, selectedProvider, setSelectedProvider }) {
-  return (
-    <div className="split">
-      <section>
-        <DataTable
-          columns={['Nome', 'Status', 'Health', 'Tipo', 'Cadastro', 'Ações']}
-          rows={providers.map((provider) => [
-            provider.name,
-            provider.status,
-            <span className="health" key="health">Configurar health check</span>,
-            provider.name?.toLowerCase().includes('moncalieri') ? 'Moncalieri Capital' : 'Mock/Outro',
-            fmtDate(provider.created_at),
-            <button type="button" key="details" onClick={() => setSelectedProvider(provider)}>
-              Detalhes
-            </button>,
-          ])}
-        />
-      </section>
-      <FormPanel title="Novo provider" onSubmit={saveProvider}>
-        <label>
-          Nome
-          <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-        </label>
-        <label>
-          Status
-          <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-            <option value="ACTIVE">ACTIVE</option>
-            <option value="INACTIVE">INACTIVE</option>
-          </select>
-        </label>
-        <label>
-          Configuração
-          <textarea
-            value={form.config}
-            placeholder="JSON de configuração. Credenciais serão mascaradas nas consultas."
-            onChange={(event) => setForm({ ...form, config: event.target.value })}
-          />
-        </label>
-        <button type="submit">Cadastrar provider</button>
-      </FormPanel>
-      {selectedProvider && (
-        <DetailPanel title="Detalhes do provider" onClose={() => setSelectedProvider(null)}>
-          <KeyValues
-            values={{
-              ID: selectedProvider.id,
-              Nome: selectedProvider.name,
-              Status: selectedProvider.status,
-              Config: selectedProvider.config || '***',
-              Cadastro: fmtDate(selectedProvider.created_at),
-            }}
-          />
-          <p className="muted">API keys e credenciais não são exibidas em texto aberto.</p>
-        </DetailPanel>
-      )}
-    </div>
-  )
+function Dashboard({ dashboard, filters, setFilters }) {
+  return <>
+    <div className="toolbar"><label>De<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>Até<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label></div>
+    <Metrics items={[['Total de boletos', dashboard?.total_boletos], ['Emitidos', dashboard?.boletos_emitidos], ['Processando', dashboard?.boletos_em_processamento], ['Pagos', dashboard?.boletos_pagos], ['Vencidos', dashboard?.boletos_vencidos], ['Cancelados', dashboard?.boletos_cancelados], ['Falhas', dashboard?.boletos_com_falha], ['Valor emitido', fmtCurrency(dashboard?.valor_total_emitido)]]} />
+  </>
 }
 
-function ComplianceView({
-  blacklist,
-  filters,
-  setFilters,
-  form,
-  setForm,
-  saveBlacklistEntry,
-  blacklistAction,
-  deleteBlacklistEntry,
-}) {
-  return (
-    <div className="split">
-      <section>
-        <div className="toolbar">
-          <input
-            placeholder="Buscar por CPF/CNPJ ou nome"
-            value={filters.complianceSearch}
-            onChange={(event) => setFilters((current) => ({ ...current, complianceSearch: event.target.value }))}
-          />
-          <select
-            value={filters.complianceActive}
-            onChange={(event) => setFilters((current) => ({ ...current, complianceActive: event.target.value }))}
-          >
-            <option value="">Ativos e inativos</option>
-            <option value="true">Somente ativos</option>
-            <option value="false">Somente inativos</option>
-          </select>
-        </div>
-        <DataTable
-          columns={['Documento', 'Nome', 'Motivo', 'Origem', 'Data', 'Status', 'Ações']}
-          rows={blacklist.map((entry) => [
-            entry.document,
-            entry.name || '-',
-            entry.reason || '-',
-            entry.source,
-            fmtDate(entry.created_at),
-            entry.active ? <span className="blockedBadge">Ativo</span> : <span className="muted">Inativo</span>,
-            <div className="rowActions" key="actions">
-              <button type="button" onClick={() => blacklistAction(entry, entry.active ? 'unblock' : 'block')}>
-                {entry.active ? 'Desbloquear' : 'Bloquear'}
-              </button>
-              <button type="button" onClick={() => deleteBlacklistEntry(entry)}>
-                Excluir
-              </button>
-            </div>,
-          ])}
-        />
-      </section>
-      <FormPanel title="Novo bloqueio" onSubmit={saveBlacklistEntry}>
-        <label>
-          CPF/CNPJ
-          <input value={form.document} onChange={(event) => setForm({ ...form, document: event.target.value })} />
-        </label>
-        <label>
-          Nome
-          <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-        </label>
-        <label>
-          Motivo
-          <input value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
-        </label>
-        <label>
-          Origem
-          <select value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}>
-            <option value="MANUAL">MANUAL</option>
-            <option value="API">API</option>
-            <option value="IMPORT">IMPORT</option>
-          </select>
-        </label>
-        <label>
-          Observações
-          <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-        </label>
-        <button type="submit">Cadastrar bloqueio</button>
-      </FormPanel>
-    </div>
-  )
+function Transactions({ rows, customerById, providerById, filters, setFilters, providers }) {
+  return <>
+    <div className="toolbar"><input placeholder="CPF/CNPJ, cliente, external ID ou nosso número" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} /><select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">Todos os status</option>{Object.keys(statusLabels).map((s) => <option key={s} value={s}>{statusLabels[s]}</option>)}</select><select value={filters.provider} onChange={(e) => setFilters({ ...filters, provider: e.target.value })}><option value="">Todos providers</option>{providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+    <DataTable columns={['Data', 'Cliente/Pagador', 'CPF/CNPJ', 'Valor', 'Status', 'Provider', 'External ID', 'Nosso Número']} rows={rows.map((b) => [fmtDate(b.created_at), customerById[b.customer_id]?.name || '-', customerById[b.customer_id]?.document || '-', fmtCurrency(b.amount_cents), statusLabels[b.status] || b.status, b.provider_id ? providerById[b.provider_id]?.name : '-', b.external_id || '-', b.our_number || '-'])} />
+  </>
 }
 
-function UsersView({ users }) {
-  return (
-    <DataTable
-      columns={['Nome', 'Email', 'Status', 'Cadastro']}
-      rows={users.map((user) => [user.name || '-', user.email, user.status, fmtDate(user.created_at)])}
-    />
-  )
+function Boletos({ rows, customers, providers, form, setForm, save, emit, customerById, providerById }) {
+  return <div className="split"><section><DataTable columns={['Cliente', 'Valor', 'Vencimento', 'Status', 'Provider', 'Linha Digitável', 'Ações']} rows={rows.map((b) => [customerById[b.customer_id]?.name || '-', fmtCurrency(b.amount_cents), fmtDate(b.due_date), statusLabels[b.status] || b.status, b.provider_id ? providerById[b.provider_id]?.name : '-', b.digitable_line || '-', <button key="emit" disabled={!['CREATED', 'FAILED'].includes(b.status)} onClick={() => emit(b)}>Emitir</button>])} /></section><FormPanel title="Novo boleto" onSubmit={save}><label>Cliente<select value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}><option value="">Selecione</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Provider<select value={form.provider_id} onChange={(e) => setForm({ ...form, provider_id: e.target.value })}><option value="">Selecione</option>{providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>Valor em centavos<input type="number" value={form.amount_cents} onChange={(e) => setForm({ ...form, amount_cents: e.target.value })} /></label><label>Vencimento<input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></label><label>External ID<input value={form.external_id} onChange={(e) => setForm({ ...form, external_id: e.target.value })} /></label><button>Criar boleto</button></FormPanel></div>
 }
 
-function SettingsView({ baseUrl, tenantId, providers }) {
-  return (
-    <section className="panel">
-      <h2>Configurações</h2>
-      <KeyValues
-        values={{
-          'Base URL': baseUrl,
-          'Tenant ativo': tenantId,
-          'Providers configurados': providers.length,
-          'Credenciais sensíveis': 'Mascaradas nas consultas e fora de logs da interface.',
-        }}
-      />
-    </section>
-  )
+function Customers({ rows, form, setForm, save }) {
+  return <div className="split"><DataTable columns={['Nome', 'CPF/CNPJ', 'Email', 'Cidade', 'Status']} rows={rows.map((c) => [c.name, c.document || '-', c.email || '-', c.city || '-', c.status])} /><FormPanel title="Novo cliente/pagador" onSubmit={save}>{Object.keys(emptyCustomer()).map((field) => <label key={field}>{customerLabels[field]}<input value={form[field] || ''} onChange={(e) => setForm({ ...form, [field]: e.target.value })} /></label>)}<button>Cadastrar cliente</button></FormPanel></div>
+}
+
+function Providers({ rows, form, setForm, save }) {
+  return <div className="split"><DataTable columns={['Nome', 'Status', 'Configuração']} rows={rows.map((p) => [p.name, p.status, p.config || '***'])} /><FormPanel title="Novo provider" onSubmit={save}><label>Nome<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label>Status<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option>ACTIVE</option><option>INACTIVE</option></select></label><label>Configuração<textarea value={form.config} onChange={(e) => setForm({ ...form, config: e.target.value })} /></label><button>Cadastrar provider</button></FormPanel></div>
+}
+
+function Compliance({ rows, form, setForm, save }) {
+  return <div className="split"><DataTable columns={['Documento', 'Nome', 'Motivo', 'Origem', 'Status']} rows={rows.map((b) => [b.document, b.name || '-', b.reason || '-', b.source, b.active ? 'Ativo' : 'Inativo'])} /><FormPanel title="Novo bloqueio" onSubmit={save}><label>CPF/CNPJ<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} /></label><label>Nome<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label>Motivo<input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label><label>Origem<input value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></label><button>Bloquear</button></FormPanel></div>
+}
+
+function Metrics({ items }) {
+  return <section className="metricGrid">{items.map(([label, value]) => <article className="metric" key={label}><span>{label}</span><strong>{value ?? 0}</strong></article>)}</section>
 }
 
 function DataTable({ columns, rows }) {
-  return (
-    <div className="tableWrap">
-      <table>
-        <thead>
-          <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
-          ))}
-          {!rows.length && (
-            <tr>
-              <td colSpan={columns.length} className="emptyCell">Nenhum registro encontrado.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  )
+  return <div className="tableWrap"><table><thead><tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}{!rows.length && <tr><td colSpan={columns.length} className="emptyCell">Nenhum registro encontrado.</td></tr>}</tbody></table></div>
 }
 
 function FormPanel({ title, onSubmit, children }) {
-  return (
-    <form className="formPanel" onSubmit={onSubmit}>
-      <h2>{title}</h2>
-      {children}
-    </form>
-  )
-}
-
-function DetailPanel({ title, onClose, children }) {
-  return (
-    <aside className="detailPanel">
-      <div className="detailHeader">
-        <h2>{title}</h2>
-        <button type="button" onClick={onClose}>Fechar</button>
-      </div>
-      {children}
-    </aside>
-  )
-}
-
-function KeyValues({ values }) {
-  return (
-    <dl className="keyValues">
-      {Object.entries(values || {}).map(([key, value]) => (
-        <div key={key}>
-          <dt>{key}</dt>
-          <dd>{String(value ?? '-')}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-function StatusBadge({ status }) {
-  return <span className={`statusBadge ${String(status || '').toLowerCase()}`}>{statusLabels[status] || status}</span>
-}
-
-function Timeline({ status }) {
-  const steps = ['CREATED', 'PROCESSING', 'ISSUED', 'PAID']
-  const activeIndex = Math.max(0, steps.indexOf(status))
-  return (
-    <div className="timeline">
-      {steps.map((step, index) => (
-        <span className={index <= activeIndex ? 'stepDone' : ''} key={step}>
-          {statusLabels[step]}
-        </span>
-      ))}
-    </div>
-  )
+  return <form className="formPanel" onSubmit={onSubmit}><h2>{title}</h2>{children}</form>
 }
 
 function emptyCustomer() {
-  return {
-    id: '',
-    name: '',
-    document: '',
-    email: '',
-    address: '',
-    number: '',
-    complement: '',
-    district: '',
-    city: '',
-    state: '',
-    postal_code: '',
-  }
+  return { name: '', document: '', email: '', address: '', number: '', complement: '', district: '', city: '', state: '', postal_code: '' }
 }
 
-function customerToForm(customer) {
-  return { ...emptyCustomer(), ...customer }
-}
-
-function shortId(id) {
-  return id ? `${id.slice(0, 8)}...` : '-'
-}
-
-const customerLabels = {
-  name: 'Nome',
-  document: 'CPF/CNPJ',
-  email: 'Email',
-  address: 'Endereço',
-  number: 'Número',
-  complement: 'Complemento',
-  district: 'Bairro',
-  city: 'Cidade',
-  state: 'UF',
-  postal_code: 'CEP',
-}
+const customerLabels = { name: 'Nome', document: 'CPF/CNPJ', email: 'Email', address: 'Endereço', number: 'Número', complement: 'Complemento', district: 'Bairro', city: 'Cidade', state: 'UF', postal_code: 'CEP' }
+const shortId = (id) => (id ? `${id.slice(0, 8)}...` : '-')
 
 const styles = `
-  :global(body) {
-    margin: 0;
-    background: #f4f6f8;
-    color: #1f2933;
-    font-family: Inter, Arial, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  .shell { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
-  .sidebar { background: #111827; color: #f9fafb; padding: 20px 14px; position: sticky; top: 0; height: 100vh; }
-  .brand { display: flex; align-items: center; gap: 12px; padding: 8px 8px 22px; }
-  .brandMark { width: 42px; height: 42px; display: grid; place-items: center; background: #0ea5e9; color: white; border-radius: 8px; font-weight: 800; }
-  .brand small { display: block; color: #9ca3af; margin-top: 4px; }
-  nav { display: grid; gap: 6px; }
-  nav button { width: 100%; border: 0; background: transparent; color: #d1d5db; text-align: left; padding: 11px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-  nav button:hover, .navActive { background: #1f2937; color: white; }
-  .workspace { min-width: 0; padding: 24px; }
-  .topbar { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
-  h1, h2 { margin: 0; }
-  h1 { font-size: 28px; }
-  h2 { font-size: 18px; margin-bottom: 14px; }
-  p { margin: 6px 0 0; color: #64748b; }
-  .tenantControls, .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
-  label { display: grid; gap: 5px; font-size: 12px; color: #52606d; font-weight: 700; }
-  input, select, textarea { min-height: 38px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; background: white; color: #1f2933; font: inherit; min-width: 180px; }
-  textarea { min-height: 92px; resize: vertical; }
-  button { border: 1px solid #0f766e; background: #0f766e; color: white; border-radius: 6px; min-height: 36px; padding: 8px 12px; cursor: pointer; font-weight: 700; }
-  button:disabled { opacity: .45; cursor: not-allowed; background: #94a3b8; border-color: #94a3b8; }
-  .notice, .errorBox, .empty { padding: 12px 14px; border-radius: 6px; margin-bottom: 16px; }
-  .notice { background: #dcfce7; color: #166534; }
-  .errorBox { background: #fee2e2; color: #991b1b; }
-  .empty { background: #e0f2fe; color: #075985; }
-  .metricGrid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
-  .metric, .panel, .formPanel, .detailPanel { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
-  .metric span { display: block; color: #64748b; font-size: 13px; margin-bottom: 8px; }
-  .metric strong { font-size: 24px; }
-  .statusBars { display: grid; gap: 8px; }
-  .statusLine { display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding: 8px 0; }
-  .tableWrap { overflow-x: auto; background: white; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 14px; }
-  table { width: 100%; border-collapse: collapse; min-width: 900px; }
-  th, td { padding: 11px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; font-size: 14px; }
-  th { background: #f8fafc; color: #475569; font-size: 12px; text-transform: uppercase; }
-  .emptyCell { text-align: center; color: #64748b; padding: 28px; }
-  .rowActions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .rowActions button { min-height: 30px; padding: 5px 8px; font-size: 12px; }
-  .split { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
-  .formPanel { display: grid; gap: 10px; position: sticky; top: 18px; }
-  .detailPanel { margin-top: 14px; }
-  .detailHeader { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-  .keyValues { display: grid; gap: 8px; margin: 0; }
-  .keyValues div { display: grid; grid-template-columns: 180px 1fr; gap: 12px; border-bottom: 1px solid #e2e8f0; padding: 8px 0; }
-  dt { color: #64748b; font-weight: 700; }
-  dd { margin: 0; word-break: break-word; }
-  .statusBadge, .blockedBadge, .health { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 800; background: #e2e8f0; color: #334155; }
-  .statusBadge.issued, .statusBadge.paid { background: #dcfce7; color: #166534; }
-  .statusBadge.processing { background: #fef3c7; color: #92400e; }
-  .statusBadge.failed, .blockedBadge { background: #fee2e2; color: #991b1b; }
-  .muted { color: #64748b; }
-  .timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
-  .timeline span { background: #e2e8f0; padding: 8px; border-radius: 6px; text-align: center; font-size: 12px; font-weight: 800; }
-  .timeline .stepDone { background: #ccfbf1; color: #115e59; }
-  @media (max-width: 980px) {
-    .shell { grid-template-columns: 1fr; }
-    .sidebar { position: static; height: auto; }
-    .topbar, .split { grid-template-columns: 1fr; display: grid; }
-    .metricGrid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-    .formPanel { position: static; }
-  }
-  @media (max-width: 640px) {
-    .workspace { padding: 14px; }
-    .metricGrid { grid-template-columns: 1fr; }
-    input, select, textarea { min-width: 100%; }
-    .tenantControls, .toolbar { display: grid; }
-    .keyValues div { grid-template-columns: 1fr; }
-  }
-`
+:global(body){margin:0;background:#f4f6f8;color:#1f2933;font-family:Inter,Arial,sans-serif}*{box-sizing:border-box}.loginPage{min-height:100vh;display:grid;place-items:center;padding:24px}.loginCard{width:min(420px,100%);display:grid;gap:14px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:24px}.shell{min-height:100vh;display:grid;grid-template-columns:260px 1fr}.sidebar{background:#111827;color:white;padding:20px 14px}.brand{display:flex;gap:10px;align-items:center;margin-bottom:24px}.brand span{background:#0f766e;border-radius:8px;padding:10px;font-weight:800}nav{display:grid;gap:6px}nav button{background:transparent;border:0;color:#d1d5db;text-align:left}.navActive,nav button:hover{background:#1f2937;color:white}.workspace{padding:24px;min-width:0}.topbar{display:flex;justify-content:space-between;gap:20px;margin-bottom:18px}.controls,.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:end}h1,h2{margin:0}p{color:#64748b}label{display:grid;gap:5px;font-size:12px;font-weight:700;color:#52606d}input,select,textarea{min-height:38px;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px;background:white;color:#1f2933;font:inherit;min-width:180px}textarea{min-height:90px}button{border:1px solid #0f766e;background:#0f766e;color:white;border-radius:6px;min-height:36px;padding:8px 12px;cursor:pointer;font-weight:700}button:disabled{opacity:.45;cursor:not-allowed}.notice,.errorBox{padding:12px 14px;border-radius:6px;margin-bottom:16px}.notice{background:#dcfce7;color:#166534}.errorBox{background:#fee2e2;color:#991b1b}.metricGrid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin:16px 0}.metric,.panel,.formPanel{background:white;border:1px solid #e2e8f0;border-radius:8px;padding:16px}.metric span{display:block;color:#64748b;margin-bottom:8px}.metric strong{font-size:24px}.split{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px}.tableWrap{overflow:auto;background:white;border:1px solid #e2e8f0;border-radius:8px}table{width:100%;border-collapse:collapse}th,td{padding:11px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{font-size:12px;color:#64748b;background:#f8fafc}.emptyCell{text-align:center;color:#64748b}.formPanel{display:grid;gap:10px;align-content:start}.tenantSelect{margin-bottom:16px}@media(max-width:900px){.shell{grid-template-columns:1fr}.sidebar{position:static}.topbar,.split{display:grid}.metricGrid{grid-template-columns:1fr 1fr}}`

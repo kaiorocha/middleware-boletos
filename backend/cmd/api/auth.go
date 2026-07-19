@@ -108,7 +108,10 @@ func (a *App) requestAuthenticator() *RequestAuthenticator {
 }
 
 func isPublicRoute(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL.Path == "/health"
+	if r.Method == http.MethodGet && r.URL.Path == "/health" {
+		return true
+	}
+	return r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login"
 }
 
 func defaultAppEnv() string {

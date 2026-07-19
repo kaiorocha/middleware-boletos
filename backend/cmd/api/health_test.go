@@ -12,6 +12,7 @@ import (
 	"time"
 
 	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/config"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/factory"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
@@ -50,13 +51,50 @@ func (r *duplicateUserRepo) Create(*domain.User) error {
 	return service.NewDuplicateResource("Já existe um usuário com este e-mail neste tenant.")
 }
 func (r *duplicateUserRepo) FindByID(string) (*domain.User, error)      { return &domain.User{}, nil }
+func (r *duplicateUserRepo) FindByEmail(string) (*domain.User, error)   { return &domain.User{}, nil }
+func (r *duplicateUserRepo) HasRole(string) (bool, error)               { return false, nil }
 func (r *duplicateUserRepo) ListByTenant(string) ([]domain.User, error) { return nil, nil }
 func (r *duplicateUserRepo) Update(*domain.User) error                  { return nil }
 func (r *duplicateUserRepo) Delete(string, string) error                { return nil }
 
+type apiUserRepo struct {
+	item    *domain.User
+	created []*domain.User
+	hasRole bool
+	err     error
+}
+
+func (r *apiUserRepo) Create(user *domain.User) error {
+	r.created = append(r.created, user)
+	r.item = user
+	return r.err
+}
+func (r *apiUserRepo) FindByID(string) (*domain.User, error) {
+	if r.item != nil {
+		return r.item, r.err
+	}
+	return nil, r.err
+}
+func (r *apiUserRepo) FindByEmail(email string) (*domain.User, error) {
+	if r.item != nil && strings.EqualFold(r.item.Email, email) {
+		return r.item, r.err
+	}
+	return nil, service.ErrValidation
+}
+func (r *apiUserRepo) HasRole(string) (bool, error) { return r.hasRole, r.err }
+func (r *apiUserRepo) ListByTenant(string) ([]domain.User, error) {
+	if r.item == nil {
+		return nil, r.err
+	}
+	return []domain.User{*r.item}, r.err
+}
+func (r *apiUserRepo) Update(*domain.User) error   { return r.err }
+func (r *apiUserRepo) Delete(string, string) error { return r.err }
+
 type apiTenantRepo struct {
 	items   map[string]*domain.Tenant
 	created *domain.Tenant
+	deleted string
 }
 
 func (r *apiTenantRepo) Create(t *domain.Tenant) error {
@@ -84,7 +122,7 @@ func (r *apiTenantRepo) List() ([]domain.Tenant, error) {
 	return out, nil
 }
 func (r *apiTenantRepo) Update(*domain.Tenant) error { return nil }
-func (r *apiTenantRepo) Delete(string) error         { return nil }
+func (r *apiTenantRepo) Delete(id string) error      { r.deleted = id; delete(r.items, id); return nil }
 
 type duplicateCustomerRepo struct{}
 
@@ -309,6 +347,7 @@ func authenticatedTestApp(app *App) *App {
 	}
 	app.Authenticator = NewRequestAuthenticator("production", validator)
 	app.Authorizer = NewIdentityTenantAuthorizer()
+	app.TokenIssuer = validator
 	return app
 }
 
@@ -465,6 +504,116 @@ func TestMyTenantsReturnsOnlyClaimTenants(t *testing.T) {
 		if tenant.ID == tenantC {
 			t.Fatalf("tenant outside claims was returned: %+v", payload.Data)
 		}
+	}
+}
+
+func TestLogin(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	hash, err := authn.HashPassword("Senha123456!")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	user := &domain.User{
+		ID:           testUserID,
+		TenantID:     tenantID,
+		Email:        "admin@example.com",
+		Name:         "Admin",
+		Status:       "ACTIVE",
+		Roles:        []string{authn.RoleTenantAdmin},
+		PasswordHash: hash,
+	}
+	app := authenticatedTestApp(&App{UserSvc: service.NewUserService(&apiUserRepo{item: user})})
+
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "valid login", body: `{"email":"admin@example.com","password":"Senha123456!"}`, want: http.StatusOK},
+		{name: "wrong password", body: `{"email":"admin@example.com","password":"errada"}`, want: http.StatusUnauthorized},
+		{name: "unknown user", body: `{"email":"missing@example.com","password":"Senha123456!"}`, want: http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			app.routes().ServeHTTP(rr, req)
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+			if tt.want == http.StatusOK {
+				var payload struct {
+					Data struct {
+						AccessToken string `json:"access_token"`
+						User        struct {
+							Roles     []string `json:"roles"`
+							TenantIDs []string `json:"tenant_ids"`
+						} `json:"user"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+					t.Fatalf("invalid json: %v", err)
+				}
+				if payload.Data.AccessToken == "" || len(payload.Data.User.TenantIDs) != 1 {
+					t.Fatalf("expected token and tenant ids, got %+v", payload.Data)
+				}
+			}
+		})
+	}
+}
+
+func TestBootstrapPlatformAdmin(t *testing.T) {
+	repo := &apiUserRepo{}
+	cfg := &config.Config{
+		BootstrapAdminEmail:    "admin@middleware.local",
+		BootstrapAdminPassword: "ChangeMe123456!",
+		BootstrapAdminName:     "Administrador",
+	}
+	err := bootstrapPlatformAdmin(cfg, service.NewUserService(repo))
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if len(repo.created) != 1 || repo.created[0].PasswordHash == "" || !(authn.Identity{Roles: repo.created[0].Roles}).HasRole(authn.RolePlatformAdmin) {
+		t.Fatalf("expected platform admin created securely, got %+v", repo.created)
+	}
+
+	repo.hasRole = true
+	err = bootstrapPlatformAdmin(cfg, service.NewUserService(repo))
+	if err != nil {
+		t.Fatalf("bootstrap idempotent: %v", err)
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("expected idempotent bootstrap, created=%d", len(repo.created))
+	}
+}
+
+func TestPlatformAdminCreatesTenantAdmin(t *testing.T) {
+	tenantRepo := &apiTenantRepo{}
+	userRepo := &apiUserRepo{}
+	app := authenticatedTestApp(&App{
+		TenantSvc: service.NewTenantService(tenantRepo),
+		UserSvc:   service.NewUserService(userRepo),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tenants", strings.NewReader(`{
+		"name":"Cliente Demonstração",
+		"admin":{"name":"Cliente Admin","email":"cliente@demo.local","password":"Cliente123456!"}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	authorizePlatformAdmin(req)
+	rr := httptest.NewRecorder()
+	app.routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if tenantRepo.created == nil || len(userRepo.created) != 1 {
+		t.Fatalf("expected tenant and admin created")
+	}
+	admin := userRepo.created[0]
+	if admin.TenantID != tenantRepo.created.ID || admin.PasswordHash == "" || !(authn.Identity{Roles: admin.Roles}).HasRole(authn.RoleTenantAdmin) {
+		t.Fatalf("unexpected tenant admin: %+v", admin)
 	}
 }
 

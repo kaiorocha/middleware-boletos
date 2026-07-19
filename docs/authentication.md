@@ -5,6 +5,7 @@
 A API usa autenticação JWT por Bearer token para rotas administrativas e operacionais. A única rota pública é:
 
 - `GET /health`
+- `POST /api/v1/auth/login`
 
 Todas as demais rotas exigem:
 
@@ -73,6 +74,40 @@ Token com administração global:
 }
 ```
 
+## Login
+
+```http
+POST /api/v1/auth/login
+```
+
+```json
+{
+  "email": "admin@middleware.local",
+  "password": "ChangeMe123456!"
+}
+```
+
+Resposta:
+
+```json
+{
+  "data": {
+    "access_token": "...",
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "user": {
+      "id": "...",
+      "name": "Administrador",
+      "email": "admin@middleware.local",
+      "roles": ["PLATFORM_ADMIN"],
+      "tenant_ids": []
+    }
+  }
+}
+```
+
+Login inválido retorna HTTP `401` com a mensagem genérica `Credenciais inválidas.`.
+
 ## RBAC
 
 Roles vêm exclusivamente do JWT validado. A API normaliza roles com trim + uppercase e remove duplicidades.
@@ -80,11 +115,14 @@ Roles vêm exclusivamente do JWT validado. A API normaliza roles com trim + uppe
 Role global atual:
 
 - `PLATFORM_ADMIN`: permite administração global da plataforma.
+- `TENANT_ADMIN`: administra apenas tenants presentes nas claims.
+- `TENANT_USER`: role operacional inicial para leitura/uso futuro.
 
 Rotas globais protegidas por `PLATFORM_ADMIN`:
 
 - `GET /api/v1/tenants`
 - `POST /api/v1/tenants`
+- `POST /api/v1/admin/tenants`
 
 Usuários sem `PLATFORM_ADMIN` recebem HTTP `403` nessas rotas, mesmo com JWT válido.
 
@@ -97,6 +135,18 @@ GET /api/v1/me/tenants
 ```
 
 Esse endpoint lê `tenant_id`/`tenant_ids` da Identity autenticada e retorna somente tenants presentes nas claims.
+
+## Bootstrap
+
+O primeiro `PLATFORM_ADMIN` pode ser criado por variáveis de ambiente:
+
+```env
+BOOTSTRAP_ADMIN_EMAIL=admin@middleware.local
+BOOTSTRAP_ADMIN_PASSWORD=ChangeMe123456!
+BOOTSTRAP_ADMIN_NAME=Administrador
+```
+
+O bootstrap roda somente quando as variáveis estão preenchidas e ainda não existe `PLATFORM_ADMIN`. Ele não deve ser usado com credenciais demo em produção.
 
 ## Autorização por tenant
 

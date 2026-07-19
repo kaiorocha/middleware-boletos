@@ -89,6 +89,22 @@ func TestHMACValidatorRejectsInvalidClaims(t *testing.T) {
 	}
 }
 
+func TestPasswordHashAndCompare(t *testing.T) {
+	hash, err := HashPassword("ChangeMe123456!")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if hash == "ChangeMe123456!" {
+		t.Fatal("password hash must not equal plain password")
+	}
+	if !ComparePassword(hash, "ChangeMe123456!") {
+		t.Fatal("expected password to match")
+	}
+	if ComparePassword(hash, "wrong-password") {
+		t.Fatal("expected wrong password to fail")
+	}
+}
+
 func testToken(claims map[string]any, secret string) string {
 	unsigned := jwtPart(map[string]any{"alg": "HS256", "typ": "JWT"}) + "." + jwtPart(claims)
 	mac := hmac.New(sha256.New, []byte(secret))

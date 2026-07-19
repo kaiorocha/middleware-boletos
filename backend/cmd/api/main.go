@@ -19,6 +19,7 @@ func main() {
 		log.Fatalf("auth config invalid: %v", err)
 	}
 	var jwtValidator authn.TokenValidator
+	var jwtIssuer authn.TokenIssuer
 	if strings.TrimSpace(cfg.JWTSecret) != "" {
 		validator, err := authn.NewHMACValidator(authn.JWTConfig{
 			Secret:   cfg.JWTSecret,
@@ -29,6 +30,7 @@ func main() {
 			log.Fatalf("auth config invalid: %v", err)
 		}
 		jwtValidator = validator
+		jwtIssuer = validator
 	}
 	db, err := storage.Connect(cfg)
 	if err != nil {
@@ -58,6 +60,10 @@ func main() {
 		WithBlacklistService(blacklistSvc).
 		WithProviderFactory(providerFactory)
 
+	if err := bootstrapPlatformAdmin(cfg, userSvc); err != nil {
+		log.Fatalf("bootstrap platform admin: %v", err)
+	}
+
 	app := &App{
 		TenantSvc:     tenantSvc,
 		UserSvc:       userSvc,
@@ -68,6 +74,7 @@ func main() {
 		Factory:       providerFactory,
 		Authorizer:    NewIdentityTenantAuthorizer(),
 		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator),
+		TokenIssuer:   jwtIssuer,
 	}
 
 	h := app.routes()

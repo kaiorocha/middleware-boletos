@@ -32,6 +32,8 @@ type userRepoMock struct {
 
 func (m *userRepoMock) Create(u *domain.User) error                { m.created = true; m.last = u; return m.err }
 func (m *userRepoMock) FindByID(string) (*domain.User, error)      { return &domain.User{}, nil }
+func (m *userRepoMock) FindByEmail(string) (*domain.User, error)   { return &domain.User{}, nil }
+func (m *userRepoMock) HasRole(string) (bool, error)               { return false, nil }
 func (m *userRepoMock) ListByTenant(string) ([]domain.User, error) { return nil, nil }
 func (m *userRepoMock) Update(*domain.User) error                  { return nil }
 func (m *userRepoMock) Delete(string, string) error                { return nil }

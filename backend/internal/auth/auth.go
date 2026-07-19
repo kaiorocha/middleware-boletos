@@ -12,7 +12,11 @@ var (
 	ErrNoIdentity   = errors.New("identity not found")
 )
 
-const RolePlatformAdmin = "PLATFORM_ADMIN"
+const (
+	RolePlatformAdmin = "PLATFORM_ADMIN"
+	RoleTenantAdmin   = "TENANT_ADMIN"
+	RoleTenantUser    = "TENANT_USER"
+)
 
 type Identity struct {
 	UserID    string

@@ -19,6 +19,8 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
 )
 
+const defaultTokenTTL = time.Hour
+
 var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrForbidden    = errors.New("forbidden")
@@ -34,6 +36,7 @@ type App struct {
 	Factory       contracts.ProviderFactory
 	Authorizer    TenantAuthorizer
 	Authenticator *RequestAuthenticator
+	TokenIssuer   authn.TokenIssuer
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -100,8 +103,10 @@ func (a *App) tenantAuthorizer() TenantAuthorizer {
 func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", a.handleHealth)
+	mux.HandleFunc("/api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("/api/v1/tenants", a.handleTenants)
 	mux.HandleFunc("/api/v1/me/tenants", a.handleMyTenants)
+	mux.HandleFunc("/api/v1/admin/tenants", a.handleAdminTenants)
 	mux.HandleFunc("/api/v1/providers/", a.handleProvidersIntegration)
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
@@ -145,6 +150,102 @@ func (a *App) handleTenants(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	if a.UserSvc == nil || a.TokenIssuer == nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "authentication not configured")
+		return
+	}
+	var in struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+		return
+	}
+	user, err := a.UserSvc.GetByEmail(in.Email)
+	if err != nil || user.PasswordHash == "" || !authn.ComparePassword(user.PasswordHash, in.Password) || user.Status != "ACTIVE" {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Credenciais inválidas.")
+		return
+	}
+	tenantIDs := tenantIDsForUser(user)
+	token, err := a.TokenIssuer.Sign(authn.TokenClaims{
+		UserID:    user.ID,
+		TenantIDs: tenantIDs,
+		Roles:     user.Roles,
+		ExpiresAt: time.Now().Add(defaultTokenTTL),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to issue token")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token": token,
+		"token_type":   "Bearer",
+		"expires_in":   int(defaultTokenTTL.Seconds()),
+		"user":         publicUser(user, tenantIDs),
+	})
+}
+
+func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePlatformAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	var in struct {
+		Name  string `json:"name"`
+		Admin *struct {
+			Name     string `json:"name"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		} `json:"admin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+		return
+	}
+	tenant := &domain.Tenant{Name: in.Name}
+	if err := a.TenantSvc.Create(tenant); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	var admin *domain.User
+	if in.Admin != nil && strings.TrimSpace(in.Admin.Email) != "" {
+		if len(strings.TrimSpace(in.Admin.Password)) < 8 {
+			_ = a.TenantSvc.Delete(tenant.ID)
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid admin password")
+			return
+		}
+		hash, err := authn.HashPassword(in.Admin.Password)
+		if err != nil {
+			_ = a.TenantSvc.Delete(tenant.ID)
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid admin password")
+			return
+		}
+		admin = &domain.User{
+			TenantID:     tenant.ID,
+			Email:        in.Admin.Email,
+			Name:         in.Admin.Name,
+			Status:       "ACTIVE",
+			Roles:        []string{authn.RoleTenantAdmin},
+			PasswordHash: hash,
+		}
+		if err := a.UserSvc.Create(admin); err != nil {
+			_ = a.TenantSvc.Delete(tenant.ID)
+			writeServiceError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant, "admin": publicUser(admin, tenantIDsForUser(admin))})
+}
+
 func (a *App) handleMyTenants(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
@@ -165,6 +266,26 @@ func (a *App) handleMyTenants(w http.ResponseWriter, r *http.Request) {
 		items = append(items, *item)
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func tenantIDsForUser(user *domain.User) []string {
+	if user == nil || user.TenantID == "" {
+		return []string{}
+	}
+	return []string{user.TenantID}
+}
+
+func publicUser(user *domain.User, tenantIDs []string) map[string]any {
+	if user == nil {
+		return nil
+	}
+	return map[string]any{
+		"id":         user.ID,
+		"name":       user.Name,
+		"email":      user.Email,
+		"roles":      authn.NormalizeRoles(user.Roles),
+		"tenant_ids": tenantIDs,
+	}
 }
 
 func (a *App) requirePlatformAdmin(w http.ResponseWriter, r *http.Request) bool {

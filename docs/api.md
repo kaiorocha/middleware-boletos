@@ -114,6 +114,7 @@ Rotas globais:
 | `GET /health` | Pública |
 | `GET /api/v1/tenants` | `PLATFORM_ADMIN` |
 | `POST /api/v1/tenants` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/tenants` | `PLATFORM_ADMIN`; cria tenant e opcionalmente `TENANT_ADMIN` |
 | `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
 | `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
 | `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |
@@ -140,6 +141,20 @@ Resposta esperada:
 ```
 
 ## Tenants
+
+## Auth
+
+### POST /api/v1/auth/login
+
+Autentica usuário por e-mail e senha.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@middleware.local","password":"ChangeMe123456!"}'
+```
+
+Senha incorreta ou usuário inexistente retornam HTTP `401` com `Credenciais inválidas.`.
 
 ### POST /api/v1/tenants
 
@@ -168,6 +183,24 @@ Lista somente os tenants presentes nas claims `tenant_id`/`tenant_ids` do JWT au
 ```bash
 curl -s http://localhost:8080/api/v1/me/tenants \
   -H "Authorization: Bearer <token>"
+```
+
+### POST /api/v1/admin/tenants
+
+Cria um tenant e, opcionalmente, um `TENANT_ADMIN` associado exclusivamente ao tenant criado. Requer `PLATFORM_ADMIN`.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/admin/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Cliente Demonstração",
+    "admin":{
+      "name":"Administrador Cliente",
+      "email":"cliente@demo.local",
+      "password":"Cliente123456!"
+    }
+  }'
 ```
 
 ### GET /api/v1/tenants/:id

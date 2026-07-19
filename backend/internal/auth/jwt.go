@@ -19,6 +19,10 @@ type TokenValidator interface {
 	Validate(context.Context, string) (Identity, error)
 }
 
+type TokenIssuer interface {
+	Sign(TokenClaims) (string, error)
+}
+
 type JWTConfig struct {
 	Secret   string
 	Issuer   string
@@ -31,6 +35,15 @@ type HMACValidator struct {
 	issuer   string
 	audience string
 	now      func() time.Time
+}
+
+type TokenClaims struct {
+	UserID    string
+	TenantIDs []string
+	Roles     []string
+	ExpiresAt time.Time
+	Issuer    string
+	Audience  string
 }
 
 func NewHMACValidator(cfg JWTConfig) (*HMACValidator, error) {
@@ -80,6 +93,52 @@ func (v *HMACValidator) Validate(_ context.Context, token string) (Identity, err
 	return v.identityFromClaims(claims)
 }
 
+func (v *HMACValidator) Sign(claims TokenClaims) (string, error) {
+	tenantIDs := uniqueValidUUIDs(claims.TenantIDs)
+	if !service.IsValidUUID(claims.UserID) || len(tenantIDs) != len(claims.TenantIDs) {
+		return "", ErrInvalidToken
+	}
+	if claims.ExpiresAt.IsZero() {
+		claims.ExpiresAt = v.now().Add(time.Hour)
+	}
+	issuer := strings.TrimSpace(claims.Issuer)
+	if issuer == "" {
+		issuer = v.issuer
+	}
+	audience := strings.TrimSpace(claims.Audience)
+	if audience == "" {
+		audience = v.audience
+	}
+
+	payload := map[string]any{
+		"sub":        claims.UserID,
+		"tenant_ids": tenantIDs,
+		"roles":      NormalizeRoles(claims.Roles),
+		"exp":        claims.ExpiresAt.Unix(),
+	}
+	if len(tenantIDs) == 1 {
+		payload["tenant_id"] = tenantIDs[0]
+	}
+	if issuer != "" {
+		payload["iss"] = issuer
+	}
+	if audience != "" {
+		payload["aud"] = audience
+	}
+
+	header, err := encodeJSON(map[string]string{"alg": hs256, "typ": "JWT"})
+	if err != nil {
+		return "", err
+	}
+	body, err := encodeJSON(payload)
+	if err != nil {
+		return "", err
+	}
+	unsigned := header + "." + body
+	signature := base64.RawURLEncoding.EncodeToString(hmacSHA256(unsigned, v.secret))
+	return unsigned + "." + signature, nil
+}
+
 type jwtClaims struct {
 	Subject   string          `json:"sub"`
 	TenantID  string          `json:"tenant_id"`
@@ -115,11 +174,12 @@ func (v *HMACValidator) identityFromClaims(claims jwtClaims) (Identity, error) {
 		}
 	}
 	tenants = uniqueValidUUIDs(tenants)
-	if len(tenants) == 0 {
+	roles := NormalizeRoles(claims.Roles)
+	if len(tenants) == 0 && !slicesContains(roles, RolePlatformAdmin) {
 		return Identity{}, ErrInvalidToken
 	}
 
-	return Identity{UserID: claims.Subject, TenantIDs: tenants, Roles: NormalizeRoles(claims.Roles)}, nil
+	return Identity{UserID: claims.Subject, TenantIDs: tenants, Roles: roles}, nil
 }
 
 func uniqueValidUUIDs(values []string) []string {
@@ -144,6 +204,14 @@ func decodeJSON(segment string, out any) error {
 		return err
 	}
 	return json.Unmarshal(raw, out)
+}
+
+func encodeJSON(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func hmacSHA256(data string, secret []byte) []byte {

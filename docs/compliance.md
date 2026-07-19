@@ -4,6 +4,8 @@
 
 O módulo de Compliance impede que boletos sejam emitidos para CPF/CNPJ que solicitaram não receber novas cobranças. A regra é aplicada no backend, antes de qualquer chamada a provider bancário.
 
+Tenant é a empresa que usa a plataforma, User é a pessoa que acessa o painel, e Customer é o pagador/sacado do boleto. Um `TENANT_ADMIN` administra customers do tenant, mas não é customer.
+
 ## Blacklist por tenant
 
 Cada tenant mantém uma blacklist própria. Um documento bloqueado no Tenant A não bloqueia emissões no Tenant B.
