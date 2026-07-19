@@ -20,10 +20,16 @@ type boletoRepo interface {
 	Delete(string, string) error
 }
 
+type blacklistCompliance interface {
+	IsBlocked(string, string) (*domain.BlacklistEntry, bool, error)
+	RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto)
+}
+
 type BoletoService struct {
 	repo         boletoRepo
 	customers    customerRepo
 	providers    providerRepo
+	blacklist    blacklistCompliance
 	factory      contracts.ProviderFactory
 	payerBuilder base.PayerBuilder
 	logger       *slog.Logger
@@ -40,6 +46,11 @@ func (s *BoletoService) WithCustomerRepository(repo customerRepo) *BoletoService
 
 func (s *BoletoService) WithProviderRepository(repo providerRepo) *BoletoService {
 	s.providers = repo
+	return s
+}
+
+func (s *BoletoService) WithBlacklistService(blacklist blacklistCompliance) *BoletoService {
+	s.blacklist = blacklist
 	return s
 }
 
@@ -143,6 +154,26 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if customer.TenantID != tenantID {
 		return nil, ErrValidation
 	}
+
+	if s.blacklist != nil && customer.Document != nil {
+		entry, blocked, err := s.blacklist.IsBlocked(tenantID, *customer.Document)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+			s.logger.Info("boleto emission blocked by compliance",
+				"tenant", tenantID,
+				"request_id", requestID(ctx),
+				"boleto_id", boleto.ID,
+				"customer_id", customer.ID,
+				"latency_ms", time.Since(start).Milliseconds(),
+				"result", "blocked",
+			)
+			return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
+		}
+	}
+
 	payer, err := s.payerBuilder.Build(*customer)
 	if err != nil {
 		return nil, err

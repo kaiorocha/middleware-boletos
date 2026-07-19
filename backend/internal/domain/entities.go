@@ -96,3 +96,19 @@ type AuditLog struct {
 	Metadata  *string   `json:"metadata,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// BlacklistEntry blocks boleto emissions for a tenant/document pair.
+type BlacklistEntry struct {
+	ID        string     `json:"id"`
+	TenantID  string     `json:"tenant_id"`
+	Document  string     `json:"document"`
+	Name      string     `json:"name"`
+	Reason    string     `json:"reason"`
+	Notes     *string    `json:"notes,omitempty"`
+	Source    string     `json:"source"`
+	CreatedBy *string    `json:"created_by,omitempty"`
+	Active    bool       `json:"active"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+}

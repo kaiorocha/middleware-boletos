@@ -101,6 +101,63 @@ func (m *boletoRepoMock) Update(b *domain.Boleto) error {
 }
 func (m *boletoRepoMock) Delete(string, string) error { return nil }
 
+type blacklistRepoMock struct {
+	created bool
+	err     error
+	last    *domain.BlacklistEntry
+	found   *domain.BlacklistEntry
+	blocked bool
+}
+
+func (m *blacklistRepoMock) Create(entry *domain.BlacklistEntry) error {
+	m.created = true
+	m.last = entry
+	return m.err
+}
+func (m *blacklistRepoMock) FindByID(string, string) (*domain.BlacklistEntry, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.BlacklistEntry{}, m.err
+}
+func (m *blacklistRepoMock) FindByDocument(string, string) (*domain.BlacklistEntry, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.BlacklistEntry{}, m.err
+}
+func (m *blacklistRepoMock) List(string, string, *bool) ([]domain.BlacklistEntry, error) {
+	if m.found != nil {
+		return []domain.BlacklistEntry{*m.found}, m.err
+	}
+	return nil, m.err
+}
+func (m *blacklistRepoMock) Update(entry *domain.BlacklistEntry) error {
+	m.last = entry
+	return m.err
+}
+func (m *blacklistRepoMock) SoftDelete(string, string) error { return m.err }
+func (m *blacklistRepoMock) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
+	if m.found != nil {
+		return m.found, m.blocked, m.err
+	}
+	return nil, m.blocked, m.err
+}
+
+type blacklistComplianceMock struct {
+	entry    *domain.BlacklistEntry
+	blocked  bool
+	err      error
+	attempts int
+}
+
+func (m *blacklistComplianceMock) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
+	return m.entry, m.blocked, m.err
+}
+func (m *blacklistComplianceMock) RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto) {
+	m.attempts++
+}
+
 // ========== TenantService Tests ==========
 
 func TestTenantServiceRejectEmptyName(t *testing.T) {
@@ -585,6 +642,49 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 	}
 }
 
+func TestBoletoServiceEmitBlocksBlacklistedCustomerBeforeProvider(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+	boletoID := "550e8400-e29b-41d4-a716-446655440003"
+
+	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
+		ID:          boletoID,
+		TenantID:    validTenantUUID,
+		CustomerID:  validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 25000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}}
+	blacklist := &blacklistComplianceMock{
+		blocked: true,
+		entry: &domain.BlacklistEntry{
+			ID:       "550e8400-e29b-41d4-a716-446655440004",
+			TenantID: validTenantUUID,
+			Document: "12345678900",
+			Reason:   "Solicitação do cliente",
+			Active:   true,
+		},
+	}
+	svc := NewBoletoService(boletoRepo).
+		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithProviderRepository(&providerRepoMock{}).
+		WithBlacklistService(blacklist).
+		WithProviderFactory(factory.NewProviderFactory())
+
+	_, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
+	if !errors.Is(err, ErrCustomerBlocked) {
+		t.Fatalf("expected customer blocked error, got %v", err)
+	}
+	if boletoRepo.updates != 0 {
+		t.Fatalf("expected no boleto updates before provider flow, got %d", boletoRepo.updates)
+	}
+	if blacklist.attempts != 1 {
+		t.Fatalf("expected blocked attempt audit, got %d", blacklist.attempts)
+	}
+}
+
 func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
 	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
@@ -819,6 +919,71 @@ func TestBoletoServicePropagatesDuplicateError(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDuplicateResource) {
 		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+// ========== BlacklistService Tests ==========
+
+func TestBlacklistServiceCreateNormalizesDocumentAndDefaults(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &blacklistRepoMock{}
+	svc := NewBlacklistService(repo)
+
+	err := svc.Create(&domain.BlacklistEntry{
+		TenantID: validTenantUUID,
+		Document: "123.456.789-00",
+		Name:     " Cliente Demo ",
+		Reason:   " Solicitação do cliente ",
+		Source:   "manual",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !repo.created {
+		t.Fatal("expected blacklist entry to be created")
+	}
+	if repo.last.Document != "12345678900" {
+		t.Fatalf("expected normalized document, got %q", repo.last.Document)
+	}
+	if repo.last.Source != "MANUAL" || !repo.last.Active {
+		t.Fatalf("expected source MANUAL and active true, got %+v", repo.last)
+	}
+}
+
+func TestBlacklistServicePropagatesDuplicateError(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &blacklistRepoMock{err: NewDuplicateResource("Este documento já está bloqueado neste tenant.")}
+	svc := NewBlacklistService(repo)
+
+	err := svc.Create(&domain.BlacklistEntry{
+		TenantID: validTenantUUID,
+		Document: "12345678900",
+		Reason:   "Solicitação do cliente",
+	})
+	if !errors.Is(err, ErrDuplicateResource) {
+		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestBlacklistServiceIsBlockedNormalizesDocument(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &blacklistRepoMock{
+		blocked: true,
+		found: &domain.BlacklistEntry{
+			TenantID: validTenantUUID,
+			Document: "12345678900",
+			Reason:   "Solicitação do cliente",
+			Active:   true,
+		},
+	}
+	svc := NewBlacklistService(repo)
+
+	entry, blocked, err := svc.IsBlocked(validTenantUUID, "123.456.789-00")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !blocked || entry == nil || entry.Document != "12345678900" {
+		t.Fatalf("expected blocked normalized document, got blocked=%v entry=%+v", blocked, entry)
 	}
 }
 

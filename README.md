@@ -1,7 +1,7 @@
 # middleware-boletos
 
 Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
-**Status atual:** Etapa 3 (Arquitetura de provedores) implementada com mock provider, primeiro adapter real Moncalieri Capital, factory, máquina de estados, emissão simulada, webhooks preparados e health/balance por provider.
+**Status atual:** Etapa 4 (Painel Administrativo e Compliance) implementada com painel web operacional, dashboard, gestão de recursos e blacklist por tenant para bloquear emissões.
 
 ## Stack
 
@@ -21,7 +21,7 @@ Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.
 - `backend/internal/repository`: acesso a dados
 - `backend/internal/service`: regras de negócio e validações
 - `backend/internal/providers`: contratos, factory, adapters, tipos, eventos e validações de integração bancária
-- `frontend`: aplicação web inicial
+- `frontend`: painel administrativo web em Next.js
 
 ## Rodar localmente
 
@@ -51,11 +51,11 @@ curl -s -X POST http://localhost:8080/api/v1/tenants \
 
 ## Postman Collection
 
-A collection Postman da Etapa 3 está disponível em:
+A collection Postman da Etapa 4 está disponível em:
 
-`docs/postman/middleware-boletos-etapa-3.postman_collection.json`
+`docs/postman/middleware-boletos-etapa-4.postman_collection.json`
 
-Ela pode ser importada no Postman para validar criação de recursos, emissão simulada, health, balance, webhook com `MockProvider` e configuração/health do provider Moncalieri sem credencial real.
+Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de bloqueio e emissão bloqueada por compliance.
 
 ## Rotas disponíveis
 
@@ -91,6 +91,19 @@ Ela pode ser importada no Postman para validar criação de recursos, emissão s
 - `GET /api/v1/tenants/:tenantId/boletos`
 - `GET /api/v1/tenants/:tenantId/boletos/:id`
 - `POST /api/v1/tenants/:tenantId/boletos/:id/emit`
+
+### Dashboard
+- `GET /api/v1/tenants/:tenantId/dashboard`
+
+### Compliance
+- `POST /api/v1/tenants/:tenantId/blacklist`
+- `GET /api/v1/tenants/:tenantId/blacklist`
+- `GET /api/v1/tenants/:tenantId/blacklist/check?document=...`
+- `GET /api/v1/tenants/:tenantId/blacklist/:id`
+- `PUT /api/v1/tenants/:tenantId/blacklist/:id`
+- `DELETE /api/v1/tenants/:tenantId/blacklist/:id`
+- `POST /api/v1/tenants/:tenantId/blacklist/:id/block`
+- `POST /api/v1/tenants/:tenantId/blacklist/:id/unblock`
 
 ## Padrão de resposta
 
@@ -129,6 +142,23 @@ A API bloqueia duplicidade apenas dentro do mesmo tenant, mantendo isolamento mu
 - Boletos ativos não podem repetir `external_id` ou `our_number` no mesmo tenant quando esses campos forem informados. Valores vazios são tratados como nulos.
 
 Violação de unicidade retorna HTTP `409 Conflict` com `error.code = "DUPLICATE_RESOURCE"`.
+
+## Compliance: blacklist de emissão
+
+Cada tenant possui sua própria lista de CPF/CNPJ bloqueados. Antes de chamar qualquer provider bancário, o `BoletoService.Emit` consulta a blacklist usando o documento do customer.
+
+Se o documento estiver bloqueado, a API interrompe a emissão e retorna HTTP `409 Conflict`:
+
+```json
+{
+  "error": {
+    "code": "CUSTOMER_BLOCKED",
+    "message": "Este cliente está bloqueado para novas emissões."
+  }
+}
+```
+
+O bloqueio é aplicado no backend, no fluxo central de emissão, para evitar bypass por painel, API externa ou integrações futuras.
 
 ## Exemplos de request
 

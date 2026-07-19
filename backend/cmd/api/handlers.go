@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
@@ -17,12 +19,13 @@ import (
 )
 
 type App struct {
-	TenantSvc   *service.TenantService
-	UserSvc     *service.UserService
-	CustomerSvc *service.CustomerService
-	ProviderSvc *service.ProviderService
-	BoletoSvc   *service.BoletoService
-	Factory     contracts.ProviderFactory
+	TenantSvc    *service.TenantService
+	UserSvc      *service.UserService
+	CustomerSvc  *service.CustomerService
+	ProviderSvc  *service.ProviderService
+	BoletoSvc    *service.BoletoService
+	BlacklistSvc *service.BlacklistService
+	Factory      contracts.ProviderFactory
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -37,7 +40,17 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
 }
 
+func writeRawJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
 func writeServiceError(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrCustomerBlocked) {
+		writeError(w, http.StatusConflict, "CUSTOMER_BLOCKED", err.Error())
+		return
+	}
 	if errors.Is(err, service.ErrDuplicateResource) {
 		writeError(w, http.StatusConflict, "DUPLICATE_RESOURCE", err.Error())
 		return
@@ -170,6 +183,8 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 
 	resource := parts[1]
 	switch resource {
+	case "dashboard":
+		a.handleTenantDashboard(w, r, tenantID, parts[2:])
 	case "users":
 		a.handleTenantUsers(w, r, tenantID, parts[2:])
 	case "customers":
@@ -178,9 +193,70 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 		a.handleTenantProviders(w, r, tenantID, parts[2:])
 	case "boletos":
 		a.handleTenantBoletos(w, r, tenantID, parts[2:])
+	case "blacklist":
+		a.handleTenantBlacklist(w, r, tenantID, parts[2:])
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
 	}
+}
+
+func (a *App) handleTenantDashboard(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
+	if len(tail) != 0 || r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	items, err := a.BoletoSvc.ListByTenant(tenantID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	var from, to time.Time
+	if raw := strings.TrimSpace(r.URL.Query().Get("from")); raw != "" {
+		from, _ = service.NormalizeDueDate(raw)
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("to")); raw != "" {
+		to, _ = service.NormalizeDueDate(raw)
+	}
+
+	summary := map[string]any{
+		"total_boletos":            0,
+		"boletos_emitidos":         0,
+		"boletos_em_processamento": 0,
+		"boletos_pagos":            0,
+		"boletos_vencidos":         0,
+		"boletos_cancelados":       0,
+		"boletos_com_falha":        0,
+		"valor_total_emitido":      int64(0),
+		"by_status":                map[string]int{},
+	}
+	byStatus := summary["by_status"].(map[string]int)
+	for _, boleto := range items {
+		if !from.IsZero() && boleto.CreatedAt.Before(from) {
+			continue
+		}
+		if !to.IsZero() && boleto.CreatedAt.After(to.Add(24*time.Hour)) {
+			continue
+		}
+		summary["total_boletos"] = summary["total_boletos"].(int) + 1
+		byStatus[boleto.Status]++
+		switch types.BoletoStatus(boleto.Status) {
+		case types.StatusIssued:
+			summary["boletos_emitidos"] = summary["boletos_emitidos"].(int) + 1
+			summary["valor_total_emitido"] = summary["valor_total_emitido"].(int64) + boleto.AmountCents
+		case types.StatusProcessing:
+			summary["boletos_em_processamento"] = summary["boletos_em_processamento"].(int) + 1
+		case types.StatusPaid:
+			summary["boletos_pagos"] = summary["boletos_pagos"].(int) + 1
+		case types.StatusExpired:
+			summary["boletos_vencidos"] = summary["boletos_vencidos"].(int) + 1
+		case types.StatusCancelled:
+			summary["boletos_cancelados"] = summary["boletos_cancelados"].(int) + 1
+		case types.StatusFailed:
+			summary["boletos_com_falha"] = summary["boletos_com_falha"].(int) + 1
+		}
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (a *App) handleTenantUsers(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
@@ -281,6 +357,9 @@ func (a *App) handleTenantProviders(w http.ResponseWriter, r *http.Request, tena
 				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list providers")
 				return
 			}
+			for i := range items {
+				maskProviderConfig(&items[i])
+			}
 			writeJSON(w, http.StatusOK, items)
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
@@ -299,11 +378,136 @@ func (a *App) handleTenantProviders(w http.ResponseWriter, r *http.Request, tena
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "provider not found")
 			return
 		}
+		maskProviderConfig(item)
 		writeJSON(w, http.StatusOK, item)
 		return
 	}
 
 	writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+}
+
+func (a *App) handleTenantBlacklist(w http.ResponseWriter, r *http.Request, tenantID string, tail []string) {
+	if a.BlacklistSvc == nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "blacklist service not configured")
+		return
+	}
+	if len(tail) == 1 && tail[0] == "check" && r.Method == http.MethodGet {
+		document := r.URL.Query().Get("document")
+		entry, blocked, err := a.BlacklistSvc.IsBlocked(tenantID, document)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		if !blocked {
+			writeRawJSON(w, http.StatusOK, map[string]bool{"blocked": false})
+			return
+		}
+		writeRawJSON(w, http.StatusOK, map[string]any{"blocked": true, "reason": entry.Reason})
+		return
+	}
+
+	if len(tail) == 0 {
+		switch r.Method {
+		case http.MethodPost:
+			var in domain.BlacklistEntry
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+				return
+			}
+			in.TenantID = tenantID
+			if err := a.BlacklistSvc.Create(&in); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusCreated, in)
+		case http.MethodGet:
+			active, err := parseOptionalBool(r.URL.Query().Get("active"))
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid active filter")
+				return
+			}
+			items, err := a.BlacklistSvc.List(tenantID, r.URL.Query().Get("q"), active)
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, items)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		}
+		return
+	}
+
+	id := tail[0]
+	if !service.IsValidUUID(id) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid blacklist id")
+		return
+	}
+	if len(tail) == 2 {
+		switch tail[1] {
+		case "block":
+			if r.Method != http.MethodPost {
+				writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+				return
+			}
+			item, err := a.BlacklistSvc.Block(tenantID, id, nil)
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+			return
+		case "unblock":
+			if r.Method != http.MethodPost {
+				writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+				return
+			}
+			item, err := a.BlacklistSvc.Unblock(tenantID, id, nil)
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+			return
+		default:
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
+			return
+		}
+	}
+	if len(tail) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			item, err := a.BlacklistSvc.Get(tenantID, id)
+			if err != nil {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "blacklist entry not found")
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
+		case http.MethodPut:
+			var in domain.BlacklistEntry
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+				return
+			}
+			in.ID = id
+			in.TenantID = tenantID
+			if err := a.BlacklistSvc.Update(&in); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, in)
+		case http.MethodDelete:
+			if err := a.BlacklistSvc.Delete(tenantID, id); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		}
+		return
+	}
+	writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
 }
 
 func (a *App) handleProvidersIntegration(w http.ResponseWriter, r *http.Request) {
@@ -417,6 +621,26 @@ func requestHeaders(r *http.Request) map[string]string {
 		}
 	}
 	return headers
+}
+
+func parseOptionalBool(raw string) (*bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func maskProviderConfig(provider *domain.Provider) {
+	if provider == nil || provider.Config == nil {
+		return
+	}
+	masked := "***"
+	provider.Config = &masked
 }
 
 func requestID(r *http.Request) string {

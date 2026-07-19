@@ -25,25 +25,30 @@ func main() {
 	custRepo := repository.NewCustomerRepo(db)
 	providerRepo := repository.NewProviderRepo(db)
 	boletoRepo := repository.NewBoletoRepo(db)
+	blacklistRepo := repository.NewBlacklistRepo(db)
+	auditRepo := repository.NewAuditLogRepo(db)
 
 	// services
 	tenantSvc := service.NewTenantService(tenantRepo)
 	userSvc := service.NewUserService(userRepo)
 	customerSvc := service.NewCustomerService(custRepo)
 	providerSvc := service.NewProviderService(providerRepo)
+	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
 	boletoSvc := service.NewBoletoService(boletoRepo).
 		WithCustomerRepository(custRepo).
 		WithProviderRepository(providerRepo).
+		WithBlacklistService(blacklistSvc).
 		WithProviderFactory(providerFactory)
 
 	app := &App{
-		TenantSvc:   tenantSvc,
-		UserSvc:     userSvc,
-		CustomerSvc: customerSvc,
-		ProviderSvc: providerSvc,
-		BoletoSvc:   boletoSvc,
-		Factory:     providerFactory,
+		TenantSvc:    tenantSvc,
+		UserSvc:      userSvc,
+		CustomerSvc:  customerSvc,
+		ProviderSvc:  providerSvc,
+		BoletoSvc:    boletoSvc,
+		BlacklistSvc: blacklistSvc,
+		Factory:      providerFactory,
 	}
 
 	h := app.routes()

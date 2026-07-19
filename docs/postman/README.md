@@ -6,8 +6,8 @@ Esta pasta contém as collections Postman do projeto `middleware-boletos`.
 
 1. Abra o Postman.
 2. Clique em **Import**.
-3. Selecione o arquivo `docs/postman/middleware-boletos-etapa-3.postman_collection.json`.
-4. Confirme a importação da collection `middleware-boletos - Etapa 3`.
+3. Selecione o arquivo `docs/postman/middleware-boletos-etapa-4.postman_collection.json`.
+4. Confirme a importação da collection `middleware-boletos - Etapa 4`.
 
 ## Como rodar o backend localmente
 
@@ -39,6 +39,11 @@ http://localhost:8080
 12. Provider Webhook
 13. Invalid Webhook - 400
 14. Duplicate Mock Provider - 409
+15. Dashboard Summary
+16. Create Blacklist Entry
+17. Check Blacklist Blocked
+18. Create Blocked Boleto
+19. Emit Blocked Boleto - 409
 
 Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
 
@@ -54,6 +59,7 @@ Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento ma
 
 ## Collections disponíveis
 
+- `middleware-boletos-etapa-4.postman_collection.json`: painel operacional, dashboard, blacklist e bloqueio de emissão por compliance.
 - `middleware-boletos-etapa-3.postman_collection.json`: arquitetura de provedores, MockProvider, MoncalieriProvider, emissão simulada, health, balance e webhook.
 - `middleware-boletos-etapa-2.postman_collection.json`: histórico da etapa anterior.
 

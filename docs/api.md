@@ -1,10 +1,10 @@
-# API — Etapa 3
+# API — Etapa 4
 
-Documentação das rotas REST implementadas até a **Etapa 3 — Arquitetura de provedores**.
+Documentação das rotas REST implementadas até a **Etapa 4 — Painel Administrativo e Compliance**.
 
 Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
 
-> Observação: esta etapa mantém `MockProvider` e adiciona o primeiro adapter real, `MoncalieriProvider`. A emissão usa os dados do `Customer` para montar o pagador por meio do `DefaultPayerBuilder`.
+> Observação: a Etapa 4 adiciona o painel administrativo web e o módulo de Compliance/Blacklist. A emissão continua usando `MockProvider` e `MoncalieriProvider`, mas agora consulta a blacklist antes de chamar qualquer provider.
 
 ## Base URL local
 
@@ -65,6 +65,27 @@ HTTP `409 Conflict`
 }
 ```
 
+## Compliance: blacklist por tenant
+
+Cada tenant mantém uma lista isolada de documentos bloqueados para novas emissões. O mesmo CPF/CNPJ pode estar bloqueado em um tenant e liberado em outro.
+
+Antes de chamar o provider bancário, `BoletoService.Emit` busca o customer do boleto e consulta a blacklist usando o documento normalizado. Se houver bloqueio ativo, o fluxo é interrompido antes de `PayerBuilder`, `ProviderFactory` e `IssueBoleto`.
+
+Resposta para emissão bloqueada:
+
+HTTP `409 Conflict`
+
+```json
+{
+  "error": {
+    "code": "CUSTOMER_BLOCKED",
+    "message": "Este cliente está bloqueado para novas emissões."
+  }
+}
+```
+
+Eventos de compliance são registrados em `audit_logs` para bloqueio, desbloqueio e tentativa de emissão bloqueada.
+
 ## Health Check
 
 ### GET /health
@@ -112,6 +133,28 @@ Busca um tenant por ID.
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>
 ```
+
+## Dashboard
+
+### GET /api/v1/tenants/:tenantId/dashboard
+
+Retorna indicadores operacionais do tenant, com filtros opcionais `from` e `to` no formato `YYYY-MM-DD`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/dashboard?from=2026-07-01&to=2026-07-31"
+```
+
+Indicadores retornados em `data`:
+
+- `total_boletos`
+- `boletos_emitidos`
+- `boletos_em_processamento`
+- `boletos_pagos`
+- `boletos_vencidos`
+- `boletos_cancelados`
+- `boletos_com_falha`
+- `valor_total_emitido`
+- `by_status`
 
 ## Users
 
@@ -353,6 +396,89 @@ Campos persistidos após emissão:
 
 Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado no customer (`document`, `name`, endereço, bairro, cidade, CEP e UF). Se faltar algum campo obrigatório, a API retorna `INVALID_PAYER`.
 
+## Compliance
+
+### POST /api/v1/tenants/:tenantId/blacklist
+
+Cria um bloqueio de documento no tenant.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/blacklist \
+  -H "Content-Type: application/json" \
+  -d '{
+    "document":"123.456.789-00",
+    "name":"Cliente Bloqueado",
+    "reason":"Solicitação do cliente",
+    "notes":"Não enviar novas cobranças.",
+    "source":"MANUAL"
+  }'
+```
+
+Campos:
+
+| Campo | Observação |
+|---|---|
+| `document` | Obrigatório; normalizado para somente números. |
+| `name` | Nome de referência. |
+| `reason` | Motivo exibido em consultas de bloqueio. |
+| `notes` | Observações internas. |
+| `source` | `MANUAL`, `API` ou `IMPORT`; assume `MANUAL` se vazio. |
+
+Duplicidade ativa de documento no mesmo tenant retorna `DUPLICATE_RESOURCE`.
+
+### GET /api/v1/tenants/:tenantId/blacklist
+
+Lista bloqueios do tenant. Aceita filtros `q` e `active`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist?q=12345678900&active=true"
+```
+
+### GET /api/v1/tenants/:tenantId/blacklist/check?document=...
+
+Consulta otimizada para saber se um documento está bloqueado.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist/check?document=123.456.789-00"
+```
+
+Resposta quando bloqueado:
+
+```json
+{
+  "blocked": true,
+  "reason": "Solicitação do cliente"
+}
+```
+
+Resposta quando liberado:
+
+```json
+{
+  "blocked": false
+}
+```
+
+### GET /api/v1/tenants/:tenantId/blacklist/:id
+
+Busca um bloqueio por ID dentro do tenant.
+
+### PUT /api/v1/tenants/:tenantId/blacklist/:id
+
+Atualiza dados do bloqueio.
+
+### DELETE /api/v1/tenants/:tenantId/blacklist/:id
+
+Exclui logicamente o bloqueio.
+
+### POST /api/v1/tenants/:tenantId/blacklist/:id/block
+
+Reativa um bloqueio.
+
+### POST /api/v1/tenants/:tenantId/blacklist/:id/unblock
+
+Desativa um bloqueio sem excluir o registro.
+
 ## Validações implementadas
 
 - UUID válido para parâmetros e campos relacionais.
@@ -363,9 +489,9 @@ Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel`
 - Status de boleto restrito aos estados padronizados.
 - Transições de boleto validadas pela máquina de estados.
 - Customer valida email, documento, UF e CEP quando esses campos são informados.
+- Emissão bloqueada automaticamente para documentos ativos na blacklist do tenant.
 
-## Limitações conhecidas da Etapa 2
+## Limitações conhecidas
 
 - Ainda não há autenticação/autorização real.
-- Ainda não há integração bancária real.
 - Cancelamento e consulta real junto a provedores reais ficam para etapas posteriores.
