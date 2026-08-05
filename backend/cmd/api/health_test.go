@@ -267,6 +267,9 @@ func (r *apiBlacklistRepo) FindByID(string, string) (*domain.BlacklistEntry, err
 func (r *apiBlacklistRepo) FindByDocument(string, string) (*domain.BlacklistEntry, error) {
 	return r.item, r.err
 }
+func (r *apiBlacklistRepo) FindByType(string, string, string) (*domain.BlacklistEntry, error) {
+	return r.item, r.err
+}
 func (r *apiBlacklistRepo) List(string, string, *bool) ([]domain.BlacklistEntry, error) {
 	if r.item == nil {
 		return nil, r.err
@@ -279,6 +282,9 @@ func (r *apiBlacklistRepo) Update(entry *domain.BlacklistEntry) error {
 }
 func (r *apiBlacklistRepo) SoftDelete(string, string) error { return r.err }
 func (r *apiBlacklistRepo) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
+	return r.item, r.blocked, r.err
+}
+func (r *apiBlacklistRepo) IsBlockedByType(string, string, string) (*domain.BlacklistEntry, bool, error) {
 	return r.item, r.blocked, r.err
 }
 
