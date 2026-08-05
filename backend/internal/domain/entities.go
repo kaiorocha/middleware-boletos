@@ -75,23 +75,24 @@ type TenantProvider struct {
 	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
 }
 
-// Boleto represents a payment slip
+// Boleto represents a payment slip (both traditional and proposal)
 type Boleto struct {
-	ID            string     `json:"id"`
-	TenantID      string     `json:"tenant_id"`
-	CustomerID    string     `json:"customer_id"`
-	ProviderID    *string    `json:"provider_id,omitempty"`
-	AmountCents   int64      `json:"amount_cents"`
-	DueDate       time.Time  `json:"due_date"`
-	Status        string     `json:"status"`
-	ExternalID    *string    `json:"external_id,omitempty"`
-	Barcode       *string    `json:"barcode,omitempty"`
-	DigitableLine *string    `json:"digitable_line,omitempty"`
-	OurNumber     *string    `json:"our_number,omitempty"`
-	IssuedAt      *time.Time `json:"issued_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	ID             string     `json:"id"`
+	TenantID       string     `json:"tenant_id"`
+	CustomerID     *string    `json:"customer_id,omitempty"`
+	RecipientEmail string     `json:"recipient_email"`
+	ProviderID     *string    `json:"provider_id,omitempty"`
+	AmountCents    int64      `json:"amount_cents"`
+	DueDate        time.Time  `json:"due_date"`
+	Status         string     `json:"status"`
+	ExternalID     *string    `json:"external_id,omitempty"`
+	Barcode        *string    `json:"barcode,omitempty"`
+	DigitableLine  *string    `json:"digitable_line,omitempty"`
+	OurNumber      *string    `json:"our_number,omitempty"`
+	IssuedAt       *time.Time `json:"issued_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 }
 
 // BoletoFilters scopes dashboard and transaction queries.
@@ -150,9 +151,10 @@ type BoletoTransaction struct {
 	ID               string     `json:"id"`
 	TenantID         string     `json:"tenant_id"`
 	TenantName       string     `json:"tenant_name"`
-	CustomerID       string     `json:"customer_id"`
-	CustomerName     string     `json:"customer_name"`
-	CustomerDocument string     `json:"customer_document,omitempty"`
+	CustomerID       *string    `json:"customer_id,omitempty"`
+	CustomerName     *string    `json:"customer_name,omitempty"`
+	CustomerDocument *string    `json:"customer_document,omitempty"`
+	RecipientEmail   string     `json:"recipient_email"`
 	ProviderID       *string    `json:"provider_id,omitempty"`
 	ProviderName     *string    `json:"provider_name,omitempty"`
 	AmountCents      int64      `json:"amount_cents"`
@@ -214,18 +216,21 @@ type AuditLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// BlacklistEntry blocks boleto emissions for a tenant/document pair.
+// BlacklistEntry blocks boleto emissions for a tenant/document or tenant/email pair.
 type BlacklistEntry struct {
-	ID        string     `json:"id"`
-	TenantID  string     `json:"tenant_id"`
-	Document  string     `json:"document"`
-	Name      string     `json:"name"`
-	Reason    string     `json:"reason"`
-	Notes     *string    `json:"notes,omitempty"`
-	Source    string     `json:"source"`
-	CreatedBy *string    `json:"created_by,omitempty"`
-	Active    bool       `json:"active"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id"`
+	EntryType        string     `json:"entry_type"`
+	Value            string     `json:"value"`
+	ValueNormalized  string     `json:"value_normalized"`
+	Document         string     `json:"document"`
+	Name             string     `json:"name"`
+	Reason           string     `json:"reason"`
+	Notes            *string    `json:"notes,omitempty"`
+	Source           string     `json:"source"`
+	CreatedBy        *string    `json:"created_by,omitempty"`
+	Active           bool       `json:"active"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }

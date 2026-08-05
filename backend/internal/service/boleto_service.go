@@ -22,6 +22,8 @@ type boletoRepo interface {
 
 type blacklistCompliance interface {
 	IsBlocked(string, string) (*domain.BlacklistEntry, bool, error)
+	IsBlockedByDocument(string, string) (*domain.BlacklistEntry, bool, error)
+	IsBlockedByEmail(string, string) (*domain.BlacklistEntry, bool, error)
 	RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto)
 }
 
@@ -85,9 +87,32 @@ func (s *BoletoService) WithLogger(logger *slog.Logger) *BoletoService {
 func (s *BoletoService) Create(b *domain.Boleto) error {
 	b.ExternalID = NormalizeOptionalString(b.ExternalID)
 	b.OurNumber = NormalizeOptionalString(b.OurNumber)
-	if !IsValidUUID(b.TenantID) || !IsValidUUID(b.CustomerID) {
+
+	if !IsValidUUID(b.TenantID) {
 		return ErrValidation
 	}
+
+	// CustomerID is now optional (for proposal boletos)
+	// Either CustomerID or RecipientEmail must be provided
+	if b.CustomerID != nil && !IsValidUUID(*b.CustomerID) {
+		return ErrValidation
+	}
+
+	// Normalize and validate RecipientEmail
+	b.RecipientEmail = NormalizeEmail(b.RecipientEmail)
+	if b.RecipientEmail == "" && b.CustomerID == nil {
+		return ErrValidation
+	}
+	if b.RecipientEmail != "" && !IsValidEmail(b.RecipientEmail) {
+		return ErrValidation
+	}
+
+	// If only RecipientEmail is provided (no CustomerID), it must be valid
+	// If both are provided, validate both
+	if b.CustomerID == nil && b.RecipientEmail == "" {
+		return ErrValidation
+	}
+
 	if b.ProviderID != nil && !IsValidUUID(*b.ProviderID) {
 		return ErrValidation
 	}
@@ -149,7 +174,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if !IsValidUUID(tenantID) || !IsValidUUID(boletoID) {
 		return nil, ErrValidation
 	}
-	if s.customers == nil || s.providers == nil || s.blacklist == nil || s.factory == nil || s.payerBuilder == nil {
+	if s.providers == nil || s.blacklist == nil || s.factory == nil {
 		return nil, ErrValidation
 	}
 
@@ -178,41 +203,92 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return nil, ErrValidation
 	}
 
-	customer, err := s.customers.FindByID(boleto.CustomerID)
-	if err != nil {
-		return nil, err
-	}
-	if customer.TenantID != tenantID {
-		return nil, ErrValidation
-	}
+	var payer *types.Payer
 
-	if customer.Document == nil {
-		return nil, ErrValidation
-	}
-	document := normalizeDocumentValue(*customer.Document)
-	if document == "" {
-		return nil, ErrValidation
-	}
-	entry, blocked, err := s.blacklist.IsBlocked(tenantID, document)
-	if err != nil {
-		return nil, err
-	}
-	if blocked {
-		s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
-		s.logger.Info("boleto emission blocked by compliance",
-			"tenant", tenantID,
-			"request_id", requestID(ctx),
-			"boleto_id", boleto.ID,
-			"customer_id", customer.ID,
-			"latency_ms", time.Since(start).Milliseconds(),
-			"result", "blocked",
-		)
-		return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
-	}
+	// Case A: Traditional boleto with customer
+	if boleto.CustomerID != nil {
+		if s.customers == nil || s.payerBuilder == nil {
+			return nil, ErrValidation
+		}
+		if !IsValidUUID(*boleto.CustomerID) {
+			return nil, ErrValidation
+		}
 
-	payer, err := s.payerBuilder.Build(*customer)
-	if err != nil {
-		return nil, err
+		customer, err := s.customers.FindByID(*boleto.CustomerID)
+		if err != nil {
+			return nil, err
+		}
+		if customer.TenantID != tenantID {
+			return nil, ErrValidation
+		}
+
+		// Validate document exists
+		if customer.Document == nil {
+			return nil, ErrValidation
+		}
+		document := normalizeDocumentValue(*customer.Document)
+		if document == "" {
+			return nil, ErrValidation
+		}
+
+		// Check compliance - blocked by document
+		entry, blocked, err := s.blacklist.IsBlockedByDocument(tenantID, document)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+			s.logger.Info("boleto emission blocked by compliance",
+				"tenant", tenantID,
+				"request_id", requestID(ctx),
+				"boleto_id", boleto.ID,
+				"customer_id", customer.ID,
+				"latency_ms", time.Since(start).Milliseconds(),
+				"result", "blocked",
+			)
+			return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
+		}
+
+		// Build payer from customer data
+		var errPayer error
+		payer, errPayer = s.payerBuilder.Build(*customer)
+		if errPayer != nil {
+			return nil, errPayer
+		}
+
+	} else if boleto.RecipientEmail != "" {
+		// Case B: Proposal boleto with recipient email only
+		email := NormalizeEmail(boleto.RecipientEmail)
+		if !IsValidEmail(email) {
+			return nil, ErrValidation
+		}
+
+		// Check compliance - blocked by email
+		entry, blocked, err := s.blacklist.IsBlockedByEmail(tenantID, email)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+			s.logger.Info("boleto emission blocked by compliance (recipient)",
+				"tenant", tenantID,
+				"request_id", requestID(ctx),
+				"boleto_id", boleto.ID,
+				"recipient_email", email,
+				"latency_ms", time.Since(start).Milliseconds(),
+				"result", "blocked",
+			)
+			return nil, NewCustomerBlocked("Este destinatário está bloqueado para novas emissões.")
+		}
+
+		// Build minimal payer for proposal boleto
+		payer = &types.Payer{
+			Email: email,
+		}
+
+	} else {
+		// Neither CustomerID nor RecipientEmail provided
+		return nil, ErrValidation
 	}
 
 	providerConfig, err := s.providerConfigForTenant(tenantID, *boleto.ProviderID)
@@ -230,13 +306,14 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	}
 
 	response, err := adapter.IssueBoleto(ctx, types.IssueRequest{
-		TenantID:    boleto.TenantID,
-		BoletoID:    boleto.ID,
-		CustomerID:  boleto.CustomerID,
-		ExternalID:  optionalStringValue(boleto.ExternalID),
-		AmountCents: boleto.AmountCents,
-		DueDate:     boleto.DueDate,
-		Payer:       payer,
+		TenantID:       boleto.TenantID,
+		BoletoID:       boleto.ID,
+		CustomerID:     optionalStringValue(boleto.CustomerID),
+		RecipientEmail: boleto.RecipientEmail,
+		ExternalID:     optionalStringValue(boleto.ExternalID),
+		AmountCents:    boleto.AmountCents,
+		DueDate:        boleto.DueDate,
+		Payer:          payer,
 	})
 	if err != nil {
 		boleto.Status = string(types.StatusFailed)

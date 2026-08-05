@@ -18,13 +18,15 @@ func (r *BoletoRepo) Create(b *domain.Boleto) error {
 	if b.ID == "" {
 		b.ID = uuid.New().String()
 	}
-	_, err := r.db.Exec(`INSERT INTO boletos (id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),now())`, b.ID, b.TenantID, b.CustomerID, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.IssuedAt)
+	_, err := r.db.Exec(`INSERT INTO boletos (id,tenant_id,customer_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())`, b.ID, b.TenantID, b.CustomerID, b.RecipientEmail, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.IssuedAt)
 	return translatePostgresError(err)
 }
 
 func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
-	row := r.db.QueryRow(`SELECT id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE id = $1 AND deleted_at IS NULL`, id)
+	row := r.db.QueryRow(`SELECT id,tenant_id,customer_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE id = $1 AND deleted_at IS NULL`, id)
 	var b domain.Boleto
+	var customerID sql.NullString
+	var recipientEmail string
 	var providerID sql.NullString
 	var external sql.NullString
 	var barcode sql.NullString
@@ -32,9 +34,13 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 	var ourNumber sql.NullString
 	var issuedAt sql.NullTime
 	var deleted *time.Time
-	if err := row.Scan(&b.ID, &b.TenantID, &b.CustomerID, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &issuedAt, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
+	if err := row.Scan(&b.ID, &b.TenantID, &customerID, &recipientEmail, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &issuedAt, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
 		return nil, err
 	}
+	if customerID.Valid {
+		b.CustomerID = &customerID.String
+	}
+	b.RecipientEmail = recipientEmail
 	if providerID.Valid {
 		v := providerID.String
 		b.ProviderID = &v
@@ -66,7 +72,7 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 }
 
 func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
-	rows, err := r.db.Query(`SELECT id,tenant_id,customer_id,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
+	rows, err := r.db.Query(`SELECT id,tenant_id,customer_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +80,8 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 	var out []domain.Boleto
 	for rows.Next() {
 		var b domain.Boleto
+		var customerID sql.NullString
+		var recipientEmail string
 		var providerID sql.NullString
 		var external sql.NullString
 		var barcode sql.NullString
@@ -81,9 +89,13 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 		var ourNumber sql.NullString
 		var issuedAt sql.NullTime
 		var deleted *time.Time
-		if err := rows.Scan(&b.ID, &b.TenantID, &b.CustomerID, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &issuedAt, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
+		if err := rows.Scan(&b.ID, &b.TenantID, &customerID, &recipientEmail, &providerID, &b.AmountCents, &b.DueDate, &b.Status, &external, &barcode, &digitable, &ourNumber, &issuedAt, &b.CreatedAt, &b.UpdatedAt, &deleted); err != nil {
 			return nil, err
 		}
+		if customerID.Valid {
+			b.CustomerID = &customerID.String
+		}
+		b.RecipientEmail = recipientEmail
 		if providerID.Valid {
 			v := providerID.String
 			b.ProviderID = &v
@@ -201,7 +213,7 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 	}
 	args = append(args, filters.Limit, filters.Offset)
 	query := fmt.Sprintf(`
-		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), COALESCE(c.document,''), b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line
+		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), COALESCE(c.document,''), b.recipient_email, b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line
 		FROM boletos b
 		LEFT JOIN tenants t ON t.id = b.tenant_id
 		LEFT JOIN customers c ON c.id = b.customer_id
@@ -218,15 +230,29 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 	out := domain.PaginatedTransactions{Items: []domain.BoletoTransaction{}, Limit: filters.Limit, Offset: filters.Offset, Total: total}
 	for rows.Next() {
 		var item domain.BoletoTransaction
+		var customerID sql.NullString
+		var customerName sql.NullString
+		var customerDocument sql.NullString
+		var recipientEmail string
 		var providerID sql.NullString
 		var providerName sql.NullString
 		var externalID sql.NullString
 		var ourNumber sql.NullString
 		var issuedAt sql.NullTime
 		var digitableLine sql.NullString
-		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &item.CustomerID, &item.CustomerName, &item.CustomerDocument, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine); err != nil {
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &customerID, &customerName, &customerDocument, &recipientEmail, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine); err != nil {
 			return nil, err
 		}
+		if customerID.Valid {
+			item.CustomerID = &customerID.String
+		}
+		if customerName.Valid {
+			item.CustomerName = &customerName.String
+		}
+		if customerDocument.Valid {
+			item.CustomerDocument = &customerDocument.String
+		}
+		item.RecipientEmail = recipientEmail
 		if providerID.Valid {
 			v := providerID.String
 			item.ProviderID = &v
