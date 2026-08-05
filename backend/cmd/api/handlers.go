@@ -1192,6 +1192,7 @@ func parseBoletoFilters(r *http.Request) (domain.BoletoFilters, error) {
 	filters.ExternalID = strings.TrimSpace(query.Get("external_id"))
 	filters.OurNumber = strings.TrimSpace(query.Get("our_number"))
 	filters.Document = strings.TrimSpace(query.Get("document"))
+	filters.Email = strings.TrimSpace(strings.ToLower(query.Get("email")))
 	return filters, nil
 }
 
