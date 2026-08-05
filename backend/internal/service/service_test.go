@@ -17,6 +17,11 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
 
+// Helper to convert string to *string
+func ptrString(s string) *string {
+	return &s
+}
+
 type tenantRepoMock struct{ created bool }
 
 func (m *tenantRepoMock) Create(*domain.Tenant) error             { m.created = true; return nil }
@@ -202,6 +207,12 @@ type blacklistComplianceMock struct {
 }
 
 func (m *blacklistComplianceMock) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
+	return m.entry, m.blocked, m.err
+}
+func (m *blacklistComplianceMock) IsBlockedByDocument(string, string) (*domain.BlacklistEntry, bool, error) {
+	return m.entry, m.blocked, m.err
+}
+func (m *blacklistComplianceMock) IsBlockedByEmail(string, string) (*domain.BlacklistEntry, bool, error) {
 	return m.entry, m.blocked, m.err
 }
 func (m *blacklistComplianceMock) RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto) {
@@ -573,7 +584,7 @@ func TestBoletoServiceRejectInvalidTenantID(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    "not-a-uuid",
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 10000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -590,7 +601,7 @@ func TestBoletoServiceRejectInvalidCustomerID(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  "not-a-uuid",
+		CustomerID: ptrString("not-a-uuid"),
 		AmountCents: 10000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -609,7 +620,7 @@ func TestBoletoServiceRejectInvalidProviderID(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &invalidProviderID,
 		AmountCents: 10000,
 		DueDate:     validDueDate,
@@ -628,7 +639,7 @@ func TestBoletoServiceRejectZeroAmount(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 0,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -646,7 +657,7 @@ func TestBoletoServiceRejectNegativeAmount(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: -1000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -663,7 +674,7 @@ func TestBoletoServiceRejectEmptyDueDate(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 10000,
 		DueDate:     time.Time{},
 		Status:      "CREATED",
@@ -681,7 +692,7 @@ func TestBoletoServiceRejectInvalidStatus(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 10000,
 		DueDate:     validDueDate,
 		Status:      "INVALID_STATUS",
@@ -699,7 +710,7 @@ func TestBoletoServiceCreateValidWithCREATED(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 50000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -720,7 +731,7 @@ func TestBoletoServiceCreateValidWithPROCESSING(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 75000,
 		DueDate:     validDueDate,
 		Status:      "PROCESSING",
@@ -743,7 +754,7 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -786,7 +797,7 @@ func TestBoletoServiceEmitBlocksBlacklistedCustomerBeforeProvider(t *testing.T) 
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -828,7 +839,7 @@ func TestBoletoServiceEmitFailsClosedWithoutBlacklistService(t *testing.T) {
 	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 
 	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(&providerRepoMock{}).
@@ -854,7 +865,7 @@ func TestBoletoServiceEmitRejectsCustomerWithoutDocument(t *testing.T) {
 	blacklist := &blacklistComplianceMock{}
 
 	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: customer}).
 		WithProviderRepository(&providerRepoMock{}).
@@ -879,7 +890,7 @@ func TestBoletoServiceEmitStopsWhenBlacklistServiceErrors(t *testing.T) {
 	blacklistErr := errors.New("blacklist unavailable")
 
 	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(&providerRepoMock{}).
@@ -905,7 +916,7 @@ func TestBoletoServiceEmitAllowedCustomerCallsProvider(t *testing.T) {
 	spy := &providerFactorySpy{adapter: adapter}
 
 	got, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(providerRepo).
@@ -928,7 +939,7 @@ func TestBoletoServiceEmitRejectsProviderNotAllowedForTenant(t *testing.T) {
 	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 
 	_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(&providerRepoMock{
@@ -962,7 +973,7 @@ func TestBoletoServiceEmitUsesTenantProviderConfigPerTenant(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 			_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-				ID: boletoID, TenantID: tt.tenantID, CustomerID: customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+				ID: boletoID, TenantID: tt.tenantID, CustomerID: &customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 			}}).
 				WithCustomerRepository(&customerRepoMock{found: completeCustomer(tt.tenantID)}).
 				WithProviderRepository(&providerRepoMock{tenant: tenantProviderConfig(tt.tenantID, providerID, "ACTIVE", true, &tt.config)}).
@@ -997,7 +1008,7 @@ func TestBoletoServiceEmitRejectsInactiveProviderStatesBeforeFactory(t *testing.
 		t.Run(tt.name, func(t *testing.T) {
 			spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 			_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-				ID: boletoID, TenantID: tenantID, CustomerID: customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+				ID: boletoID, TenantID: tenantID, CustomerID: &customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 			}}).
 				WithCustomerRepository(&customerRepoMock{found: completeCustomer(tenantID)}).
 				WithProviderRepository(&providerRepoMock{tenant: tt.cfg, denied: tt.cfg == nil}).
@@ -1032,7 +1043,7 @@ func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1068,7 +1079,7 @@ func TestBoletoServiceEmitReturnsInvalidPayerForIncompleteCustomer(t *testing.T)
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1138,7 +1149,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1176,7 +1187,7 @@ func TestBoletoServiceCreateWithValidProvider(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     validDueDate,
@@ -1199,7 +1210,7 @@ func TestBoletoServiceTrimsExternalIDAndOurNumber(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
 		Status:      "CREATED",
@@ -1226,7 +1237,7 @@ func TestBoletoServiceEmptyExternalIDAndOurNumberBecomeNil(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
 		Status:      "CREATED",
@@ -1251,7 +1262,7 @@ func TestBoletoServicePropagatesDuplicateError(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID: &validCustomerUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
 		Status:      "CREATED",
