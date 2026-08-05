@@ -278,7 +278,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 				"latency_ms", time.Since(start).Milliseconds(),
 				"result", "blocked",
 			)
-			return nil, NewCustomerBlocked("Este destinatário está bloqueado para novas emissões.")
+			return nil, NewRecipientBlocked("Este destinatário está bloqueado para novas emissões.")
 		}
 
 		// Build minimal payer for proposal boleto

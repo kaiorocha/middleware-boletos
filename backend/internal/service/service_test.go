@@ -181,6 +181,12 @@ func (m *blacklistRepoMock) FindByDocument(string, string) (*domain.BlacklistEnt
 	}
 	return &domain.BlacklistEntry{}, m.err
 }
+func (m *blacklistRepoMock) FindByType(string, string, string) (*domain.BlacklistEntry, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.BlacklistEntry{}, m.err
+}
 func (m *blacklistRepoMock) List(string, string, *bool) ([]domain.BlacklistEntry, error) {
 	if m.found != nil {
 		return []domain.BlacklistEntry{*m.found}, m.err
@@ -193,6 +199,12 @@ func (m *blacklistRepoMock) Update(entry *domain.BlacklistEntry) error {
 }
 func (m *blacklistRepoMock) SoftDelete(string, string) error { return m.err }
 func (m *blacklistRepoMock) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
+	if m.found != nil {
+		return m.found, m.blocked, m.err
+	}
+	return nil, m.blocked, m.err
+}
+func (m *blacklistRepoMock) IsBlockedByType(string, string, string) (*domain.BlacklistEntry, bool, error) {
 	if m.found != nil {
 		return m.found, m.blocked, m.err
 	}
@@ -1292,8 +1304,8 @@ func TestBlacklistServiceCreateNormalizesDocumentAndDefaults(t *testing.T) {
 	if !repo.created {
 		t.Fatal("expected blacklist entry to be created")
 	}
-	if repo.last.Document != "12345678900" {
-		t.Fatalf("expected normalized document, got %q", repo.last.Document)
+	if repo.last.ValueNormalized != "12345678900" {
+		t.Fatalf("expected normalized value, got %q", repo.last.ValueNormalized)
 	}
 	if repo.last.Source != "MANUAL" || !repo.last.Active {
 		t.Fatalf("expected source MANUAL and active true, got %+v", repo.last)

@@ -72,6 +72,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "CUSTOMER_BLOCKED", err.Error())
 		return
 	}
+	if errors.Is(err, service.ErrRecipientBlocked) {
+		writeError(w, http.StatusConflict, "RECIPIENT_BLOCKED", err.Error())
+		return
+	}
 	if errors.Is(err, service.ErrProviderNotAllowed) {
 		writeError(w, http.StatusForbidden, "PROVIDER_NOT_ALLOWED", err.Error())
 		return

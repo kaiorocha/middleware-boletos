@@ -26,7 +26,7 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 	row := r.db.QueryRow(`SELECT id,tenant_id,customer_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE id = $1 AND deleted_at IS NULL`, id)
 	var b domain.Boleto
 	var customerID sql.NullString
-	var recipientEmail string
+	var recipientEmail sql.NullString
 	var providerID sql.NullString
 	var external sql.NullString
 	var barcode sql.NullString
@@ -40,7 +40,9 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 	if customerID.Valid {
 		b.CustomerID = &customerID.String
 	}
-	b.RecipientEmail = recipientEmail
+	if recipientEmail.Valid {
+		b.RecipientEmail = recipientEmail.String
+	}
 	if providerID.Valid {
 		v := providerID.String
 		b.ProviderID = &v
@@ -81,7 +83,7 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 	for rows.Next() {
 		var b domain.Boleto
 		var customerID sql.NullString
-		var recipientEmail string
+		var recipientEmail sql.NullString
 		var providerID sql.NullString
 		var external sql.NullString
 		var barcode sql.NullString
@@ -95,7 +97,9 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 		if customerID.Valid {
 			b.CustomerID = &customerID.String
 		}
-		b.RecipientEmail = recipientEmail
+		if recipientEmail.Valid {
+			b.RecipientEmail = recipientEmail.String
+		}
 		if providerID.Valid {
 			v := providerID.String
 			b.ProviderID = &v
@@ -129,7 +133,7 @@ func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 }
 
 func (r *BoletoRepo) Update(b *domain.Boleto) error {
-	_, err := r.db.Exec(`UPDATE boletos SET provider_id = $1, amount_cents = $2, due_date = $3, status = $4, external_id = $5, barcode = $6, digitable_line = $7, our_number = $8, issued_at = $9, updated_at = now() WHERE id = $10 AND tenant_id = $11 AND deleted_at IS NULL`, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.IssuedAt, b.ID, b.TenantID)
+	_, err := r.db.Exec(`UPDATE boletos SET provider_id = $1, amount_cents = $2, due_date = $3, status = $4, external_id = $5, barcode = $6, digitable_line = $7, our_number = $8, issued_at = $9, customer_id = $10, recipient_email = $11, updated_at = now() WHERE id = $12 AND tenant_id = $13 AND deleted_at IS NULL`, b.ProviderID, b.AmountCents, b.DueDate, b.Status, b.ExternalID, b.Barcode, b.DigitableLine, b.OurNumber, b.IssuedAt, b.CustomerID, b.RecipientEmail, b.ID, b.TenantID)
 	return translatePostgresError(err)
 }
 
@@ -233,7 +237,7 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 		var customerID sql.NullString
 		var customerName sql.NullString
 		var customerDocument sql.NullString
-		var recipientEmail string
+		var recipientEmail sql.NullString
 		var providerID sql.NullString
 		var providerName sql.NullString
 		var externalID sql.NullString
@@ -252,7 +256,9 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 		if customerDocument.Valid {
 			item.CustomerDocument = &customerDocument.String
 		}
-		item.RecipientEmail = recipientEmail
+		if recipientEmail.Valid {
+			item.RecipientEmail = recipientEmail.String
+		}
 		if providerID.Valid {
 			v := providerID.String
 			item.ProviderID = &v

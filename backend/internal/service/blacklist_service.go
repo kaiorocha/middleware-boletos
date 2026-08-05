@@ -12,10 +12,12 @@ type blacklistRepo interface {
 	Create(*domain.BlacklistEntry) error
 	FindByID(string, string) (*domain.BlacklistEntry, error)
 	FindByDocument(string, string) (*domain.BlacklistEntry, error)
+	FindByType(string, string, string) (*domain.BlacklistEntry, error)
 	List(string, string, *bool) ([]domain.BlacklistEntry, error)
 	Update(*domain.BlacklistEntry) error
 	SoftDelete(string, string) error
 	IsBlocked(string, string) (*domain.BlacklistEntry, bool, error)
+	IsBlockedByType(string, string, string) (*domain.BlacklistEntry, bool, error)
 }
 
 type auditRepo interface {
@@ -161,9 +163,7 @@ func (s *BlacklistService) IsBlockedByEmail(tenantID, email string) (*domain.Bla
 	if !IsValidEmail(email) {
 		return nil, false, ErrValidation
 	}
-	// For now, use repo.IsBlocked() with email
-	// After migration, this will query by (type='EMAIL', value_normalized=email)
-	return s.repo.IsBlocked(tenantID, email)
+	return s.repo.IsBlockedByType(tenantID, "EMAIL", email)
 }
 
 func (s *BlacklistService) RecordBlockedEmissionAttempt(tenantID string, entry *domain.BlacklistEntry, boleto *domain.Boleto) {
@@ -184,7 +184,57 @@ func normalizeBlacklistEntry(entry *domain.BlacklistEntry) error {
 	if entry == nil || !IsValidUUID(entry.TenantID) {
 		return ErrValidation
 	}
-	entry.Document = normalizeDocumentValue(entry.Document)
+
+	// Validate entry_type
+	entryType := strings.ToUpper(strings.TrimSpace(entry.EntryType))
+	if entryType == "" {
+		// Legacy support: if Document is provided, default to DOCUMENT type
+		if entry.Document != "" {
+			entryType = "DOCUMENT"
+		} else if entry.Value != "" {
+			// Try to infer from Value
+			if IsValidEmail(entry.Value) {
+				entryType = "EMAIL"
+			} else {
+				entryType = "DOCUMENT"
+			}
+		} else {
+			return ErrValidation
+		}
+	}
+
+	if entryType != "DOCUMENT" && entryType != "EMAIL" {
+		return ErrValidation
+	}
+	entry.EntryType = entryType
+
+	// Normalize based on type
+	if entryType == "DOCUMENT" {
+		doc := normalizeDocumentValue(entry.Document)
+		if entry.Value != "" && entry.Value != entry.Document {
+			// If Value is different, use it, but still normalize as document
+			doc = normalizeDocumentValue(entry.Value)
+		}
+		if doc == "" {
+			return ErrValidation
+		}
+		entry.Value = entry.Document // Keep original for display
+		if entry.Value == "" {
+			entry.Value = doc
+		}
+		entry.ValueNormalized = doc
+	} else if entryType == "EMAIL" {
+		email := NormalizeEmail(entry.Value)
+		if email == "" {
+			return ErrValidation
+		}
+		if !IsValidEmail(email) {
+			return ErrValidation
+		}
+		entry.Value = email
+		entry.ValueNormalized = email
+	}
+
 	entry.Name = strings.TrimSpace(entry.Name)
 	entry.Reason = strings.TrimSpace(entry.Reason)
 	entry.Notes = NormalizeOptionalString(entry.Notes)
@@ -192,7 +242,7 @@ func normalizeBlacklistEntry(entry *domain.BlacklistEntry) error {
 	if entry.Source == "" {
 		entry.Source = "MANUAL"
 	}
-	if !isValidBlacklistSource(entry.Source) || entry.Document == "" {
+	if !isValidBlacklistSource(entry.Source) {
 		return ErrValidation
 	}
 	if entry.CreatedBy != nil {
