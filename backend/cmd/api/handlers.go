@@ -1237,7 +1237,8 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 		switch r.Method {
 		case http.MethodPost:
 			var in struct {
-				CustomerID    string  `json:"customer_id"`
+				Email         string  `json:"email"`
+				CustomerID    *string `json:"customer_id"`
 				ProviderID    *string `json:"provider_id"`
 				AmountCents   int64   `json:"amount_cents"`
 				DueDate       string  `json:"due_date"`
@@ -1257,16 +1258,17 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 				return
 			}
 			item := domain.Boleto{
-				TenantID:      tenantID,
-				CustomerID:    in.CustomerID,
-				ProviderID:    in.ProviderID,
-				AmountCents:   in.AmountCents,
-				DueDate:       dueDate,
-				Status:        in.Status,
-				ExternalID:    in.ExternalID,
-				Barcode:       in.Barcode,
-				DigitableLine: in.DigitableLine,
-				OurNumber:     in.OurNumber,
+				TenantID:       tenantID,
+				CustomerID:     in.CustomerID,
+				RecipientEmail: in.Email,
+				ProviderID:     in.ProviderID,
+				AmountCents:    in.AmountCents,
+				DueDate:        dueDate,
+				Status:         in.Status,
+				ExternalID:     in.ExternalID,
+				Barcode:        in.Barcode,
+				DigitableLine:  in.DigitableLine,
+				OurNumber:      in.OurNumber,
 			}
 			if err := a.BoletoSvc.Create(&item); err != nil {
 				writeServiceError(w, err)

@@ -145,6 +145,27 @@ func (s *BlacklistService) IsBlocked(tenantID, document string) (*domain.Blackli
 	return s.repo.IsBlocked(tenantID, document)
 }
 
+func (s *BlacklistService) IsBlockedByDocument(tenantID, document string) (*domain.BlacklistEntry, bool, error) {
+	document = normalizeDocumentValue(document)
+	if !IsValidUUID(tenantID) || document == "" {
+		return nil, false, ErrValidation
+	}
+	return s.repo.IsBlocked(tenantID, document)
+}
+
+func (s *BlacklistService) IsBlockedByEmail(tenantID, email string) (*domain.BlacklistEntry, bool, error) {
+	email = NormalizeEmail(email)
+	if !IsValidUUID(tenantID) || email == "" {
+		return nil, false, ErrValidation
+	}
+	if !IsValidEmail(email) {
+		return nil, false, ErrValidation
+	}
+	// For now, use repo.IsBlocked() with email
+	// After migration, this will query by (type='EMAIL', value_normalized=email)
+	return s.repo.IsBlocked(tenantID, email)
+}
+
 func (s *BlacklistService) RecordBlockedEmissionAttempt(tenantID string, entry *domain.BlacklistEntry, boleto *domain.Boleto) {
 	if entry == nil || boleto == nil {
 		return
