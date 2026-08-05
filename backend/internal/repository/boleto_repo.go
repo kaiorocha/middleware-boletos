@@ -313,6 +313,11 @@ func adminBoletoWhere(filters domain.BoletoFilters) (string, []any) {
 	if filters.Document != "" {
 		add("c.document = $%d", normalizeDigits(filters.Document))
 	}
+	if filters.Email != "" {
+		email := strings.ToLower(strings.TrimSpace(filters.Email))
+		args = append(args, email, email)
+		clauses = append(clauses, fmt.Sprintf("(b.recipient_email = $%d OR c.email = $%d)", len(args)-1, len(args)))
+	}
 	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 

@@ -105,6 +105,7 @@ type BoletoFilters struct {
 	ExternalID string
 	OurNumber  string
 	Document   string
+	Email      string
 	Limit      int
 	Offset     int
 }
