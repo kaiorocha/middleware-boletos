@@ -25,6 +25,11 @@ const (
 	testUserID    = "550e8400-e29b-41d4-a716-446655449999"
 )
 
+// Helper to convert string to *string
+func ptrString(s string) *string {
+	return &s
+}
+
 func TestHealth(t *testing.T) {
 	app := &App{}
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -1011,7 +1016,7 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
 		ID:          validBoletoID,
 		TenantID:    validTenantID,
-		CustomerID:  validCustomerID,
+		CustomerID: &validCustomerID,
 		ProviderID:  &validProviderID,
 		AmountCents: 15000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1061,7 +1066,7 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
 		ID:          validBoletoID,
 		TenantID:    validTenantID,
-		CustomerID:  validCustomerID,
+		CustomerID: &validCustomerID,
 		ProviderID:  &validProviderID,
 		AmountCents: 15000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
