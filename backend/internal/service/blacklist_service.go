@@ -48,12 +48,9 @@ func (s *BlacklistService) Create(entry *domain.BlacklistEntry) error {
 	if err := s.repo.Create(entry); err != nil {
 		return err
 	}
-	s.auditCompliance(entry.TenantID, entry.CreatedBy, "CustomerBlocked", map[string]any{
-		"document": entry.Document,
-		"name":     entry.Name,
-		"reason":   entry.Reason,
-		"source":   entry.Source,
-	})
+	action := auditActionForBlock(entry.EntryType)
+	metadata := blacklistAuditMetadata(entry)
+	s.auditCompliance(entry.TenantID, entry.CreatedBy, action, metadata)
 	return nil
 }
 
@@ -109,12 +106,9 @@ func (s *BlacklistService) Block(tenantID, id string, createdBy *string) (*domai
 	if err := s.repo.Update(entry); err != nil {
 		return nil, err
 	}
-	s.auditCompliance(tenantID, createdBy, "CustomerBlocked", map[string]any{
-		"document": entry.Document,
-		"name":     entry.Name,
-		"reason":   entry.Reason,
-		"source":   entry.Source,
-	})
+	action := auditActionForBlock(entry.EntryType)
+	metadata := blacklistAuditMetadata(entry)
+	s.auditCompliance(tenantID, createdBy, action, metadata)
 	return entry, nil
 }
 
@@ -130,12 +124,9 @@ func (s *BlacklistService) Unblock(tenantID, id string, createdBy *string) (*dom
 	if err := s.repo.Update(entry); err != nil {
 		return nil, err
 	}
-	s.auditCompliance(tenantID, createdBy, "CustomerUnblocked", map[string]any{
-		"document": entry.Document,
-		"name":     entry.Name,
-		"reason":   entry.Reason,
-		"source":   entry.Source,
-	})
+	action := auditActionForUnblock(entry.EntryType)
+	metadata := blacklistAuditMetadata(entry)
+	s.auditCompliance(tenantID, createdBy, action, metadata)
 	return entry, nil
 }
 
@@ -171,12 +162,39 @@ func (s *BlacklistService) RecordBlockedEmissionAttempt(tenantID string, entry *
 		return
 	}
 	metadata := map[string]any{
-		"customer_id": boleto.CustomerID,
-		"document":    entry.Document,
+		"entry_type":  entry.EntryType,
 		"boleto_id":   boleto.ID,
 		"provider_id": boleto.ProviderID,
 		"reason":      entry.Reason,
 	}
+
+	// Add blocked_value (prefer ValueNormalized, fallback to Value, then Document)
+	blockedValue := entry.ValueNormalized
+	if blockedValue == "" {
+		blockedValue = entry.Value
+	}
+	if blockedValue == "" && entry.EntryType == "DOCUMENT" {
+		blockedValue = entry.Document
+	}
+	if blockedValue != "" {
+		metadata["blocked_value"] = blockedValue
+	}
+
+	// Add recipient_email if present (for EMAIL blocks)
+	if boleto.RecipientEmail != "" {
+		metadata["recipient_email"] = boleto.RecipientEmail
+	}
+
+	// Add customer_id if present
+	if boleto.CustomerID != nil && *boleto.CustomerID != "" {
+		metadata["customer_id"] = *boleto.CustomerID
+	}
+
+	// Add document if DOCUMENT type
+	if entry.EntryType == "DOCUMENT" && entry.Document != "" {
+		metadata["document"] = entry.Document
+	}
+
 	s.auditCompliance(tenantID, nil, "BlockedEmissionAttempt", metadata)
 }
 
@@ -271,6 +289,45 @@ func isValidBlacklistSource(source string) bool {
 	default:
 		return false
 	}
+}
+
+func auditActionForBlock(entryType string) string {
+	if strings.ToUpper(entryType) == "EMAIL" {
+		return "RecipientBlocked"
+	}
+	return "CustomerBlocked"
+}
+
+func auditActionForUnblock(entryType string) string {
+	if strings.ToUpper(entryType) == "EMAIL" {
+		return "RecipientUnblocked"
+	}
+	return "CustomerUnblocked"
+}
+
+func blacklistAuditMetadata(entry *domain.BlacklistEntry) map[string]any {
+	if entry == nil {
+		return map[string]any{}
+	}
+	metadata := map[string]any{
+		"entry_type":       entry.EntryType,
+		"value":            entry.Value,
+		"value_normalized": entry.ValueNormalized,
+		"reason":           entry.Reason,
+		"source":           entry.Source,
+	}
+
+	// Add name if present
+	if entry.Name != "" {
+		metadata["name"] = entry.Name
+	}
+
+	// For DOCUMENT type, also include document field for backward compatibility
+	if strings.ToUpper(entry.EntryType) == "DOCUMENT" && entry.Document != "" {
+		metadata["document"] = entry.Document
+	}
+
+	return metadata
 }
 
 func (s *BlacklistService) auditCompliance(tenantID string, userID *string, action string, metadata map[string]any) {
