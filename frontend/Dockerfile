@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --quiet
 COPY . .
+RUN mkdir -p public
 ENV NODE_ENV=production
 RUN npm run build
 
