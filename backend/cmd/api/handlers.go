@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"log/slog"
+
 	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
@@ -26,7 +29,12 @@ var (
 	ErrForbidden    = errors.New("forbidden")
 )
 
+type dbPinger interface {
+	PingContext(context.Context) error
+}
+
 type App struct {
+	DB            dbPinger
 	TenantSvc     *service.TenantService
 	UserSvc       *service.UserService
 	CustomerSvc   *service.CustomerService
@@ -113,6 +121,7 @@ func (a *App) tenantAuthorizer() TenantAuthorizer {
 func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", a.handleHealth)
+	mux.HandleFunc("/ready", a.handleReady)
 	mux.HandleFunc("/api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("/api/v1/tenants", a.handleTenants)
 	mux.HandleFunc("/api/v1/me/tenants", a.handleMyTenants)
@@ -125,7 +134,24 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
 	mux.HandleFunc("/api/v1/users/", a.handleUsersByID)
-	return corsMiddleware(a.authenticationMiddleware(mux), a.CORSOrigins)
+
+	// base handler with auth and CORS
+	h := corsMiddleware(a.authenticationMiddleware(mux), a.CORSOrigins)
+
+	// apply security / request protections
+	h = a.requestBodyLimitMiddleware(h)
+	h = a.securityHeadersMiddleware(h)
+
+	// request id should be available early
+	h = a.requestIDMiddleware(h)
+
+	// access log after request id
+	h = a.accessLogMiddleware(h)
+
+	// recovery outermost
+	h = a.recoveryMiddleware(h)
+
+	return h
 }
 
 func corsMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
@@ -165,6 +191,116 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (a *App) handleReady(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	if a.DB == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "service not ready")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := a.DB.PingContext(ctx); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_READY", "service not ready")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+// --- Middleware and helpers ---
+
+type ctxKey string
+
+const requestIDKey ctxKey = "request_id"
+
+func (a *App) requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rid := r.Header.Get("X-Request-ID")
+		if rid == "" {
+			rid = uuid.New().String()
+		}
+		w.Header().Set("X-Request-ID", rid)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey, rid)))
+	})
+}
+
+// responseWriter wrapper to capture status
+
+type responseWriter struct {
+	w      http.ResponseWriter
+	status int
+	size   int
+}
+
+func (rw *responseWriter) Header() http.Header {
+	return rw.w.Header()
+}
+
+func (rw *responseWriter) WriteHeader(status int) {
+	rw.status = status
+	rw.w.WriteHeader(status)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	if rw.status == 0 {
+		rw.status = http.StatusOK
+	}
+	n, err := rw.w.Write(b)
+	rw.size += n
+	return n, err
+}
+
+func (a *App) accessLogMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rw := &responseWriter{w: w}
+		next.ServeHTTP(rw, r)
+		dur := time.Since(start)
+		requestID, _ := r.Context().Value(requestIDKey).(string)
+		logger := slog.Default()
+		logger.Info("request_completed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rw.status,
+			"duration_ms", dur.Milliseconds(),
+			"request_id", requestID,
+		)
+	})
+}
+
+func (a *App) recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				requestID, _ := r.Context().Value(requestIDKey).(string)
+				logger := slog.Default()
+				logger.Error("panic_recovered", "error", rec, "request_id", requestID)
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "unexpected error")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *App) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *App) requestBodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// limit to 1MB
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (a *App) handleTenants(w http.ResponseWriter, r *http.Request) {
