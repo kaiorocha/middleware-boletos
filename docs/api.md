@@ -1,10 +1,10 @@
-# API — Etapa 3
+# API — Etapa 4
 
-Documentação das rotas REST implementadas até a **Etapa 3 — Arquitetura de provedores**.
+Documentação das rotas REST implementadas até a **Etapa 4 — Painel Administrativo e Compliance**.
 
 Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
 
-> Observação: esta etapa mantém `MockProvider` e adiciona o primeiro adapter real, `MoncalieriProvider`. A emissão usa os dados do `Customer` para montar o pagador por meio do `DefaultPayerBuilder`.
+> Observação: a Etapa 4 adiciona o painel administrativo web e o módulo de Compliance/Blacklist. A emissão continua usando `MockProvider` e `MoncalieriProvider`, mas agora consulta a blacklist antes de chamar qualquer provider.
 
 ## Base URL local
 
@@ -65,6 +65,73 @@ HTTP `409 Conflict`
 }
 ```
 
+## Compliance: blacklist por tenant
+
+Cada tenant mantém uma lista isolada de documentos bloqueados para novas emissões. O mesmo CPF/CNPJ pode estar bloqueado em um tenant e liberado em outro.
+
+Antes de chamar o provider bancário, `BoletoService.Emit` busca o customer do boleto e consulta a blacklist usando o documento normalizado. Se houver bloqueio ativo, o fluxo é interrompido antes de `PayerBuilder`, `ProviderFactory` e `IssueBoleto`.
+
+Resposta para emissão bloqueada:
+
+HTTP `409 Conflict`
+
+```json
+{
+  "error": {
+    "code": "CUSTOMER_BLOCKED",
+    "message": "Este cliente está bloqueado para novas emissões."
+  }
+}
+```
+
+Eventos de compliance são registrados em `audit_logs` para bloqueio, desbloqueio e tentativa de emissão bloqueada.
+
+## Autorização multi-tenant
+
+Todas as rotas administrativas e operacionais exigem autenticação JWT:
+
+```http
+Authorization: Bearer <JWT>
+```
+
+Exceção pública:
+
+- `GET /health`
+
+O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. A claim `roles` é usada para RBAC. Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
+
+Respostas de autorização:
+
+- HTTP `401` com `UNAUTHORIZED` quando não houver identidade autenticada.
+- HTTP `403` com `FORBIDDEN` quando o usuário não puder operar o tenant solicitado.
+
+Em desenvolvimento explícito (`APP_ENV=development`), `X-Dev-User-ID` e `X-Dev-Tenant-ID` podem ser usados para operação local controlada. Esses headers são ignorados em produção.
+
+## CORS
+
+Em desenvolvimento local, `CORS_ALLOWED_ORIGINS=*` mantém a demo em `http://localhost:3000` funcional. Em produção, `CORS_ALLOWED_ORIGINS` deve conter a lista explícita de origens permitidas, separadas por vírgula.
+
+Rotas globais:
+
+| Rota | Política |
+|---|---|
+| `GET /health` | Pública |
+| `GET /api/v1/tenants` | `PLATFORM_ADMIN` |
+| `POST /api/v1/tenants` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/tenants` | `PLATFORM_ADMIN`; cria tenant e opcionalmente `TENANT_ADMIN` |
+| `GET /api/v1/admin/dashboard` | `PLATFORM_ADMIN` |
+| `GET /api/v1/admin/transactions` | `PLATFORM_ADMIN` |
+| `GET /api/v1/admin/providers` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers` | `PLATFORM_ADMIN` |
+| `GET /api/v1/admin/providers/:id` | `PLATFORM_ADMIN` |
+| `PUT /api/v1/admin/providers/:id` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers/:id/activate` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers/:id/deactivate` | `PLATFORM_ADMIN` |
+| `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
+| `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
+| `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |
+| `/api/v1/providers/*` | JWT autenticado; quando `provider_id` é informado, `tenant_id` deve estar autorizado |
+
 ## Health Check
 
 ### GET /health
@@ -87,22 +154,65 @@ Resposta esperada:
 
 ## Tenants
 
+## Auth
+
+### POST /api/v1/auth/login
+
+Autentica usuário por e-mail e senha.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@middleware.local","password":"ChangeMe123456!"}'
+```
+
+Senha incorreta ou usuário inexistente retornam HTTP `401` com `Credenciais inválidas.`.
+
 ### POST /api/v1/tenants
 
-Cria um tenant/empresa.
+Cria um tenant/empresa. Requer role `PLATFORM_ADMIN`.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Tenant A"}'
 ```
 
 ### GET /api/v1/tenants
 
-Lista tenants cadastrados.
+Lista tenants cadastrados. Requer role `PLATFORM_ADMIN`.
 
 ```bash
-curl -s http://localhost:8080/api/v1/tenants
+curl -s http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
+### GET /api/v1/me/tenants
+
+Lista somente os tenants presentes nas claims `tenant_id`/`tenant_ids` do JWT autenticado.
+
+```bash
+curl -s http://localhost:8080/api/v1/me/tenants \
+  -H "Authorization: Bearer <token>"
+```
+
+### POST /api/v1/admin/tenants
+
+Cria um tenant e, opcionalmente, um `TENANT_ADMIN` associado exclusivamente ao tenant criado. Requer `PLATFORM_ADMIN`.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/admin/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Cliente Demonstração",
+    "admin":{
+      "name":"Administrador Cliente",
+      "email":"cliente@demo.local",
+      "password":"Cliente123456!"
+    }
+  }'
 ```
 
 ### GET /api/v1/tenants/:id
@@ -111,6 +221,118 @@ Busca um tenant por ID.
 
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>
+```
+
+## Dashboard
+
+### Semântica financeira
+
+`amount_cents`, volume financeiro, volume por tenant/provider/status e timeline financeira somam somente boletos efetivamente emitidos: `ISSUED`, `PAID`, `EXPIRED` e `CANCELLED`.
+
+`CREATED`, `PROCESSING` e `FAILED` não entram em volume emitido.
+
+Taxa de sucesso usa `(ISSUED + PAID + EXPIRED + CANCELLED) / (ISSUED + PAID + EXPIRED + CANCELLED + FAILED)`.
+
+Ticket médio usa `volume_emitido / quantidade_emitida_com_sucesso`.
+
+### GET /api/v1/admin/dashboard
+
+Retorna indicadores globais da plataforma. Requer `PLATFORM_ADMIN`.
+
+Filtros opcionais:
+
+- `from`
+- `to`
+- `tenant_id`
+- `provider_id`
+- `status`
+- `document`
+- `external_id`
+- `our_number`
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/dashboard?from=2026-07-01&to=2026-07-31" \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
+Resposta resumida:
+
+```json
+{
+  "data": {
+    "totals": {
+      "tenants": 10,
+      "boletos": 1000,
+      "amount_cents": 50000000,
+      "issued": 900,
+      "paid": 700,
+      "failed": 10,
+      "success_rate": 0.9,
+      "failure_rate": 0.01,
+      "average_ticket_cents": 50000
+    },
+    "by_tenant": [],
+    "by_provider": [],
+    "by_status": [],
+    "timeline": []
+  }
+}
+```
+
+### GET /api/v1/tenants/:tenantId/dashboard
+
+Retorna indicadores operacionais do tenant, com filtros opcionais `from` e `to` no formato `YYYY-MM-DD`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/dashboard?from=2026-07-01&to=2026-07-31"
+```
+
+Indicadores retornados em `data`:
+
+- `total_boletos`
+- `boletos_emitidos`
+- `boletos_em_processamento`
+- `boletos_pagos`
+- `boletos_vencidos`
+- `boletos_cancelados`
+- `boletos_com_falha`
+- `valor_total_emitido`
+- `taxa_sucesso`
+- `taxa_falha`
+- `ticket_medio`
+- `by_status`
+
+### GET /api/v1/admin/transactions
+
+Lista transações globais da plataforma com paginação. Requer `PLATFORM_ADMIN`.
+
+Filtros opcionais:
+
+- `from`
+- `to`
+- `tenant_id`
+- `provider_id`
+- `status`
+- `document`
+- `external_id`
+- `our_number`
+- `limit`
+- `offset`
+
+```bash
+curl -s "http://localhost:8080/api/v1/admin/transactions?status=ISSUED&limit=50&offset=0" \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
+### GET /api/v1/tenants/:tenantId/transactions
+
+Lista transações do tenant autenticado com paginação. O `tenantId` vem da rota e é validado contra o JWT.
+
+Filtros opcionais: `from`, `to`, `provider_id`, `status`, `document`, `external_id`, `our_number`, `limit` e `offset`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/transactions?document=12345678900&limit=50&offset=0" \
+  -H "Authorization: Bearer <tenant-token>"
 ```
 
 ## Users
@@ -212,15 +434,17 @@ curl -s -X PUT http://localhost:8080/api/v1/tenants/<tenantId>/customers/<custom
 
 ## Providers
 
-### POST /api/v1/tenants/:tenantId/providers
+### POST /api/v1/admin/providers
 
-Cria um provedor bancário/gateway vinculado ao tenant.
+Cria um provider no catálogo global da plataforma. Requer `PLATFORM_ADMIN`.
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+curl -s -X POST http://localhost:8080/api/v1/admin/providers \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name":"Mock",
+    "type":"BANK",
     "config":"{\"delay_ms\":0}"
   }'
 ```
@@ -228,17 +452,44 @@ curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
 Exemplo para Moncalieri Capital, sem credencial real:
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/providers \
+curl -s -X POST http://localhost:8080/api/v1/admin/providers \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name":"Moncalieri Capital",
+    "type":"BANK",
     "config":"{\"base_url\":\"https://dev.moncaliericapital.com.br\",\"api_key\":\"REPLACE_WITH_SECRET\",\"codigo_canal\":0,\"codigo_cliente\":0,\"timeout_seconds\":30,\"instrucoes\":\"Pagar ate o vencimento.\"}"
   }'
 ```
 
+### GET /api/v1/admin/providers
+
+Lista o catálogo global de providers. Requer `PLATFORM_ADMIN`.
+
+```bash
+curl -s http://localhost:8080/api/v1/admin/providers \
+  -H "Authorization: Bearer <platform-admin-token>"
+```
+
+### GET /api/v1/admin/providers/:id
+
+Busca um provider do catálogo global. `config` é mascarado quando existir.
+
+### PUT /api/v1/admin/providers/:id
+
+Atualiza nome, tipo, status, external ID, metadata e config global. Requer `PLATFORM_ADMIN`.
+
+### POST /api/v1/admin/providers/:id/activate
+
+Ativa um provider global.
+
+### POST /api/v1/admin/providers/:id/deactivate
+
+Desativa um provider global.
+
 ### GET /api/v1/tenants/:tenantId/providers
 
-Lista provedores por tenant.
+Lista providers habilitados para o tenant autenticado. Configurações sensíveis são mascaradas.
 
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers
@@ -246,7 +497,7 @@ curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers
 
 ### GET /api/v1/tenants/:tenantId/providers/:id
 
-Busca provedor por ID dentro do tenant.
+Busca provider habilitado por ID dentro do tenant.
 
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>/providers/<providerId>
@@ -353,6 +604,89 @@ Campos persistidos após emissão:
 
 Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado no customer (`document`, `name`, endereço, bairro, cidade, CEP e UF). Se faltar algum campo obrigatório, a API retorna `INVALID_PAYER`.
 
+## Compliance
+
+### POST /api/v1/tenants/:tenantId/blacklist
+
+Cria um bloqueio de documento no tenant.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/blacklist \
+  -H "Content-Type: application/json" \
+  -d '{
+    "document":"123.456.789-00",
+    "name":"Cliente Bloqueado",
+    "reason":"Solicitação do cliente",
+    "notes":"Não enviar novas cobranças.",
+    "source":"MANUAL"
+  }'
+```
+
+Campos:
+
+| Campo | Observação |
+|---|---|
+| `document` | Obrigatório; normalizado para somente números. |
+| `name` | Nome de referência. |
+| `reason` | Motivo exibido em consultas de bloqueio. |
+| `notes` | Observações internas. |
+| `source` | `MANUAL`, `API` ou `IMPORT`; assume `MANUAL` se vazio. |
+
+Duplicidade ativa de documento no mesmo tenant retorna `DUPLICATE_RESOURCE`.
+
+### GET /api/v1/tenants/:tenantId/blacklist
+
+Lista bloqueios do tenant. Aceita filtros `q` e `active`.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist?q=12345678900&active=true"
+```
+
+### GET /api/v1/tenants/:tenantId/blacklist/check?document=...
+
+Consulta otimizada para saber se um documento está bloqueado.
+
+```bash
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist/check?document=123.456.789-00"
+```
+
+Resposta quando bloqueado:
+
+```json
+{
+  "blocked": true,
+  "reason": "Solicitação do cliente"
+}
+```
+
+Resposta quando liberado:
+
+```json
+{
+  "blocked": false
+}
+```
+
+### GET /api/v1/tenants/:tenantId/blacklist/:id
+
+Busca um bloqueio por ID dentro do tenant.
+
+### PUT /api/v1/tenants/:tenantId/blacklist/:id
+
+Atualiza dados do bloqueio.
+
+### DELETE /api/v1/tenants/:tenantId/blacklist/:id
+
+Exclui logicamente o bloqueio.
+
+### POST /api/v1/tenants/:tenantId/blacklist/:id/block
+
+Reativa um bloqueio.
+
+### POST /api/v1/tenants/:tenantId/blacklist/:id/unblock
+
+Desativa um bloqueio sem excluir o registro.
+
 ## Validações implementadas
 
 - UUID válido para parâmetros e campos relacionais.
@@ -363,9 +697,9 @@ Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel`
 - Status de boleto restrito aos estados padronizados.
 - Transições de boleto validadas pela máquina de estados.
 - Customer valida email, documento, UF e CEP quando esses campos são informados.
+- Emissão bloqueada automaticamente para documentos ativos na blacklist do tenant.
 
-## Limitações conhecidas da Etapa 2
+## Limitações conhecidas
 
 - Ainda não há autenticação/autorização real.
-- Ainda não há integração bancária real.
 - Cancelamento e consulta real junto a provedores reais ficam para etapas posteriores.

@@ -20,13 +20,28 @@ type boletoRepo interface {
 	Delete(string, string) error
 }
 
+type blacklistCompliance interface {
+	IsBlocked(string, string) (*domain.BlacklistEntry, bool, error)
+	RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto)
+}
+
 type BoletoService struct {
 	repo         boletoRepo
 	customers    customerRepo
 	providers    providerRepo
+	blacklist    blacklistCompliance
 	factory      contracts.ProviderFactory
 	payerBuilder base.PayerBuilder
 	logger       *slog.Logger
+}
+
+type adminBoletoReader interface {
+	AdminDashboard(domain.BoletoFilters) (*domain.AdminDashboard, error)
+	ListTransactions(domain.BoletoFilters) (*domain.PaginatedTransactions, error)
+}
+
+type tenantProviderReader interface {
+	FindTenantProvider(string, string) (*domain.TenantProviderConfig, error)
 }
 
 func NewBoletoService(repo boletoRepo) *BoletoService {
@@ -40,6 +55,11 @@ func (s *BoletoService) WithCustomerRepository(repo customerRepo) *BoletoService
 
 func (s *BoletoService) WithProviderRepository(repo providerRepo) *BoletoService {
 	s.providers = repo
+	return s
+}
+
+func (s *BoletoService) WithBlacklistService(blacklist blacklistCompliance) *BoletoService {
+	s.blacklist = blacklist
 	return s
 }
 
@@ -103,11 +123,33 @@ func (s *BoletoService) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 	return s.repo.ListByTenant(tenantID)
 }
 
+func (s *BoletoService) AdminDashboard(filters domain.BoletoFilters) (*domain.AdminDashboard, error) {
+	if err := validateBoletoFilters(filters); err != nil {
+		return nil, err
+	}
+	reader, ok := s.repo.(adminBoletoReader)
+	if !ok {
+		return nil, ErrValidation
+	}
+	return reader.AdminDashboard(filters)
+}
+
+func (s *BoletoService) ListTransactions(filters domain.BoletoFilters) (*domain.PaginatedTransactions, error) {
+	if err := validateBoletoFilters(filters); err != nil {
+		return nil, err
+	}
+	reader, ok := s.repo.(adminBoletoReader)
+	if !ok {
+		return nil, ErrValidation
+	}
+	return reader.ListTransactions(filters)
+}
+
 func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*domain.Boleto, error) {
 	if !IsValidUUID(tenantID) || !IsValidUUID(boletoID) {
 		return nil, ErrValidation
 	}
-	if s.customers == nil || s.providers == nil || s.factory == nil || s.payerBuilder == nil {
+	if s.customers == nil || s.providers == nil || s.blacklist == nil || s.factory == nil || s.payerBuilder == nil {
 		return nil, ErrValidation
 	}
 
@@ -143,24 +185,41 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if customer.TenantID != tenantID {
 		return nil, ErrValidation
 	}
+
+	if customer.Document == nil {
+		return nil, ErrValidation
+	}
+	document := normalizeDocumentValue(*customer.Document)
+	if document == "" {
+		return nil, ErrValidation
+	}
+	entry, blocked, err := s.blacklist.IsBlocked(tenantID, document)
+	if err != nil {
+		return nil, err
+	}
+	if blocked {
+		s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+		s.logger.Info("boleto emission blocked by compliance",
+			"tenant", tenantID,
+			"request_id", requestID(ctx),
+			"boleto_id", boleto.ID,
+			"customer_id", customer.ID,
+			"latency_ms", time.Since(start).Milliseconds(),
+			"result", "blocked",
+		)
+		return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
+	}
+
 	payer, err := s.payerBuilder.Build(*customer)
 	if err != nil {
 		return nil, err
 	}
 
-	provider, err := s.providers.FindByID(*boleto.ProviderID)
+	providerConfig, err := s.providerConfigForTenant(tenantID, *boleto.ProviderID)
 	if err != nil {
 		return nil, err
 	}
-	if provider.TenantID != tenantID {
-		return nil, ErrValidation
-	}
-
-	cfg := types.ProviderConfig{ID: provider.ID, TenantID: provider.TenantID, Name: provider.Name}
-	if provider.Config != nil {
-		cfg.Config = *provider.Config
-	}
-	adapter, err := s.factory.Build(cfg)
+	adapter, err := s.factory.Build(providerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +243,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		_ = s.repo.Update(boleto)
 		s.logger.Error("boleto emission failed",
 			"tenant", tenantID,
-			"provider", provider.Name,
+			"provider", providerConfig.Name,
 			"request_id", requestID(ctx),
 			"boleto_id", boleto.ID,
 			"latency_ms", time.Since(start).Milliseconds(),
@@ -211,13 +270,69 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 
 	s.logger.Info("boleto emission completed",
 		"tenant", tenantID,
-		"provider", provider.Name,
+		"provider", providerConfig.Name,
 		"request_id", requestID(ctx),
 		"boleto_id", boleto.ID,
 		"latency_ms", time.Since(start).Milliseconds(),
 		"result", boleto.Status,
 	)
 	return boleto, nil
+}
+
+func (s *BoletoService) providerConfigForTenant(tenantID, providerID string) (types.ProviderConfig, error) {
+	cfg := types.ProviderConfig{ID: providerID, TenantID: tenantID}
+	reader, ok := s.providers.(tenantProviderReader)
+	if ok {
+		tenantProviderConfig, err := reader.FindTenantProvider(tenantID, providerID)
+		if err != nil {
+			return cfg, ErrProviderNotAllowed
+		}
+		provider := tenantProviderConfig.Provider
+		assignment := tenantProviderConfig.TenantProvider
+		if provider.Status != "ACTIVE" || assignment.DeletedAt != nil || !assignment.Active {
+			return cfg, ErrProviderNotAllowed
+		}
+		cfg.Name = provider.Name
+		if assignment.Config != nil && strings.TrimSpace(*assignment.Config) != "" {
+			cfg.Config = strings.TrimSpace(*assignment.Config)
+		} else if provider.Config != nil && strings.TrimSpace(*provider.Config) != "" {
+			cfg.Config = strings.TrimSpace(*provider.Config)
+		}
+		return cfg, nil
+	}
+
+	provider, err := s.providers.FindByID(providerID)
+	if err != nil {
+		return cfg, err
+	}
+	if provider.Status != "ACTIVE" {
+		return cfg, ErrProviderNotAllowed
+	}
+	allowed, err := s.providers.IsAllowedForTenant(tenantID, providerID)
+	if err != nil {
+		return cfg, err
+	}
+	if !allowed {
+		return cfg, ErrProviderNotAllowed
+	}
+	cfg.Name = provider.Name
+	if provider.Config != nil {
+		cfg.Config = strings.TrimSpace(*provider.Config)
+	}
+	return cfg, nil
+}
+
+func validateBoletoFilters(filters domain.BoletoFilters) error {
+	if filters.TenantID != "" && !IsValidUUID(filters.TenantID) {
+		return ErrValidation
+	}
+	if filters.ProviderID != "" && !IsValidUUID(filters.ProviderID) {
+		return ErrValidation
+	}
+	if filters.From != nil && filters.To != nil && filters.From.After(*filters.To) {
+		return ErrValidation
+	}
+	return nil
 }
 
 func NormalizeDueDate(dateOnly string) (time.Time, error) {

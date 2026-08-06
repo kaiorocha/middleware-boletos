@@ -30,8 +30,13 @@ func (r *TenantRepo) FindByID(id string) (*domain.Tenant, error) {
 	if err := row.Scan(&t.ID, &t.Name, &ownerID, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
 		return nil, err
 	}
-	if ownerID.Valid { v := ownerID.String; t.OwnerID = &v }
-	if deleted != nil { t.DeletedAt = deleted }
+	if ownerID.Valid {
+		v := ownerID.String
+		t.OwnerID = &v
+	}
+	if deleted != nil {
+		t.DeletedAt = deleted
+	}
 	return &t, nil
 }
 
@@ -49,8 +54,13 @@ func (r *TenantRepo) List() ([]domain.Tenant, error) {
 		if err := rows.Scan(&t.ID, &t.Name, &ownerID, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
 			return nil, err
 		}
-		if ownerID.Valid { v := ownerID.String; t.OwnerID = &v }
-		if deleted != nil { t.DeletedAt = deleted }
+		if ownerID.Valid {
+			v := ownerID.String
+			t.OwnerID = &v
+		}
+		if deleted != nil {
+			t.DeletedAt = deleted
+		}
 		out = append(out, t)
 	}
 	return out, nil

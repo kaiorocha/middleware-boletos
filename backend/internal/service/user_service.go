@@ -9,9 +9,15 @@ import (
 type userRepo interface {
 	Create(*domain.User) error
 	FindByID(string) (*domain.User, error)
+	FindByEmail(string) (*domain.User, error)
+	HasRole(string) (bool, error)
 	ListByTenant(string) ([]domain.User, error)
 	Update(*domain.User) error
 	Delete(string, string) error
+}
+
+func (s *UserService) HasRole(role string) (bool, error) {
+	return s.repo.HasRole(role)
 }
 
 type UserService struct {
@@ -24,7 +30,7 @@ func NewUserService(repo userRepo) *UserService {
 
 func (s *UserService) Create(u *domain.User) error {
 	u.Email = NormalizeEmail(u.Email)
-	if !IsValidUUID(u.TenantID) {
+	if u.TenantID != "" && !IsValidUUID(u.TenantID) {
 		return ErrValidation
 	}
 	if !IsValidEmail(u.Email) {
@@ -34,6 +40,14 @@ func (s *UserService) Create(u *domain.User) error {
 		u.Status = "ACTIVE"
 	}
 	return s.repo.Create(u)
+}
+
+func (s *UserService) GetByEmail(email string) (*domain.User, error) {
+	email = NormalizeEmail(email)
+	if !IsValidEmail(email) {
+		return nil, ErrValidation
+	}
+	return s.repo.FindByEmail(email)
 }
 
 func (s *UserService) Get(id string) (*domain.User, error) {

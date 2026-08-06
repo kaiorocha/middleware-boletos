@@ -39,3 +39,10 @@ func (s *TenantService) Get(id string) (*domain.Tenant, error) {
 func (s *TenantService) List() ([]domain.Tenant, error) {
 	return s.repo.List()
 }
+
+func (s *TenantService) Delete(id string) error {
+	if !IsValidUUID(id) {
+		return ErrValidation
+	}
+	return s.repo.Delete(id)
+}

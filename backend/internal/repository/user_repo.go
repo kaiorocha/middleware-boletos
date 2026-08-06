@@ -2,9 +2,11 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
+	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 )
 
@@ -19,21 +21,63 @@ func (r *UserRepo) Create(u *domain.User) error {
 	if u.Status == "" {
 		u.Status = "ACTIVE"
 	}
-	_, err := r.db.Exec(`INSERT INTO users (id,tenant_id,email,name,status,external_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())`, u.ID, u.TenantID, u.Email, u.Name, u.Status, u.ExternalID)
+	roles, err := json.Marshal(authn.NormalizeRoles(u.Roles))
+	if err != nil {
+		return err
+	}
+	var tenantID any
+	if u.TenantID != "" {
+		tenantID = u.TenantID
+	}
+	_, err = r.db.Exec(`INSERT INTO users (id,tenant_id,email,name,status,external_id,password_hash,roles,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,now(),now())`, u.ID, tenantID, u.Email, u.Name, u.Status, u.ExternalID, u.PasswordHash, string(roles))
 	return translatePostgresError(err)
 }
 
 func (r *UserRepo) FindByID(id string) (*domain.User, error) {
-	row := r.db.QueryRow(`SELECT id,tenant_id,email,name,status,external_id,created_at,updated_at,deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`, id)
+	row := r.db.QueryRow(`SELECT id,tenant_id,email,name,status,external_id,password_hash,roles,created_at,updated_at,deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`, id)
+	return scanUser(row)
+}
+
+func (r *UserRepo) FindByEmail(email string) (*domain.User, error) {
+	row := r.db.QueryRow(`SELECT id,tenant_id,email,name,status,external_id,password_hash,roles,created_at,updated_at,deleted_at FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL ORDER BY tenant_id NULLS FIRST, created_at ASC LIMIT 1`, email)
+	return scanUser(row)
+}
+
+func (r *UserRepo) HasRole(role string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(`SELECT EXISTS (
+		SELECT 1 FROM users
+		WHERE deleted_at IS NULL
+		  AND roles ? $1
+	)`, authn.NormalizeRole(role)).Scan(&exists)
+	return exists, err
+}
+
+func scanUser(scanner interface {
+	Scan(dest ...any) error
+}) (*domain.User, error) {
 	var u domain.User
+	var tenantID sql.NullString
 	var externalID sql.NullString
+	var passwordHash sql.NullString
+	var rolesRaw []byte
 	var deleted *time.Time
-	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Status, &externalID, &u.CreatedAt, &u.UpdatedAt, &deleted); err != nil {
+	if err := scanner.Scan(&u.ID, &tenantID, &u.Email, &u.Name, &u.Status, &externalID, &passwordHash, &rolesRaw, &u.CreatedAt, &u.UpdatedAt, &deleted); err != nil {
 		return nil, err
+	}
+	if tenantID.Valid {
+		u.TenantID = tenantID.String
 	}
 	if externalID.Valid {
 		v := externalID.String
 		u.ExternalID = &v
+	}
+	if passwordHash.Valid {
+		u.PasswordHash = passwordHash.String
+	}
+	if len(rolesRaw) > 0 {
+		_ = json.Unmarshal(rolesRaw, &u.Roles)
+		u.Roles = authn.NormalizeRoles(u.Roles)
 	}
 	if deleted != nil {
 		u.DeletedAt = deleted
@@ -42,7 +86,7 @@ func (r *UserRepo) FindByID(id string) (*domain.User, error) {
 }
 
 func (r *UserRepo) ListByTenant(tenantID string) ([]domain.User, error) {
-	rows, err := r.db.Query(`SELECT id,tenant_id,email,name,status,external_id,created_at,updated_at,deleted_at FROM users WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
+	rows, err := r.db.Query(`SELECT id,tenant_id,email,name,status,external_id,password_hash,roles,created_at,updated_at,deleted_at FROM users WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,20 +94,11 @@ func (r *UserRepo) ListByTenant(tenantID string) ([]domain.User, error) {
 
 	var out []domain.User
 	for rows.Next() {
-		var u domain.User
-		var externalID sql.NullString
-		var deleted *time.Time
-		if err := rows.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Status, &externalID, &u.CreatedAt, &u.UpdatedAt, &deleted); err != nil {
+		u, err := scanUser(rows)
+		if err != nil {
 			return nil, err
 		}
-		if externalID.Valid {
-			v := externalID.String
-			u.ExternalID = &v
-		}
-		if deleted != nil {
-			u.DeletedAt = deleted
-		}
-		out = append(out, u)
+		out = append(out, *u)
 	}
 	return out, nil
 }

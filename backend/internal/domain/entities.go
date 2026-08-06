@@ -14,15 +14,17 @@ type Tenant struct {
 
 // User represents a system user
 type User struct {
-	ID         string     `json:"id"`
-	TenantID   string     `json:"tenant_id"`
-	Email      string     `json:"email"`
-	Name       string     `json:"name"`
-	Status     string     `json:"status"`
-	ExternalID *string    `json:"external_id,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
+	ID           string     `json:"id"`
+	TenantID     string     `json:"tenant_id,omitempty"`
+	Email        string     `json:"email"`
+	Name         string     `json:"name"`
+	Status       string     `json:"status"`
+	Roles        []string   `json:"roles,omitempty"`
+	ExternalID   *string    `json:"external_id,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+	PasswordHash string     `json:"-"`
 }
 
 // Customer represents a customer (cedente/beneficiário)
@@ -49,10 +51,24 @@ type Customer struct {
 // Provider represents a banking provider/integration partner
 type Provider struct {
 	ID         string     `json:"id"`
-	TenantID   string     `json:"tenant_id"`
+	TenantID   string     `json:"tenant_id,omitempty"`
 	Name       string     `json:"name"`
+	Type       string     `json:"type,omitempty"`
 	Status     string     `json:"status"`
 	ExternalID *string    `json:"external_id,omitempty"`
+	Config     *string    `json:"config,omitempty"`
+	Metadata   *string    `json:"metadata,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
+}
+
+// TenantProvider enables a provider catalog entry for a tenant.
+type TenantProvider struct {
+	ID         string     `json:"id"`
+	TenantID   string     `json:"tenant_id"`
+	ProviderID string     `json:"provider_id"`
+	Active     bool       `json:"active"`
 	Config     *string    `json:"config,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
@@ -78,6 +94,107 @@ type Boleto struct {
 	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
 }
 
+// BoletoFilters scopes dashboard and transaction queries.
+type BoletoFilters struct {
+	From       *time.Time
+	To         *time.Time
+	TenantID   string
+	ProviderID string
+	Status     string
+	ExternalID string
+	OurNumber  string
+	Document   string
+	Limit      int
+	Offset     int
+}
+
+// AdminDashboard aggregates boleto operations across tenants.
+type AdminDashboard struct {
+	Totals     AdminDashboardTotals `json:"totals"`
+	ByTenant   []MetricRow          `json:"by_tenant"`
+	ByProvider []MetricRow          `json:"by_provider"`
+	ByStatus   []MetricRow          `json:"by_status"`
+	Timeline   []TimelineRow        `json:"timeline"`
+}
+
+type AdminDashboardTotals struct {
+	Tenants            int     `json:"tenants"`
+	Boletos            int     `json:"boletos"`
+	AmountCents        int64   `json:"amount_cents"`
+	Issued             int     `json:"issued"`
+	Paid               int     `json:"paid"`
+	Failed             int     `json:"failed"`
+	Created            int     `json:"created"`
+	Processing         int     `json:"processing"`
+	Expired            int     `json:"expired"`
+	Cancelled          int     `json:"cancelled"`
+	SuccessRate        float64 `json:"success_rate"`
+	FailureRate        float64 `json:"failure_rate"`
+	AverageTicketCents int64   `json:"average_ticket_cents"`
+}
+
+type MetricRow struct {
+	ID          string `json:"id,omitempty"`
+	Label       string `json:"label"`
+	Count       int    `json:"count"`
+	AmountCents int64  `json:"amount_cents"`
+}
+
+type TimelineRow struct {
+	Date        string `json:"date"`
+	Count       int    `json:"count"`
+	AmountCents int64  `json:"amount_cents"`
+}
+
+type BoletoTransaction struct {
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id"`
+	TenantName       string     `json:"tenant_name"`
+	CustomerID       string     `json:"customer_id"`
+	CustomerName     string     `json:"customer_name"`
+	CustomerDocument string     `json:"customer_document,omitempty"`
+	ProviderID       *string    `json:"provider_id,omitempty"`
+	ProviderName     *string    `json:"provider_name,omitempty"`
+	AmountCents      int64      `json:"amount_cents"`
+	DueDate          time.Time  `json:"due_date"`
+	Status           string     `json:"status"`
+	ExternalID       *string    `json:"external_id,omitempty"`
+	OurNumber        *string    `json:"our_number,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	IssuedAt         *time.Time `json:"issued_at,omitempty"`
+	DigitableLine    *string    `json:"digitable_line,omitempty"`
+}
+
+type PaginatedTransactions struct {
+	Items  []BoletoTransaction `json:"items"`
+	Limit  int                 `json:"limit"`
+	Offset int                 `json:"offset"`
+	Total  int                 `json:"total"`
+}
+
+type TenantProviderConfig struct {
+	Provider       Provider       `json:"provider"`
+	TenantProvider TenantProvider `json:"tenant_provider"`
+}
+
+type OnboardingProviderInput struct {
+	ProviderID string  `json:"provider_id"`
+	Active     bool    `json:"active"`
+	Config     *string `json:"config,omitempty"`
+}
+
+type OnboardingInput struct {
+	Tenant    Tenant                    `json:"tenant"`
+	Admin     *User                     `json:"admin,omitempty"`
+	Providers []OnboardingProviderInput `json:"providers,omitempty"`
+}
+
+type OnboardingResult struct {
+	Tenant    Tenant           `json:"tenant"`
+	Admin     *User            `json:"admin,omitempty"`
+	Providers []TenantProvider `json:"providers"`
+}
+
 // WebhookEvent represents events received from providers or emitted to clients
 type WebhookEvent struct {
 	ID        string    `json:"id"`
@@ -95,4 +212,20 @@ type AuditLog struct {
 	Action    string    `json:"action"`
 	Metadata  *string   `json:"metadata,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// BlacklistEntry blocks boleto emissions for a tenant/document pair.
+type BlacklistEntry struct {
+	ID        string     `json:"id"`
+	TenantID  string     `json:"tenant_id"`
+	Document  string     `json:"document"`
+	Name      string     `json:"name"`
+	Reason    string     `json:"reason"`
+	Notes     *string    `json:"notes,omitempty"`
+	Source    string     `json:"source"`
+	CreatedBy *string    `json:"created_by,omitempty"`
+	Active    bool       `json:"active"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }

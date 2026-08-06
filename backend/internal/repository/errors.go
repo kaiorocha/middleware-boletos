@@ -28,6 +28,8 @@ func translatePostgresError(err error) error {
 		return service.NewDuplicateResource("Já existe um boleto com este external_id neste tenant.")
 	case "idx_boletos_tenant_our_number_unique":
 		return service.NewDuplicateResource("Já existe um boleto com este nosso número neste tenant.")
+	case "idx_blacklist_tenant_document_active_unique":
+		return service.NewDuplicateResource("Este documento já está bloqueado neste tenant.")
 	default:
 		return service.NewDuplicateResource("Já existe um recurso com estes dados neste tenant.")
 	}

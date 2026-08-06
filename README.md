@@ -1,7 +1,7 @@
 # middleware-boletos
 
 Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
-**Status atual:** Etapa 3 (Arquitetura de provedores) implementada com mock provider, primeiro adapter real Moncalieri Capital, factory, máquina de estados, emissão simulada, webhooks preparados e health/balance por provider.
+**Status atual:** Etapa 4 (Painel Administrativo e Compliance) implementada com separação entre gestão global da plataforma, portal operacional do tenant e APIs de integração.
 
 ## Stack
 
@@ -21,7 +21,7 @@ Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.
 - `backend/internal/repository`: acesso a dados
 - `backend/internal/service`: regras de negócio e validações
 - `backend/internal/providers`: contratos, factory, adapters, tipos, eventos e validações de integração bancária
-- `frontend`: aplicação web inicial
+- `frontend`: painel administrativo web em Next.js
 
 ## Rodar localmente
 
@@ -45,17 +45,38 @@ curl -s http://localhost:8080/health
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Tenant Demo"}'
 ```
 
 ## Postman Collection
 
-A collection Postman da Etapa 3 está disponível em:
+A collection Postman da Etapa 4 está disponível em:
 
-`docs/postman/middleware-boletos-etapa-3.postman_collection.json`
+`docs/postman/middleware-boletos-etapa-4.postman_collection.json`
 
-Ela pode ser importada no Postman para validar criação de recursos, emissão simulada, health, balance, webhook com `MockProvider` e configuração/health do provider Moncalieri sem credencial real.
+Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de bloqueio e emissão bloqueada por compliance.
+
+## Demo SaaS
+
+O fluxo demonstrável da Etapa 4 está documentado em `docs/demo.md`.
+
+Documentação complementar:
+
+- `docs/roles-and-permissions.md`
+- `docs/provider-management.md`
+
+Credenciais locais de desenvolvimento, quando `.env.example` é usado:
+
+- Platform Admin: `admin@middleware.local`
+- Senha: `ChangeMe123456!`
+
+Após login, o `PLATFORM_ADMIN` cria tenants e administradores de tenant pelo painel. O `TENANT_ADMIN` acessa somente os tenants presentes no JWT, sem digitar UUID manualmente.
+
+Em production, o login inicia com campos vazios. `NEXT_PUBLIC_DEMO_ADMIN_EMAIL` e `NEXT_PUBLIC_DEMO_ADMIN_PASSWORD` são variáveis públicas apenas para desenvolvimento/demo local e nunca devem carregar senha real.
+
+Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=development`. Em `APP_ENV=production`, exige `ENABLE_ADMIN_BOOTSTRAP=true`; depois da primeira criação, volte para `false` e remova `BOOTSTRAP_ADMIN_PASSWORD`.
 
 ## Rotas disponíveis
 
@@ -66,6 +87,19 @@ Ela pode ser importada no Postman para validar criação de recursos, emissão s
 - `POST /api/v1/tenants`
 - `GET /api/v1/tenants`
 - `GET /api/v1/tenants/:id`
+- `GET /api/v1/me/tenants`
+- `POST /api/v1/admin/tenants`
+
+### Admin
+- `GET /api/v1/admin/dashboard`
+- `GET /api/v1/admin/transactions`
+- `GET /api/v1/admin/providers`
+- `POST /api/v1/admin/providers`
+- `GET /api/v1/admin/providers/:id`
+- `PUT /api/v1/admin/providers/:id`
+- `POST /api/v1/admin/providers/:id/activate`
+- `POST /api/v1/admin/providers/:id/deactivate`
+- `GET /api/v1/admin/transactions`
 
 ### Users
 - `POST /api/v1/users`
@@ -79,7 +113,6 @@ Ela pode ser importada no Postman para validar criação de recursos, emissão s
 - `PUT /api/v1/tenants/:tenantId/customers/:id`
 
 ### Providers
-- `POST /api/v1/tenants/:tenantId/providers`
 - `GET /api/v1/tenants/:tenantId/providers`
 - `GET /api/v1/tenants/:tenantId/providers/:id`
 - `GET /api/v1/providers/health`
@@ -91,6 +124,21 @@ Ela pode ser importada no Postman para validar criação de recursos, emissão s
 - `GET /api/v1/tenants/:tenantId/boletos`
 - `GET /api/v1/tenants/:tenantId/boletos/:id`
 - `POST /api/v1/tenants/:tenantId/boletos/:id/emit`
+- `GET /api/v1/tenants/:tenantId/transactions`
+
+### Dashboard
+- `GET /api/v1/admin/dashboard`
+- `GET /api/v1/tenants/:tenantId/dashboard`
+
+### Compliance
+- `POST /api/v1/tenants/:tenantId/blacklist`
+- `GET /api/v1/tenants/:tenantId/blacklist`
+- `GET /api/v1/tenants/:tenantId/blacklist/check?document=...`
+- `GET /api/v1/tenants/:tenantId/blacklist/:id`
+- `PUT /api/v1/tenants/:tenantId/blacklist/:id`
+- `DELETE /api/v1/tenants/:tenantId/blacklist/:id`
+- `POST /api/v1/tenants/:tenantId/blacklist/:id/block`
+- `POST /api/v1/tenants/:tenantId/blacklist/:id/unblock`
 
 ## Padrão de resposta
 
@@ -130,11 +178,43 @@ A API bloqueia duplicidade apenas dentro do mesmo tenant, mantendo isolamento mu
 
 Violação de unicidade retorna HTTP `409 Conflict` com `error.code = "DUPLICATE_RESOURCE"`.
 
+## Compliance: blacklist de emissão
+
+Cada tenant possui sua própria lista de CPF/CNPJ bloqueados. Antes de chamar qualquer provider bancário, o `BoletoService.Emit` consulta a blacklist usando o documento do customer.
+
+Se o documento estiver bloqueado, a API interrompe a emissão e retorna HTTP `409 Conflict`:
+
+```json
+{
+  "error": {
+    "code": "CUSTOMER_BLOCKED",
+    "message": "Este cliente está bloqueado para novas emissões."
+  }
+}
+```
+
+O bloqueio é aplicado no backend, no fluxo central de emissão, para evitar bypass por painel, API externa ou integrações futuras.
+
+## Autorização multi-tenant
+
+Rotas administrativas e operacionais exigem `Authorization: Bearer <JWT>`. A exceção pública é `GET /health`.
+
+O JWT deve conter `sub`, `tenant_id` ou `tenant_ids`, e pode conter `roles`. Rotas tenant-scoped validam o tenant da URL contra os tenants presentes na identidade autenticada. Sem token ou com token inválido, a API retorna HTTP `401` com `UNAUTHORIZED`. Se o usuário autenticado não tiver acesso ao tenant da URL, retorna HTTP `403` com `FORBIDDEN`.
+
+Headers arbitrários como `X-User-ID`, `X-Tenant-ID` e `X-Tenant-IDs` não autenticam usuários em produção. Em desenvolvimento local, somente com `APP_ENV=development`, é possível usar `X-Dev-User-ID` e `X-Dev-Tenant-ID`.
+
+`GET /api/v1/tenants` e `POST /api/v1/tenants` exigem role `PLATFORM_ADMIN`. Usuários comuns obtêm seus tenants por `GET /api/v1/me/tenants` ou diretamente da sessão/JWT.
+
+Em produção, `JWT_SECRET`, `JWT_ISSUER` e `JWT_AUDIENCE` são obrigatórios; `JWT_SECRET` deve ter pelo menos 32 caracteres. Configuração inválida encerra o startup com `auth config invalid`.
+
+Detalhes: `docs/authentication.md`.
+
 ## Exemplos de request
 
 ### Criar Tenant
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Tenant A"}'
 ```
