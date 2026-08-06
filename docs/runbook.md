@@ -18,8 +18,8 @@ Provider unavailable
 - Provider outages do not affect /ready. Providers are external and logged separately; follow provider runbook.
 
 Migration failure
-- Migrations run during storage.Connect (deploy should run migrations before traffic).
-- If migrations fail, startup fails and deployment should be rolled back.
+- Migrations are NOT executed during storage.Connect. They must be run explicitly using the `migrate` command before routing traffic to a new release.
+- If migrations fail when running `migrate`, do not deploy the new image; investigate and rollback as needed.
 
 Rollback
 - Use previous image to rollback.

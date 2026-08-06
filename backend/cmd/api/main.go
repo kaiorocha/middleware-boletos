@@ -21,10 +21,42 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := slog.Default()
+	// starting - do not include secrets
+	logger.Info("application_starting", "env", cfg.Env, "addr", ":"+cfg.Port)
+
+	// minimal command parsing: `migrate`
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "migrate":
+			// migrations require DB only
+			if strings.TrimSpace(cfg.DatabaseURL) == "" {
+				logger.Error("migrate_failed", "error", "DATABASE_URL is required")
+				os.Exit(1)
+			}
+			db, err := storage.Connect(cfg)
+			if err != nil {
+				logger.Error("db_connect_error", "error", err)
+				os.Exit(1)
+			}
+			defer db.Close()
+			if err := storage.RunMigrations(db); err != nil {
+				logger.Error("migrate_failed", "error", err)
+				os.Exit(1)
+			}
+			logger.Info("migrate_completed")
+			os.Exit(0)
+		default:
+			logger.Error("unknown_command", "cmd", os.Args[1])
+			os.Exit(2)
+		}
+	}
+
+	// normal startup - full validation
 	if err := config.ValidateAuthConfig(cfg); err != nil {
 		logger.Error("auth_config_invalid", "error", err)
 		os.Exit(1)
 	}
+
 	var jwtValidator authn.TokenValidator
 	var jwtIssuer authn.TokenIssuer
 	if strings.TrimSpace(cfg.JWTSecret) != "" {
@@ -40,6 +72,7 @@ func main() {
 		jwtValidator = validator
 		jwtIssuer = validator
 	}
+
 	db, err := storage.Connect(cfg)
 	if err != nil {
 		logger.Error("db_connect_error", "error", err)
@@ -104,8 +137,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	logger.Info("application_starting", "addr", srv.Addr)
-
 	// start server in background
 	done := make(chan struct{})
 	go func() {
@@ -115,6 +146,9 @@ func main() {
 		}
 		close(done)
 	}()
+
+	// application started - best-effort approximation after ListenAndServe goroutine launched
+	logger.Info("application_started", "env", cfg.Env, "addr", srv.Addr)
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)

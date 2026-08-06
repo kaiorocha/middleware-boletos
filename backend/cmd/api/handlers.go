@@ -219,8 +219,15 @@ const requestIDKey ctxKey = "request_id"
 
 func (a *App) requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rid := r.Header.Get("X-Request-ID")
-		if rid == "" {
+		rid := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+		valid := false
+		if rid != "" && len(rid) <= 128 {
+			// accept only UUID values
+			if _, err := uuid.Parse(rid); err == nil {
+				valid = true
+			}
+		}
+		if !valid {
 			rid = uuid.New().String()
 		}
 		w.Header().Set("X-Request-ID", rid)

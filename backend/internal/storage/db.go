@@ -43,8 +43,7 @@ func Connect(cfg *config.Config) (*sql.DB, error) {
 	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
-	if err := runVersionedMigrations(db); err != nil {
-		return nil, fmt.Errorf("migrations: %w", err)
-	}
+	// NOTE: migrations are executed explicitly via storage.RunMigrations(db).
+	// Connect only opens the connection and validates it.
 	return db, nil
 }
