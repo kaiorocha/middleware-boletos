@@ -5,6 +5,8 @@ import "testing"
 func TestValidateAuthConfig(t *testing.T) {
 	valid := &Config{
 		Env:                "production",
+		DatabaseURL:        "postgres://user:pass@host:5432/db?sslmode=disable",
+		Port:               "8080",
 		JWTSecret:          "01234567890123456789012345678901",
 		JWTIssuer:          "middleware-boletos",
 		JWTAudience:        "middleware-boletos-api",
@@ -16,11 +18,12 @@ func TestValidateAuthConfig(t *testing.T) {
 		cfg  *Config
 		want bool
 	}{
-		{name: "production without JWT_SECRET", cfg: &Config{Env: "production", JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience}, want: true},
-		{name: "production with short secret", cfg: &Config{Env: "production", JWTSecret: "short", JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience}, want: true},
-		{name: "production without JWT_ISSUER", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTAudience: valid.JWTAudience}, want: true},
-		{name: "production without JWT_AUDIENCE", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer}, want: true},
-		{name: "production without CORS_ALLOWED_ORIGINS", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience}, want: true},
+		{name: "production without DATABASE_URL", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience, CORSAllowedOrigins: valid.CORSAllowedOrigins}, want: true},
+		{name: "production without JWT_SECRET", cfg: &Config{Env: "production", JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience, DatabaseURL: valid.DatabaseURL, Port: valid.Port}, want: true},
+		{name: "production with short secret", cfg: &Config{Env: "production", JWTSecret: "short", JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience, DatabaseURL: valid.DatabaseURL, Port: valid.Port}, want: true},
+		{name: "production without JWT_ISSUER", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTAudience: valid.JWTAudience, DatabaseURL: valid.DatabaseURL, Port: valid.Port}, want: true},
+		{name: "production without JWT_AUDIENCE", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer, DatabaseURL: valid.DatabaseURL, Port: valid.Port}, want: true},
+		{name: "production without CORS_ALLOWED_ORIGINS", cfg: &Config{Env: "production", JWTSecret: valid.JWTSecret, JWTIssuer: valid.JWTIssuer, JWTAudience: valid.JWTAudience, DatabaseURL: valid.DatabaseURL, Port: valid.Port}, want: true},
 		{name: "production complete", cfg: valid, want: false},
 		{name: "development without JWT", cfg: &Config{Env: "development"}, want: false},
 	}

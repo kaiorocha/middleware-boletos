@@ -1,9 +1,14 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/config"
@@ -15,8 +20,10 @@ import (
 
 func main() {
 	cfg := config.Load()
+	logger := slog.Default()
 	if err := config.ValidateAuthConfig(cfg); err != nil {
-		log.Fatalf("auth config invalid: %v", err)
+		logger.Error("auth_config_invalid", "error", err)
+		os.Exit(1)
 	}
 	var jwtValidator authn.TokenValidator
 	var jwtIssuer authn.TokenIssuer
@@ -27,14 +34,16 @@ func main() {
 			Audience: cfg.JWTAudience,
 		})
 		if err != nil {
-			log.Fatalf("auth config invalid: %v", err)
+			logger.Error("auth_config_invalid", "error", err)
+			os.Exit(1)
 		}
 		jwtValidator = validator
 		jwtIssuer = validator
 	}
 	db, err := storage.Connect(cfg)
 	if err != nil {
-		log.Fatalf("db connect: %v", err)
+		logger.Error("db_connect_error", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -63,10 +72,12 @@ func main() {
 		WithProviderFactory(providerFactory)
 
 	if err := bootstrapPlatformAdmin(cfg, userSvc); err != nil {
-		log.Fatalf("bootstrap platform admin: %v", err)
+		logger.Error("bootstrap_platform_admin_failed", "error", err)
+		os.Exit(1)
 	}
 
 	app := &App{
+		DB:            db,
 		TenantSvc:     tenantSvc,
 		UserSvc:       userSvc,
 		CustomerSvc:   customerSvc,
@@ -82,8 +93,45 @@ func main() {
 	}
 
 	h := app.routes()
-	log.Printf("starting server on :%s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, h); err != nil {
-		log.Fatalf("server failed: %v", err)
+
+	// configured HTTP server with timeouts
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
+
+	logger.Info("application_starting", "addr", srv.Addr)
+
+	// start server in background
+	done := make(chan struct{})
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("server_failed", "error", err)
+			os.Exit(1)
+		}
+		close(done)
+	}()
+
+	// graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	logger.Info("application_shutdown_started", "signal", sig.String())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("server_shutdown_error", "error", err)
+	}
+	if db != nil {
+		if err := db.Close(); err != nil {
+			logger.Error("db_close_error", "error", err)
+		}
+	}
+	logger.Info("application_shutdown_completed")
+	<-done
 }
