@@ -2,94 +2,115 @@
 
 Esta pasta contém as collections Postman do projeto `middleware-boletos`.
 
+## Collection Recomendada
+
+Use a collection da Etapa 5:
+
+```text
+docs/postman/middleware-boletos-etapa-5.postman_collection.json
+```
+
+Ela valida o fluxo atual de boleto proposta, Compliance por email, Production Readiness e integração com providers.
+
+As collections das etapas 2, 3 e 4 permanecem nesta pasta como histórico.
+
 ## Como importar
 
 1. Abra o Postman.
 2. Clique em **Import**.
-3. Selecione o arquivo `docs/postman/middleware-boletos-etapa-4.postman_collection.json`.
-4. Confirme a importação da collection `middleware-boletos - Etapa 4`.
+3. Selecione `docs/postman/middleware-boletos-etapa-5.postman_collection.json`.
+4. Confirme a importação da collection `middleware-boletos - Etapa 5`.
 
 ## Como rodar o backend localmente
 
-Na raiz do projeto, execute:
+Na raiz do projeto:
 
 ```bash
+cp .env.example .env
+docker-compose up -d postgres redis
+docker-compose run --rm backend migrate
 docker-compose up --build
 ```
 
-O backend ficará disponível em:
+O backend fica disponível em:
 
 ```text
 http://localhost:8080
 ```
 
-## Ordem recomendada de execução
+## Variáveis
 
-1. Login Platform Admin
-2. Create Tenant With Tenant Admin - 201
-3. Login Tenant Admin
-4. Create Customer
-5. Create Mock Provider
-4. Create Moncalieri Provider
-5. Create Boleto
-6. Create Moncalieri Boleto
-7. Emit Boleto
-8. Emit Moncalieri Boleto
-9. Provider Health
-10. Moncalieri Provider Health
-11. Provider Balance
-12. Provider Webhook
-13. Invalid Webhook - 400
-14. Duplicate Mock Provider - 409
-15. Dashboard Summary
-16. Create Blacklist Entry
-17. Check Blacklist Blocked
-18. Create Blocked Boleto
-19. Emit Blocked Boleto - 409
-20. Create Boleto With External ID - 201
-21. Duplicate External ID - 409
-22. Create Boleto With Our Number - 201
-23. Duplicate Our Number - 409
-24. GET Tenants as Common User - 403
-25. GET Tenants as Platform Admin - 200
-26. POST Tenant as Common User - 403
-27. POST Tenant as Platform Admin - 201
-28. My Tenants - 200
+A collection já define defaults seguros para execução local:
 
-Os requests de criação capturam automaticamente os IDs retornados em `data.id` e salvam nas variáveis da collection:
+- `baseUrl = http://localhost:8080`
+- `platformAdminEmail = admin@middleware.local`
+- `platformAdminPassword = ChangeMe123456!`
+- `tenantAdminPassword = Tenant123456!`
+- `amountCents = 10000`
 
+O pre-request script da collection gera automaticamente por execução:
+
+- `tenantAdminEmail`
+- `recipientEmail`
+- `externalId`
+- `idempotencyExternalId`
+- `dueDate` com hoje + 7 dias
+
+Os scripts de teste capturam automaticamente:
+
+- `platform_admin_access_token`
+- `tenant_admin_access_token`
 - `tenantId`
-- `customerId`
-- `providerId`
+- `mockProviderId`
 - `boletoId`
+- `blockedBoletoId`
+- `blacklistEntryId`
 - `moncalieriProviderId`
+- `moncalieriTenantId`
+- `moncalieri_tenant_admin_access_token`
 - `moncalieriBoletoId`
-- `moncalieriApiKey` usa o placeholder `REPLACE_WITH_SECRET`; substitua apenas localmente.
 
-Com isso, os requests seguintes conseguem reutilizar os IDs sem preenchimento manual.
+## Ordem recomendada
 
-As rotas protegidas usam `Authorization: Bearer {{access_token}}`. Para execução local, a collection pode gerar um JWT HS256 automaticamente quando `autoGenerateAccessToken=true`, usando `jwtSecret`, `jwtIssuer`, `jwtAudience`, `jwtUserId` e o `tenantId` capturado.
+1. Health
+2. Ready
+3. Login Platform Admin
+4. Create Mock Provider
+5. Create Tenant With Tenant Admin and Mock Provider
+6. Login Tenant Admin
+7. Create Proposal Boleto
+8. Emit Proposal Boleto
+9. Get Boleto
+10. Tenant Transactions
+11. Admin Transactions
+12. Block Recipient Email
+13. Create Blocked Proposal Boleto
+14. Emit Blocked Proposal - RECIPIENT_BLOCKED
+15. Unblock Email
+16. Emit After Unblock
+17. Idempotency External ID
+18. Moncalieri Homologação
 
-Operações globais de tenant usam `{{platform_admin_access_token}}`, que inclui `roles: ["PLATFORM_ADMIN"]`.
+## Moncalieri Homologação
 
-Para validar contra um emissor real, preencha `access_token` manualmente e altere `autoGenerateAccessToken=false`.
+A pasta `06 - Moncalieri - Homologação` fica desabilitada por padrão para não executar sem credenciais.
+
+Preencha apenas localmente:
+
+- `moncalieriBaseUrl`
+- `moncalieriApiKey`
+- `moncalieriCodigoCanal`
+- `moncalieriCodigoCliente`
+
+O contrato implementado em código usa config JSON com `base_url`, `api_key`, `codigo_canal`, `codigo_cliente`, `timeout_seconds` e `instrucoes`. Não há suporte atual a `client_id` ou `client_secret`.
+
+Não existe endpoint dedicado para associar provider a tenant existente. Para habilitar Moncalieri em um tenant, use o onboarding `POST /api/v1/admin/tenants` com o campo `providers`.
+
+Como os requests dessa pasta ficam desabilitados, habilite e execute manualmente na ordem em que aparecem quando as credenciais de homologação estiverem configuradas.
 
 ## Collections disponíveis
 
-- `middleware-boletos-etapa-4.postman_collection.json`: painel operacional, dashboard, blacklist e bloqueio de emissão por compliance.
-- `middleware-boletos-etapa-3.postman_collection.json`: arquitetura de provedores, MockProvider, MoncalieriProvider, emissão simulada, health, balance e webhook.
-- `middleware-boletos-etapa-2.postman_collection.json`: histórico da etapa anterior.
-
-## Validações negativas
-
-A collection da Etapa 4 inclui requests esperados com HTTP `400` e `409`:
-
-- `Invalid Webhook - 400` valida `error.code = WEBHOOK_VALIDATION_ERROR`.
-- `Duplicate Mock Provider - 409` valida `error.code = DUPLICATE_RESOURCE`.
-- `Emit Blocked Boleto - 409` valida `error.code = CUSTOMER_BLOCKED`.
-- A pasta `Duplicate Validation` valida duplicidade por tenant para users, customers, providers, `external_id` e `our_number`.
-- A pasta `Auth Login` valida login do `PLATFORM_ADMIN`, login do `TENANT_ADMIN` e credenciais inválidas.
-- A pasta `Auth Examples` valida `401 Unauthorized`, token malformado e `403 Forbidden` por cross-tenant.
-- A pasta `RBAC` valida `PLATFORM_ADMIN` em `GET/POST /api/v1/tenants` e `GET /api/v1/me/tenants`.
-
-A collection da Etapa 2 mantém a pasta histórica `Validation Errors`.
+- `middleware-boletos-etapa-5.postman_collection.json`: boleto proposta, Compliance por email, `RECIPIENT_BLOCKED`, idempotência e readiness.
+- `middleware-boletos-etapa-4.postman_collection.json`: painel operacional, dashboard, blacklist e RBAC da etapa anterior.
+- `middleware-boletos-etapa-3.postman_collection.json`: arquitetura de providers, MockProvider, MoncalieriProvider, health, balance e webhook.
+- `middleware-boletos-etapa-2.postman_collection.json`: rotas CRUD iniciais e validações básicas.
