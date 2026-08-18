@@ -38,8 +38,19 @@ variable "password" {
 variable "database_name" {
   type = string
 }
+variable "engine_major_version" {
+  type        = string
+  default     = "16"
+  description = "PostgreSQL major version. The latest available minor version is selected in the target AWS region."
+}
 variable "tags" {
   type = map(string)
+}
+
+data "aws_rds_engine_version" "postgres" {
+  engine  = "postgres"
+  version = var.engine_major_version
+  latest  = true
 }
 
 resource "aws_db_subnet_group" "this" {
@@ -52,7 +63,7 @@ resource "aws_db_subnet_group" "this" {
 resource "aws_db_instance" "this" {
   identifier                   = var.name
   engine                       = "postgres"
-  engine_version               = "16.6"
+  engine_version               = data.aws_rds_engine_version.postgres.version_actual
   instance_class               = var.instance_class
   allocated_storage            = var.allocated_storage
   max_allocated_storage        = var.max_allocated_storage

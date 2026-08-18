@@ -66,6 +66,8 @@ O primeiro provisionamento de cada ambiente é feito pelo workflow `Terraform Bo
 
 Develop começa com 1 task (256 CPU/512 MiB, min 1/max 2), RDS `db.t4g.micro`, 20 GiB gp3 com autoscaling até 100 GiB, Single-AZ, 3 dias de backup, sem deletion protection, logs por 7 dias. Production começa com 1 task (min 1/max 4), o mesmo tamanho de compute/database, 7 dias de backup, deletion protection, snapshot final e logs por 30 dias. Autoscaling usa CPU 60% e memória 70%, cooldown de saída 60s e entrada 300s. Rolling deploy usa 100/200% e circuit breaker com rollback.
 
+O RDS permanece na major PostgreSQL 16, mas a minor não é hardcoded: o data source `aws_rds_engine_version` seleciona a minor mais recente disponível em `us-east-1`. Isso evita falhas quando a AWS retira uma versão patch antiga do catálogo regional.
+
 O padrão é `X86_64`, compatível com o build atual `linux/amd64`. Para ARM64, primeiro publique imagens `linux/arm64` e altere `cpu_architecture = "ARM64"`. Custos são controlados por `ecs_cpu`, `ecs_memory`, capacidades, classe/storage/Multi-AZ do RDS, retenção de logs e flags de domínio/alarmes.
 
 O Terraform gera as senhas do banco e JWT, e grava um JSON no Secrets Manager com `DATABASE_URL`, `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` e `CORS_ALLOWED_ORIGINS`. Elas não são outputs. Credenciais Moncalieri continuam no modelo existente `TenantProvider.Config`; não são duplicadas em segredo global.
