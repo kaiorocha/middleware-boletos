@@ -1,0 +1,58 @@
+name: Reusable Backend Deploy
+on:
+  workflow_call:
+    inputs:
+      environment: { required: true, type: string }
+permissions: { id-token: write, contents: read }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency: { group: 'deploy-backend-${{ inputs.environment }}', cancel-in-progress: false }
+    env:
+      AWS_REGION: us-east-1
+      TF_DIR: infra/environments/${{ inputs.environment }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '1.15.8', terraform_wrapper: false }
+      - uses: aws-actions/configure-aws-credentials@v5
+        with: { role-to-assume: '${{ vars.AWS_ROLE_ARN }}', aws-region: us-east-1 }
+      - name: Read infrastructure outputs
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=middleware-boletos/${{ inputs.environment }}/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+          {
+            echo "ECR_URL=$(terraform -chdir="$TF_DIR" output -raw ecr_repository_url)"
+            echo "CLUSTER=$(terraform -chdir="$TF_DIR" output -raw ecs_cluster_name)"
+            echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
+            echo "TASK_DEFINITION=$(terraform -chdir="$TF_DIR" output -raw ecs_task_definition_arn)"
+            echo "SUBNETS=$(terraform -chdir="$TF_DIR" output -json public_subnet_ids | jq -r 'join(",")')"
+            echo "SECURITY_GROUP=$(terraform -chdir="$TF_DIR" output -raw api_security_group_id)"
+            echo "API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)"
+          } >> "$GITHUB_ENV"
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push immutable image
+        run: |
+          docker build --platform linux/amd64 -t "$ECR_URL:$IMAGE_TAG" backend
+          docker push "$ECR_URL:$IMAGE_TAG"
+      - name: Register candidate task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "$TASK_DEFINITION" --query taskDefinition > task-definition.json
+          jq --arg image "$ECR_URL:$IMAGE_TAG" '.containerDefinitions[0].image=$image | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' task-definition.json > candidate.json
+          echo "CANDIDATE_TASK=$(aws ecs register-task-definition --cli-input-json file://candidate.json --query taskDefinition.taskDefinitionArn --output text)" >> "$GITHUB_ENV"
+      - name: Run one-shot migration
+        run: |
+          MIGRATION_TASK=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition "$CANDIDATE_TASK" --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" --overrides '{"containerOverrides":[{"name":"api","command":["migrate"]}]}' --query 'tasks[0].taskArn' --output text)
+          test "$MIGRATION_TASK" != "None"
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$MIGRATION_TASK"
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$MIGRATION_TASK" --query 'tasks[0].containers[0].exitCode' --output text)
+          if [ "$EXIT_CODE" != "0" ]; then echo "DEPLOY FAILED: migration exited with $EXIT_CODE"; exit 1; fi
+      - name: Deploy candidate and wait for stability
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$CANDIDATE_TASK" >/dev/null
+          if ! aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"; then echo "DEPLOY FAILED: ECS service did not stabilize"; exit 1; fi
+      - name: Smoke test
+        run: |
+          curl --fail --retry 6 --retry-delay 10 "$API_URL/health"
+          curl --fail --retry 6 --retry-delay 10 "$API_URL/ready"

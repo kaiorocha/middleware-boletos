@@ -1,0 +1,14 @@
+environment                 = "develop"
+vpc_cidr                    = "10.10.0.0/16"
+ecs_max_capacity            = 2
+rds_backup_retention_period = 3
+rds_deletion_protection     = false
+rds_skip_final_snapshot     = true
+log_retention_days          = 7
+cors_allowed_origins        = "https://app-hml.example.com"
+enable_basic_alarms         = false
+enable_custom_domain        = false
+domain_name                 = "example.com"
+api_subdomain               = "api-hml"
+route53_zone_id             = ""
+initial_image_tag           = "bootstrap"
