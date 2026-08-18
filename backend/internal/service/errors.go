@@ -7,6 +7,7 @@ var (
 	ErrNotFound           = errors.New("not found")
 	ErrDuplicateResource  = errors.New("duplicate resource")
 	ErrCustomerBlocked    = errors.New("customer blocked")
+	ErrRecipientBlocked   = errors.New("recipient blocked")
 	ErrProviderNotAllowed = errors.New("provider not allowed for tenant")
 )
 
@@ -46,4 +47,23 @@ func (e CustomerBlockedError) Error() string {
 
 func (e CustomerBlockedError) Is(target error) bool {
 	return target == ErrCustomerBlocked
+}
+
+type RecipientBlockedError struct {
+	Message string
+}
+
+func NewRecipientBlocked(message string) error {
+	if message == "" {
+		message = "Este destinatário está bloqueado para novas emissões."
+	}
+	return RecipientBlockedError{Message: message}
+}
+
+func (e RecipientBlockedError) Error() string {
+	return e.Message
+}
+
+func (e RecipientBlockedError) Is(target error) bool {
+	return target == ErrRecipientBlocked
 }

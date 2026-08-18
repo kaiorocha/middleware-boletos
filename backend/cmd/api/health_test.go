@@ -25,6 +25,11 @@ const (
 	testUserID    = "550e8400-e29b-41d4-a716-446655449999"
 )
 
+// Helper to convert string to *string
+func ptrString(s string) *string {
+	return &s
+}
+
 func TestHealth(t *testing.T) {
 	app := &App{}
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -262,6 +267,9 @@ func (r *apiBlacklistRepo) FindByID(string, string) (*domain.BlacklistEntry, err
 func (r *apiBlacklistRepo) FindByDocument(string, string) (*domain.BlacklistEntry, error) {
 	return r.item, r.err
 }
+func (r *apiBlacklistRepo) FindByType(string, string, string) (*domain.BlacklistEntry, error) {
+	return r.item, r.err
+}
 func (r *apiBlacklistRepo) List(string, string, *bool) ([]domain.BlacklistEntry, error) {
 	if r.item == nil {
 		return nil, r.err
@@ -274,6 +282,9 @@ func (r *apiBlacklistRepo) Update(entry *domain.BlacklistEntry) error {
 }
 func (r *apiBlacklistRepo) SoftDelete(string, string) error { return r.err }
 func (r *apiBlacklistRepo) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
+	return r.item, r.blocked, r.err
+}
+func (r *apiBlacklistRepo) IsBlockedByType(string, string, string) (*domain.BlacklistEntry, bool, error) {
 	return r.item, r.blocked, r.err
 }
 
@@ -1011,7 +1022,7 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
 		ID:          validBoletoID,
 		TenantID:    validTenantID,
-		CustomerID:  validCustomerID,
+		CustomerID: &validCustomerID,
 		ProviderID:  &validProviderID,
 		AmountCents: 15000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1061,7 +1072,7 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
 		ID:          validBoletoID,
 		TenantID:    validTenantID,
-		CustomerID:  validCustomerID,
+		CustomerID: &validCustomerID,
 		ProviderID:  &validProviderID,
 		AmountCents: 15000,
 		DueDate:     time.Now().AddDate(0, 0, 7),

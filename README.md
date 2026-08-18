@@ -1,7 +1,7 @@
 # middleware-boletos
 
 Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
-**Status atual:** Etapa 4 (Painel Administrativo e Compliance) implementada com separação entre gestão global da plataforma, portal operacional do tenant e APIs de integração.
+**Status atual:** Etapa 5 implementada com boleto proposta, Compliance por email, autenticação JWT, providers por tenant e readiness básico para produção.
 
 ## Stack
 
@@ -29,11 +29,19 @@ Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.
    ```bash
    cp .env.example .env
    ```
-2. Suba tudo:
+2. Suba as dependências:
+   ```bash
+   docker-compose up -d postgres redis
+   ```
+3. Rode as migrations explicitamente:
+   ```bash
+   docker-compose run --rm backend migrate
+   ```
+4. Suba a aplicação:
    ```bash
    docker-compose up --build
    ```
-3. Endpoints:
+5. Endpoints:
    - Backend: `http://localhost:8080`
    - Frontend: `http://localhost:3000`
 
@@ -52,15 +60,17 @@ curl -s -X POST http://localhost:8080/api/v1/tenants \
 
 ## Postman Collection
 
-A collection Postman da Etapa 4 está disponível em:
+A collection Postman principal da Etapa 5 está disponível em:
 
-`docs/postman/middleware-boletos-etapa-4.postman_collection.json`
+`docs/postman/middleware-boletos-etapa-5.postman_collection.json`
 
-Ela pode ser importada no Postman para validar dashboard, blacklist, consulta de bloqueio e emissão bloqueada por compliance.
+Ela pode ser importada no Postman para validar login, setup de tenant/provider, boleto proposta com Mock, transações, Compliance por email, `RECIPIENT_BLOCKED`, idempotência por `external_id` e preparação de Moncalieri em homologação.
+
+As collections das etapas 2, 3 e 4 permanecem em `docs/postman/` como histórico.
 
 ## Demo SaaS
 
-O fluxo demonstrável da Etapa 4 está documentado em `docs/demo.md`.
+O fluxo demonstrável está documentado em `docs/demo.md`.
 
 Documentação complementar:
 
@@ -82,6 +92,7 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 
 ### Health
 - `GET /health`
+- `GET /ready`
 
 ### Tenants
 - `POST /api/v1/tenants`
@@ -180,18 +191,20 @@ Violação de unicidade retorna HTTP `409 Conflict` com `error.code = "DUPLICATE
 
 ## Compliance: blacklist de emissão
 
-Cada tenant possui sua própria lista de CPF/CNPJ bloqueados. Antes de chamar qualquer provider bancário, o `BoletoService.Emit` consulta a blacklist usando o documento do customer.
+Cada tenant possui sua própria blacklist. No fluxo de boleto proposta, o bloqueio principal é por email (`entry_type = EMAIL` + `value`). Antes de chamar qualquer provider bancário, o `BoletoService.Emit` consulta a blacklist usando o email normalizado do destinatário.
 
-Se o documento estiver bloqueado, a API interrompe a emissão e retorna HTTP `409 Conflict`:
+Se o email estiver bloqueado, a API interrompe a emissão e retorna HTTP `409 Conflict`:
 
 ```json
 {
   "error": {
-    "code": "CUSTOMER_BLOCKED",
-    "message": "Este cliente está bloqueado para novas emissões."
+    "code": "RECIPIENT_BLOCKED",
+    "message": "Este destinatário está bloqueado para novas emissões."
   }
 }
 ```
+
+O bloqueio por documento segue suportado para o fluxo tradicional com `customer_id` e retorna `CUSTOMER_BLOCKED`.
 
 O bloqueio é aplicado no backend, no fluxo central de emissão, para evitar bypass por painel, API externa ou integrações futuras.
 

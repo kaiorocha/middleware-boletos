@@ -2,7 +2,11 @@
 <module type="WEB_MODULE" version="4">
   <component name="Go" enabled="true" />
   <component name="NewModuleRootManager">
-    <content url="file://$MODULE_DIR$" />
+    <content url="file://$MODULE_DIR$">
+      <excludeFolder url="file://$MODULE_DIR$/infra/bootstrap/terraform-state/.terraform" />
+      <excludeFolder url="file://$MODULE_DIR$/infra/environments/develop/.terraform" />
+      <excludeFolder url="file://$MODULE_DIR$/infra/environments/production/.terraform" />
+    </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>

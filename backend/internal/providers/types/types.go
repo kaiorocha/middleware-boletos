@@ -23,14 +23,15 @@ type ProviderConfig struct {
 }
 
 type IssueRequest struct {
-	TenantID     string
-	BoletoID     string
-	CustomerID   string
-	ExternalID   string
-	AmountCents  int64
-	DueDate      time.Time
-	Payer        *Payer
-	Instructions string
+	TenantID       string
+	BoletoID       string
+	CustomerID     string
+	RecipientEmail string
+	ExternalID     string
+	AmountCents    int64
+	DueDate        time.Time
+	Payer          *Payer
+	Instructions   string
 }
 
 type Payer struct {

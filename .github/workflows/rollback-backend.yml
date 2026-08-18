@@ -1,0 +1,83 @@
+name: Rollback Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        required: true
+        type: choice
+        options: [develop, production]
+      task_definition:
+        description: Previous task definition ARN or family:revision
+        required: true
+        type: string
+      confirm:
+        description: Type ROLLBACK to confirm
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-backend-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    if: inputs.confirm == 'ROLLBACK'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      AWS_REGION: us-east-1
+      TF_DIR: infra/environments/${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.8'
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Read environment outputs
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false \
+            -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" \
+            -backend-config="key=middleware-boletos/${{ inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+          {
+            echo "CLUSTER=$(terraform -chdir="$TF_DIR" output -raw ecs_cluster_name)"
+            echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
+            echo "BASE_TASK=$(terraform -chdir="$TF_DIR" output -raw ecs_task_definition_arn)"
+            echo "API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate rollback target
+        env:
+          REQUESTED_TASK: ${{ inputs.task_definition }}
+        run: |
+          BASE_FAMILY=$(aws ecs describe-task-definition --task-definition "$BASE_TASK" --query taskDefinition.family --output text)
+          TARGET_FAMILY=$(aws ecs describe-task-definition --task-definition "$REQUESTED_TASK" --query taskDefinition.family --output text)
+          TARGET_ARN=$(aws ecs describe-task-definition --task-definition "$REQUESTED_TASK" --query taskDefinition.taskDefinitionArn --output text)
+          test "$TARGET_FAMILY" = "$BASE_FAMILY"
+          echo "TARGET_TASK=$TARGET_ARN" >> "$GITHUB_ENV"
+
+      - name: Roll back and wait for stability
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$TARGET_TASK" >/dev/null
+          if ! aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"; then
+            echo "ROLLBACK FAILED: ECS service did not stabilize"
+            exit 1
+          fi
+
+      - name: Smoke test
+        run: |
+          curl --fail --retry 6 --retry-delay 10 "$API_URL/health"
+          curl --fail --retry 6 --retry-delay 10 "$API_URL/ready"

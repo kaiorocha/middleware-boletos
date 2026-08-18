@@ -8,5 +8,13 @@ node_modules
 # Env
 .env
 
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+backend.hcl
+
 # Docker
 docker-compose.override.yml

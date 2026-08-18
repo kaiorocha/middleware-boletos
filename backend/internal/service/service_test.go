@@ -17,6 +17,11 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
 
+// Helper to convert string to *string
+func ptrString(s string) *string {
+	return &s
+}
+
 type tenantRepoMock struct{ created bool }
 
 func (m *tenantRepoMock) Create(*domain.Tenant) error             { m.created = true; return nil }
@@ -176,6 +181,12 @@ func (m *blacklistRepoMock) FindByDocument(string, string) (*domain.BlacklistEnt
 	}
 	return &domain.BlacklistEntry{}, m.err
 }
+func (m *blacklistRepoMock) FindByType(string, string, string) (*domain.BlacklistEntry, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.BlacklistEntry{}, m.err
+}
 func (m *blacklistRepoMock) List(string, string, *bool) ([]domain.BlacklistEntry, error) {
 	if m.found != nil {
 		return []domain.BlacklistEntry{*m.found}, m.err
@@ -193,6 +204,12 @@ func (m *blacklistRepoMock) IsBlocked(string, string) (*domain.BlacklistEntry, b
 	}
 	return nil, m.blocked, m.err
 }
+func (m *blacklistRepoMock) IsBlockedByType(string, string, string) (*domain.BlacklistEntry, bool, error) {
+	if m.found != nil {
+		return m.found, m.blocked, m.err
+	}
+	return nil, m.blocked, m.err
+}
 
 type blacklistComplianceMock struct {
 	entry    *domain.BlacklistEntry
@@ -204,8 +221,26 @@ type blacklistComplianceMock struct {
 func (m *blacklistComplianceMock) IsBlocked(string, string) (*domain.BlacklistEntry, bool, error) {
 	return m.entry, m.blocked, m.err
 }
+func (m *blacklistComplianceMock) IsBlockedByDocument(string, string) (*domain.BlacklistEntry, bool, error) {
+	return m.entry, m.blocked, m.err
+}
+func (m *blacklistComplianceMock) IsBlockedByEmail(string, string) (*domain.BlacklistEntry, bool, error) {
+	return m.entry, m.blocked, m.err
+}
 func (m *blacklistComplianceMock) RecordBlockedEmissionAttempt(string, *domain.BlacklistEntry, *domain.Boleto) {
 	m.attempts++
+}
+
+type auditRepoMock struct {
+	created []*domain.AuditLog
+}
+
+func (m *auditRepoMock) Create(a *domain.AuditLog) error {
+	if m.created == nil {
+		m.created = make([]*domain.AuditLog, 0)
+	}
+	m.created = append(m.created, a)
+	return nil
 }
 
 type providerFactorySpy struct {
@@ -573,7 +608,7 @@ func TestBoletoServiceRejectInvalidTenantID(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    "not-a-uuid",
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 10000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -590,7 +625,7 @@ func TestBoletoServiceRejectInvalidCustomerID(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  "not-a-uuid",
+		CustomerID:  ptrString("not-a-uuid"),
 		AmountCents: 10000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -609,7 +644,7 @@ func TestBoletoServiceRejectInvalidProviderID(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &invalidProviderID,
 		AmountCents: 10000,
 		DueDate:     validDueDate,
@@ -628,7 +663,7 @@ func TestBoletoServiceRejectZeroAmount(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 0,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -646,7 +681,7 @@ func TestBoletoServiceRejectNegativeAmount(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: -1000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -663,7 +698,7 @@ func TestBoletoServiceRejectEmptyDueDate(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 10000,
 		DueDate:     time.Time{},
 		Status:      "CREATED",
@@ -681,7 +716,7 @@ func TestBoletoServiceRejectInvalidStatus(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 10000,
 		DueDate:     validDueDate,
 		Status:      "INVALID_STATUS",
@@ -699,7 +734,7 @@ func TestBoletoServiceCreateValidWithCREATED(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 50000,
 		DueDate:     validDueDate,
 		Status:      "CREATED",
@@ -720,7 +755,7 @@ func TestBoletoServiceCreateValidWithPROCESSING(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 75000,
 		DueDate:     validDueDate,
 		Status:      "PROCESSING",
@@ -743,7 +778,7 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -786,7 +821,7 @@ func TestBoletoServiceEmitBlocksBlacklistedCustomerBeforeProvider(t *testing.T) 
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -828,7 +863,7 @@ func TestBoletoServiceEmitFailsClosedWithoutBlacklistService(t *testing.T) {
 	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 
 	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(&providerRepoMock{}).
@@ -854,7 +889,7 @@ func TestBoletoServiceEmitRejectsCustomerWithoutDocument(t *testing.T) {
 	blacklist := &blacklistComplianceMock{}
 
 	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: customer}).
 		WithProviderRepository(&providerRepoMock{}).
@@ -879,7 +914,7 @@ func TestBoletoServiceEmitStopsWhenBlacklistServiceErrors(t *testing.T) {
 	blacklistErr := errors.New("blacklist unavailable")
 
 	svc := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(&providerRepoMock{}).
@@ -905,7 +940,7 @@ func TestBoletoServiceEmitAllowedCustomerCallsProvider(t *testing.T) {
 	spy := &providerFactorySpy{adapter: adapter}
 
 	got, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(providerRepo).
@@ -928,7 +963,7 @@ func TestBoletoServiceEmitRejectsProviderNotAllowedForTenant(t *testing.T) {
 	spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 
 	_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-		ID: boletoID, TenantID: validTenantUUID, CustomerID: validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+		ID: boletoID, TenantID: validTenantUUID, CustomerID: &validCustomerUUID, ProviderID: &validProviderUUID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 	}}).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(&providerRepoMock{
@@ -962,7 +997,7 @@ func TestBoletoServiceEmitUsesTenantProviderConfigPerTenant(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 			_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-				ID: boletoID, TenantID: tt.tenantID, CustomerID: customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+				ID: boletoID, TenantID: tt.tenantID, CustomerID: &customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 			}}).
 				WithCustomerRepository(&customerRepoMock{found: completeCustomer(tt.tenantID)}).
 				WithProviderRepository(&providerRepoMock{tenant: tenantProviderConfig(tt.tenantID, providerID, "ACTIVE", true, &tt.config)}).
@@ -997,7 +1032,7 @@ func TestBoletoServiceEmitRejectsInactiveProviderStatesBeforeFactory(t *testing.
 		t.Run(tt.name, func(t *testing.T) {
 			spy := &providerFactorySpy{adapter: &providerAdapterSpy{}}
 			_, err := NewBoletoService(&boletoRepoMock{found: &domain.Boleto{
-				ID: boletoID, TenantID: tenantID, CustomerID: customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
+				ID: boletoID, TenantID: tenantID, CustomerID: &customerID, ProviderID: &providerID, AmountCents: 25000, DueDate: time.Now().AddDate(0, 0, 7), Status: "CREATED",
 			}}).
 				WithCustomerRepository(&customerRepoMock{found: completeCustomer(tenantID)}).
 				WithProviderRepository(&providerRepoMock{tenant: tt.cfg, denied: tt.cfg == nil}).
@@ -1032,7 +1067,7 @@ func TestBoletoServiceEmitIsIdempotentWhenAlreadyIssued(t *testing.T) {
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1068,7 +1103,7 @@ func TestBoletoServiceEmitReturnsInvalidPayerForIncompleteCustomer(t *testing.T)
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1138,7 +1173,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 	boletoRepo := &boletoRepoMock{found: &domain.Boleto{
 		ID:          boletoID,
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1176,7 +1211,7 @@ func TestBoletoServiceCreateWithValidProvider(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		ProviderID:  &validProviderUUID,
 		AmountCents: 25000,
 		DueDate:     validDueDate,
@@ -1199,7 +1234,7 @@ func TestBoletoServiceTrimsExternalIDAndOurNumber(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
 		Status:      "CREATED",
@@ -1226,7 +1261,7 @@ func TestBoletoServiceEmptyExternalIDAndOurNumberBecomeNil(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
 		Status:      "CREATED",
@@ -1251,7 +1286,7 @@ func TestBoletoServicePropagatesDuplicateError(t *testing.T) {
 	svc := NewBoletoService(repo)
 	err := svc.Create(&domain.Boleto{
 		TenantID:    validTenantUUID,
-		CustomerID:  validCustomerUUID,
+		CustomerID:  &validCustomerUUID,
 		AmountCents: 25000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
 		Status:      "CREATED",
@@ -1281,8 +1316,8 @@ func TestBlacklistServiceCreateNormalizesDocumentAndDefaults(t *testing.T) {
 	if !repo.created {
 		t.Fatal("expected blacklist entry to be created")
 	}
-	if repo.last.Document != "12345678900" {
-		t.Fatalf("expected normalized document, got %q", repo.last.Document)
+	if repo.last.ValueNormalized != "12345678900" {
+		t.Fatalf("expected normalized value, got %q", repo.last.ValueNormalized)
 	}
 	if repo.last.Source != "MANUAL" || !repo.last.Active {
 		t.Fatalf("expected source MANUAL and active true, got %+v", repo.last)
@@ -1346,4 +1381,316 @@ func completeCustomer(tenantID string) *domain.Customer {
 
 func testStringPtr(value string) *string {
 	return &value
+}
+
+func TestBlacklistServiceCreateEMAILUsesRecipientBlockedEvent(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &blacklistRepoMock{}
+	audit := &auditRepoMock{}
+	userID := "user-123"
+
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	err := svc.Create(&domain.BlacklistEntry{
+		TenantID:  validTenantUUID,
+		EntryType: "EMAIL",
+		Value:     "cliente@empresa.com",
+		Reason:    "Cliente solicitou opt-out",
+		Source:    "MANUAL",
+		CreatedBy: &userID,
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+	if audit.created[0].Action != "RecipientBlocked" {
+		t.Fatalf("expected RecipientBlocked action, got %s", audit.created[0].Action)
+	}
+}
+
+func TestBlacklistServiceCreateDOCUMENTUsesCustomerBlockedEvent(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &blacklistRepoMock{}
+	audit := &auditRepoMock{}
+	userID := "user-123"
+
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	err := svc.Create(&domain.BlacklistEntry{
+		TenantID:  validTenantUUID,
+		EntryType: "DOCUMENT",
+		Document:  "12345678900",
+		Value:     "12345678900",
+		Reason:    "Cliente solicitou opt-out",
+		Source:    "MANUAL",
+		CreatedBy: &userID,
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+	if audit.created[0].Action != "CustomerBlocked" {
+		t.Fatalf("expected CustomerBlocked action, got %s", audit.created[0].Action)
+	}
+}
+
+func TestBlacklistServiceBlockEMAILUsesRecipientBlockedEvent(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validEntryUUID := "550e8400-e29b-41d4-a716-446655440001"
+	repo := &blacklistRepoMock{
+		found: &domain.BlacklistEntry{
+			ID:              validEntryUUID,
+			TenantID:        validTenantUUID,
+			EntryType:       "EMAIL",
+			Value:           "cliente@empresa.com",
+			ValueNormalized: "cliente@empresa.com",
+			Reason:          "Cliente solicitou opt-out",
+			Source:          "MANUAL",
+			Active:          false,
+		},
+	}
+	audit := &auditRepoMock{}
+	userID := "user-123"
+
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	_, err := svc.Block(validTenantUUID, validEntryUUID, &userID)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+	if audit.created[0].Action != "RecipientBlocked" {
+		t.Fatalf("expected RecipientBlocked action, got %s", audit.created[0].Action)
+	}
+}
+
+func TestBlacklistServiceUnblockEMAILUsesRecipientUnblockedEvent(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validEntryUUID := "550e8400-e29b-41d4-a716-446655440001"
+	repo := &blacklistRepoMock{
+		found: &domain.BlacklistEntry{
+			ID:              validEntryUUID,
+			TenantID:        validTenantUUID,
+			EntryType:       "EMAIL",
+			Value:           "cliente@empresa.com",
+			ValueNormalized: "cliente@empresa.com",
+			Reason:          "Cliente solicitou opt-out",
+			Source:          "MANUAL",
+			Active:          true,
+		},
+	}
+	audit := &auditRepoMock{}
+	userID := "user-123"
+
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	_, err := svc.Unblock(validTenantUUID, validEntryUUID, &userID)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+	if audit.created[0].Action != "RecipientUnblocked" {
+		t.Fatalf("expected RecipientUnblocked action, got %s", audit.created[0].Action)
+	}
+}
+
+func TestBlacklistServiceUnblockDOCUMENTUsesCustomerUnblockedEvent(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validEntryUUID := "550e8400-e29b-41d4-a716-446655440001"
+	repo := &blacklistRepoMock{
+		found: &domain.BlacklistEntry{
+			ID:              validEntryUUID,
+			TenantID:        validTenantUUID,
+			EntryType:       "DOCUMENT",
+			Document:        "12345678900",
+			Value:           "12345678900",
+			ValueNormalized: "12345678900",
+			Reason:          "Cliente solicitou opt-out",
+			Source:          "MANUAL",
+			Active:          true,
+		},
+	}
+	audit := &auditRepoMock{}
+	userID := "user-123"
+
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	_, err := svc.Unblock(validTenantUUID, validEntryUUID, &userID)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+	if audit.created[0].Action != "CustomerUnblocked" {
+		t.Fatalf("expected CustomerUnblocked action, got %s", audit.created[0].Action)
+	}
+}
+
+func TestRecordBlockedEmissionAttemptEMAILIncludesEntryType(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validBoletoUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+
+	audit := &auditRepoMock{}
+	repo := &blacklistRepoMock{}
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	entry := &domain.BlacklistEntry{
+		ID:              "entry-123",
+		TenantID:        validTenantUUID,
+		EntryType:       "EMAIL",
+		Value:           "cliente@empresa.com",
+		ValueNormalized: "cliente@empresa.com",
+		Reason:          "Cliente solicitou opt-out",
+	}
+	boleto := &domain.Boleto{
+		ID:             validBoletoUUID,
+		TenantID:       validTenantUUID,
+		RecipientEmail: "cliente@empresa.com",
+		ProviderID:     &validProviderUUID,
+		AmountCents:    10000,
+		DueDate:        time.Now().AddDate(0, 0, 7),
+		Status:         "CREATED",
+	}
+
+	svc.RecordBlockedEmissionAttempt(validTenantUUID, entry, boleto)
+
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+
+	if audit.created[0].Action != "BlockedEmissionAttempt" {
+		t.Fatalf("expected BlockedEmissionAttempt action, got %s", audit.created[0].Action)
+	}
+
+	// Parse metadata JSON
+	var metadata map[string]interface{}
+	if audit.created[0].Metadata == nil {
+		t.Fatalf("expected metadata, got nil")
+	}
+	err := json.Unmarshal([]byte(*audit.created[0].Metadata), &metadata)
+	if err != nil {
+		t.Fatalf("failed to parse metadata: %v", err)
+	}
+
+	if metadata["entry_type"] != "EMAIL" {
+		t.Fatalf("expected entry_type EMAIL, got %v", metadata["entry_type"])
+	}
+	if metadata["recipient_email"] != "cliente@empresa.com" {
+		t.Fatalf("expected recipient_email cliente@empresa.com, got %v", metadata["recipient_email"])
+	}
+	if metadata["blocked_value"] != "cliente@empresa.com" {
+		t.Fatalf("expected blocked_value cliente@empresa.com, got %v", metadata["blocked_value"])
+	}
+	if metadata["boleto_id"] != validBoletoUUID {
+		t.Fatalf("expected boleto_id, got %v", metadata["boleto_id"])
+	}
+}
+
+func TestRecordBlockedEmissionAttemptDOCUMENTIncludesDocument(t *testing.T) {
+	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
+	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440003"
+	validBoletoUUID := "550e8400-e29b-41d4-a716-446655440001"
+	validProviderUUID := "550e8400-e29b-41d4-a716-446655440002"
+
+	audit := &auditRepoMock{}
+	repo := &blacklistRepoMock{}
+	svc := NewBlacklistService(repo).WithAuditRepository(audit)
+
+	entry := &domain.BlacklistEntry{
+		ID:              "entry-123",
+		TenantID:        validTenantUUID,
+		EntryType:       "DOCUMENT",
+		Document:        "12345678900",
+		Value:           "12345678900",
+		ValueNormalized: "12345678900",
+		Reason:          "Cliente solicitou opt-out",
+	}
+	boleto := &domain.Boleto{
+		ID:          validBoletoUUID,
+		TenantID:    validTenantUUID,
+		CustomerID:  &validCustomerUUID,
+		ProviderID:  &validProviderUUID,
+		AmountCents: 10000,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+		Status:      "CREATED",
+	}
+
+	svc.RecordBlockedEmissionAttempt(validTenantUUID, entry, boleto)
+
+	if len(audit.created) != 1 {
+		t.Fatalf("expected 1 audit entry, got %d", len(audit.created))
+	}
+
+	// Parse metadata JSON
+	var metadata map[string]interface{}
+	if audit.created[0].Metadata == nil {
+		t.Fatalf("expected metadata, got nil")
+	}
+	err := json.Unmarshal([]byte(*audit.created[0].Metadata), &metadata)
+	if err != nil {
+		t.Fatalf("failed to parse metadata: %v", err)
+	}
+
+	if metadata["entry_type"] != "DOCUMENT" {
+		t.Fatalf("expected entry_type DOCUMENT, got %v", metadata["entry_type"])
+	}
+	if metadata["document"] != "12345678900" {
+		t.Fatalf("expected document 12345678900, got %v", metadata["document"])
+	}
+	if metadata["blocked_value"] != "12345678900" {
+		t.Fatalf("expected blocked_value 12345678900, got %v", metadata["blocked_value"])
+	}
+	if metadata["customer_id"] != validCustomerUUID {
+		t.Fatalf("expected customer_id, got %v", metadata["customer_id"])
+	}
+}
+
+func TestBlacklistAuditMetadataIncludesAllFields(t *testing.T) {
+	entry := &domain.BlacklistEntry{
+		ID:              "entry-123",
+		TenantID:        "tenant-123",
+		EntryType:       "EMAIL",
+		Value:           "cliente@empresa.com",
+		ValueNormalized: "cliente@empresa.com",
+		Reason:          "Cliente solicitou opt-out",
+		Source:          "MANUAL",
+		Name:            "John Doe",
+		Document:        "",
+	}
+
+	metadata := blacklistAuditMetadata(entry)
+
+	if metadata["entry_type"] != "EMAIL" {
+		t.Fatalf("expected entry_type EMAIL, got %v", metadata["entry_type"])
+	}
+	if metadata["value"] != "cliente@empresa.com" {
+		t.Fatalf("expected value, got %v", metadata["value"])
+	}
+	if metadata["value_normalized"] != "cliente@empresa.com" {
+		t.Fatalf("expected value_normalized, got %v", metadata["value_normalized"])
+	}
+	if metadata["reason"] != "Cliente solicitou opt-out" {
+		t.Fatalf("expected reason, got %v", metadata["reason"])
+	}
+	if metadata["source"] != "MANUAL" {
+		t.Fatalf("expected source, got %v", metadata["source"])
+	}
+	if metadata["name"] != "John Doe" {
+		t.Fatalf("expected name, got %v", metadata["name"])
+	}
 }

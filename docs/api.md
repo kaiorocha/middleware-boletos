@@ -1,10 +1,8 @@
-# API — Etapa 4
+# API — Etapa 5
 
-Documentação das rotas REST implementadas até a **Etapa 4 — Painel Administrativo e Compliance**.
+Documentação das rotas REST implementadas até a **Etapa 5 — Boleto Proposta, Compliance por email e Production Readiness**.
 
-Nesta etapa, a API foi preparada para persistência das principais entidades da plataforma, com PostgreSQL, services, repositories, validações básicas e padrão de resposta JSON.
-
-> Observação: a Etapa 4 adiciona o painel administrativo web e o módulo de Compliance/Blacklist. A emissão continua usando `MockProvider` e `MoncalieriProvider`, mas agora consulta a blacklist antes de chamar qualquer provider.
+Nesta etapa, o fluxo principal passa a ser boleto proposta: a API cria uma intenção de boleto com email do destinatário, valor, vencimento, provider autorizado para o tenant e `external_id` opcional. A emissão consulta Compliance por email antes de chamar o provider.
 
 ## Base URL local
 
@@ -67,9 +65,18 @@ HTTP `409 Conflict`
 
 ## Compliance: blacklist por tenant
 
-Cada tenant mantém uma lista isolada de documentos bloqueados para novas emissões. O mesmo CPF/CNPJ pode estar bloqueado em um tenant e liberado em outro.
+Cada tenant mantém uma lista isolada de bloqueios para novas emissões. O fluxo principal da Etapa 5 é bloqueio por email do destinatário:
 
-Antes de chamar o provider bancário, `BoletoService.Emit` busca o customer do boleto e consulta a blacklist usando o documento normalizado. Se houver bloqueio ativo, o fluxo é interrompido antes de `PayerBuilder`, `ProviderFactory` e `IssueBoleto`.
+```json
+{
+  "entry_type": "EMAIL",
+  "value": "cliente@example.com",
+  "reason": "Cliente solicitou não receber novas emissões",
+  "source": "MANUAL"
+}
+```
+
+Antes de chamar o provider bancário em boletos proposta, `BoletoService.Emit` consulta a blacklist usando o email normalizado (`trim + lowercase`). Se houver bloqueio ativo, o fluxo é interrompido antes de `ProviderFactory` e `IssueBoleto`.
 
 Resposta para emissão bloqueada:
 
@@ -78,11 +85,13 @@ HTTP `409 Conflict`
 ```json
 {
   "error": {
-    "code": "CUSTOMER_BLOCKED",
-    "message": "Este cliente está bloqueado para novas emissões."
+    "code": "RECIPIENT_BLOCKED",
+    "message": "Este destinatário está bloqueado para novas emissões."
   }
 }
 ```
+
+O fluxo por documento (`entry_type = DOCUMENT`) continua suportado para boletos tradicionais com `customer_id` e retorna `CUSTOMER_BLOCKED` quando o documento do customer estiver bloqueado.
 
 Eventos de compliance são registrados em `audit_logs` para bloqueio, desbloqueio e tentativa de emissão bloqueada.
 
@@ -94,9 +103,10 @@ Todas as rotas administrativas e operacionais exigem autenticação JWT:
 Authorization: Bearer <JWT>
 ```
 
-Exceção pública:
+Exceções públicas:
 
 - `GET /health`
+- `GET /ready`
 
 O JWT deve conter `sub` e `tenant_id` ou `tenant_ids`. A claim `roles` é usada para RBAC. Todas as rotas tenant-scoped validam que a identidade autenticada pode operar o tenant solicitado na URL.
 
@@ -116,6 +126,7 @@ Rotas globais:
 | Rota | Política |
 |---|---|
 | `GET /health` | Pública |
+| `GET /ready` | Pública; depende de PostgreSQL acessível |
 | `GET /api/v1/tenants` | `PLATFORM_ADMIN` |
 | `POST /api/v1/tenants` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/tenants` | `PLATFORM_ADMIN`; cria tenant e opcionalmente `TENANT_ADMIN` |
@@ -136,7 +147,7 @@ Rotas globais:
 
 ### GET /health
 
-Valida se a API está disponível.
+Valida se o processo HTTP está vivo.
 
 ```bash
 curl -s http://localhost:8080/health
@@ -151,6 +162,26 @@ Resposta esperada:
   }
 }
 ```
+
+### GET /ready
+
+Valida se a aplicação está pronta para receber tráfego. Essa rota depende de conectividade com PostgreSQL via `PingContext`.
+
+```bash
+curl -s http://localhost:8080/ready
+```
+
+Resposta esperada quando o banco está acessível:
+
+```json
+{
+  "data": {
+    "status": "ready"
+  }
+}
+```
+
+Quando o banco não está acessível, retorna HTTP `503 Service Unavailable` com `error.code = "NOT_READY"`.
 
 ## Tenants
 
@@ -247,6 +278,7 @@ Filtros opcionais:
 - `provider_id`
 - `status`
 - `document`
+- `email`
 - `external_id`
 - `our_number`
 
@@ -314,6 +346,7 @@ Filtros opcionais:
 - `provider_id`
 - `status`
 - `document`
+- `email`
 - `external_id`
 - `our_number`
 - `limit`
@@ -328,10 +361,10 @@ curl -s "http://localhost:8080/api/v1/admin/transactions?status=ISSUED&limit=50&
 
 Lista transações do tenant autenticado com paginação. O `tenantId` vem da rota e é validado contra o JWT.
 
-Filtros opcionais: `from`, `to`, `provider_id`, `status`, `document`, `external_id`, `our_number`, `limit` e `offset`.
+Filtros opcionais: `from`, `to`, `provider_id`, `status`, `document`, `email`, `external_id`, `our_number`, `limit` e `offset`.
 
 ```bash
-curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/transactions?document=12345678900&limit=50&offset=0" \
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/transactions?email=cliente%40teste.com&limit=50&offset=0" \
   -H "Authorization: Bearer <tenant-token>"
 ```
 
@@ -540,19 +573,41 @@ curl -s -X POST "http://localhost:8080/api/v1/providers/webhook?tenant_id=<tenan
 
 ## Boletos
 
+### Boleto Proposta
+
+O boleto proposta permite iniciar uma cobrança sem cadastro prévio de customer. A entrada mínima do fluxo é:
+
+- `email`
+- `amount_cents`
+- `due_date`
+- `provider_id`
+
+Fluxo:
+
+```text
+email + valor + vencimento
+-> boleto CREATED
+-> Compliance EMAIL
+-> provider autorizado para o tenant
+-> emissão
+```
+
+`customer_id` é opcional. Quando informado, a emissão segue o fluxo tradicional com dados completos do customer. Quando não informado, o boleto usa o email do destinatário e a resposta expõe esse valor em `recipient_email`.
+
 ### POST /api/v1/tenants/:tenantId/boletos
 
-Cria uma intenção de boleto.
+Cria uma intenção de boleto. Para boleto proposta, o handler aceita o campo JSON `email` e persiste o valor normalizado em `recipient_email`.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos \
+  -H "Authorization: Bearer <tenant-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "customer_id":"<customerId>",
+    "email":"cliente+demo@teste.com",
     "provider_id":"<providerId>",
     "amount_cents":15000,
     "due_date":"2026-07-30",
-    "status":"CREATED"
+    "external_id":"pedido-123"
   }'
 ```
 
@@ -560,11 +615,15 @@ Campos principais:
 
 | Campo | Obrigatório | Observação |
 |---|---:|---|
-| `customer_id` | Sim | UUID do cliente/sacado. |
-| `provider_id` | Não | UUID do provedor. Opcional nesta etapa. |
+| `email` | Sim, quando `customer_id` não for informado | Email do destinatário; normalizado com trim e lowercase. |
+| `customer_id` | Não | UUID do cliente/sacado para o fluxo tradicional. |
+| `provider_id` | Sim para emissão | UUID do provider habilitado para o tenant. |
 | `amount_cents` | Sim | Valor em centavos. Deve ser maior que zero. |
 | `due_date` | Sim | Data no formato `YYYY-MM-DD`. |
 | `status` | Não | Se vazio, assume `CREATED`. |
+| `external_id` | Não | Idempotência por `tenant_id + external_id` para registros ativos. |
+
+Duplicidade de `external_id` no mesmo tenant retorna HTTP `409 Conflict` com `error.code = "DUPLICATE_RESOURCE"`. O mesmo `external_id` pode existir em tenants diferentes.
 
 ### GET /api/v1/tenants/:tenantId/boletos
 
@@ -588,6 +647,7 @@ Emite o boleto usando o provider vinculado ao boleto.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/boletos/<boletoId>/emit \
+  -H "Authorization: Bearer <tenant-admin-token>" \
   -H "X-Request-ID: req-demo-1"
 ```
 
@@ -602,22 +662,24 @@ Campos persistidos após emissão:
 | `our_number` | Nosso número fake |
 | `issued_at` | Timestamp da emissão simulada |
 
-Para Moncalieri, o adapter real mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A chamada exige dados completos do sacado no customer (`document`, `name`, endereço, bairro, cidade, CEP e UF). Se faltar algum campo obrigatório, a API retorna `INVALID_PAYER`.
+Para Mock, boletos proposta são emitidos com apenas email, valor e vencimento.
+
+Para Moncalieri, o adapter atual mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A config aceita JSON com `base_url`, `api_key`, `codigo_canal`, `codigo_cliente`, `timeout_seconds` e `instrucoes`. O mapper Moncalieri ainda exige dados completos de sacado (`document`, `name`, endereço, bairro, cidade, CEP e UF`) no payload padronizado do provider; se faltar campo obrigatório, a API retorna `INVALID_REQUEST`.
 
 ## Compliance
 
 ### POST /api/v1/tenants/:tenantId/blacklist
 
-Cria um bloqueio de documento no tenant.
+Cria um bloqueio no tenant. Na Etapa 5, o fluxo principal é bloquear email de destinatário.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants/<tenantId>/blacklist \
+  -H "Authorization: Bearer <tenant-admin-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "document":"123.456.789-00",
-    "name":"Cliente Bloqueado",
-    "reason":"Solicitação do cliente",
-    "notes":"Não enviar novas cobranças.",
+    "entry_type":"EMAIL",
+    "value":"cliente+demo@teste.com",
+    "reason":"Cliente solicitou não receber novas emissões",
     "source":"MANUAL"
   }'
 ```
@@ -626,25 +688,39 @@ Campos:
 
 | Campo | Observação |
 |---|---|
-| `document` | Obrigatório; normalizado para somente números. |
+| `entry_type` | `EMAIL` ou `DOCUMENT`. Se omitido, a API mantém inferência legada por `document`/`value`. |
+| `value` | Email ou documento a bloquear, conforme `entry_type`. |
+| `document` | Compatibilidade para fluxo legado `DOCUMENT`; normalizado para somente números. |
 | `name` | Nome de referência. |
 | `reason` | Motivo exibido em consultas de bloqueio. |
 | `notes` | Observações internas. |
 | `source` | `MANUAL`, `API` ou `IMPORT`; assume `MANUAL` se vazio. |
 
-Duplicidade ativa de documento no mesmo tenant retorna `DUPLICATE_RESOURCE`.
+Duplicidade ativa do mesmo `entry_type + value_normalized` no mesmo tenant retorna `DUPLICATE_RESOURCE`.
+
+Emissão de boleto proposta para email bloqueado retorna:
+
+```json
+{
+  "error": {
+    "code": "RECIPIENT_BLOCKED",
+    "message": "Este destinatário está bloqueado para novas emissões."
+  }
+}
+```
 
 ### GET /api/v1/tenants/:tenantId/blacklist
 
-Lista bloqueios do tenant. Aceita filtros `q` e `active`.
+Lista bloqueios do tenant. Aceita filtros `q` e `active`; use `q=<email>` para localizar bloqueios por destinatário.
 
 ```bash
-curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist?q=12345678900&active=true"
+curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist?q=cliente%2Bdemo%40teste.com&active=true" \
+  -H "Authorization: Bearer <tenant-admin-token>"
 ```
 
 ### GET /api/v1/tenants/:tenantId/blacklist/check?document=...
 
-Consulta otimizada para saber se um documento está bloqueado.
+Consulta legada otimizada para saber se um documento está bloqueado. O código atual não possui endpoint dedicado de check por email; para email, use a listagem com `q` e `active=true`.
 
 ```bash
 curl -s "http://localhost:8080/api/v1/tenants/<tenantId>/blacklist/check?document=123.456.789-00"
@@ -697,9 +773,11 @@ Desativa um bloqueio sem excluir o registro.
 - Status de boleto restrito aos estados padronizados.
 - Transições de boleto validadas pela máquina de estados.
 - Customer valida email, documento, UF e CEP quando esses campos são informados.
-- Emissão bloqueada automaticamente para documentos ativos na blacklist do tenant.
+- Emissão de boleto proposta bloqueada automaticamente para emails ativos na blacklist do tenant.
+- Emissão tradicional bloqueada automaticamente para documentos ativos na blacklist do tenant.
 
 ## Limitações conhecidas
 
-- Ainda não há autenticação/autorização real.
-- Cancelamento e consulta real junto a provedores reais ficam para etapas posteriores.
+- Não há endpoint dedicado para associar provider a tenant existente; essa associação acontece no onboarding `POST /api/v1/admin/tenants`.
+- `GET /api/v1/tenants/:tenantId/blacklist/check` consulta apenas documentos.
+- Migrations não executam automaticamente no startup; rode explicitamente o comando `migrate` antes de iniciar ou promover uma release.
