@@ -1,0 +1,43 @@
+name: Develop Environment Control
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Action for the develop/HML environment
+        required: true
+        type: choice
+        options: [start, stop, status]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    environment: develop
+    timeout-minutes: 25
+    env:
+      AWS_REGION: us-east-1
+      TF_DIR: infra/environments/develop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: '1.15.8', terraform_wrapper: false }
+      - uses: aws-actions/configure-aws-credentials@v5
+        with: { role-to-assume: '${{ vars.AWS_ROLE_ARN }}', aws-region: us-east-1 }
+      - name: Read develop infrastructure outputs
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false -backend-config="bucket=${{ vars.TERRAFORM_STATE_BUCKET }}" -backend-config="key=middleware-boletos/develop/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+          {
+            echo "CLUSTER=$(terraform -chdir="$TF_DIR" output -raw ecs_cluster_name)"
+            echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
+            echo "RDS_INSTANCE_ID=$(terraform -chdir="$TF_DIR" output -raw rds_instance_id)"
+            echo "API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)"
+          } >> "$GITHUB_ENV"
+      - name: Control develop environment
+        run: bash scripts/aws/develop-environment-control.sh '${{ inputs.action }}' develop
+      - name: Wait for ECS and verify endpoints
+        if: inputs.action == 'start'
+        run: |
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$API_URL/health"
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$API_URL/ready"

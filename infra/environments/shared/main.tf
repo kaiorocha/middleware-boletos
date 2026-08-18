@@ -7,6 +7,9 @@ terraform {
     random = {
       source = "hashicorp/random", version = "~> 3.7"
     }
+    archive = {
+      source = "hashicorp/archive", version = "~> 2.7"
+    }
 
   }
   backend "s3" {
@@ -81,17 +84,19 @@ module "rds" {
   tags                    = local.tags
 }
 module "secrets" {
-  source               = "../../modules/secrets"
-  name                 = local.name
-  db_username          = var.database_username
-  db_password          = random_password.database.result
-  db_host              = module.rds.address
-  db_port              = module.rds.port
-  db_name              = var.database_name
-  jwt_issuer           = var.jwt_issuer
-  jwt_audience         = var.jwt_audience
-  cors_allowed_origins = var.cors_allowed_origins
-  tags                 = local.tags
+  source                = "../../modules/secrets"
+  name                  = local.name
+  db_username           = var.database_username
+  db_password           = random_password.database.result
+  db_host               = module.rds.address
+  db_port               = module.rds.port
+  db_name               = var.database_name
+  jwt_issuer            = var.jwt_issuer
+  jwt_audience          = var.jwt_audience
+  cors_allowed_origins  = var.cors_allowed_origins
+  bootstrap_admin_email = var.bootstrap_admin_email
+  bootstrap_admin_name  = var.bootstrap_admin_name
+  tags                  = local.tags
 }
 module "iam" {
   source     = "../../modules/iam"
@@ -129,31 +134,53 @@ resource "aws_route53_record" "api" {
   }
 }
 module "ecs" {
-  source             = "../../modules/ecs"
-  name               = local.name
-  region             = var.aws_region
-  subnet_ids         = module.network.public_subnet_ids
-  security_group_id  = module.security.api_security_group_id
-  target_group_arn   = module.alb.target_group_arn
-  execution_role_arn = module.iam.execution_role_arn
-  task_role_arn      = module.iam.task_role_arn
-  ecr_repository_url = module.ecr.repository_url
-  image_tag          = var.initial_image_tag
-  secret_arn         = module.secrets.secret_arn
-  log_group_name     = module.logs.log_group_name
-  cpu                = var.ecs_cpu
-  memory             = var.ecs_memory
-  cpu_architecture   = var.cpu_architecture
-  desired_count      = var.ecs_desired_count
-  min_capacity       = var.ecs_min_capacity
-  max_capacity       = var.ecs_max_capacity
-  container_port     = var.container_port
-  environment        = var.environment
-  tags               = local.tags
+  source                 = "../../modules/ecs"
+  name                   = local.name
+  region                 = var.aws_region
+  subnet_ids             = module.network.public_subnet_ids
+  security_group_id      = module.security.api_security_group_id
+  target_group_arn       = module.alb.target_group_arn
+  execution_role_arn     = module.iam.execution_role_arn
+  task_role_arn          = module.iam.task_role_arn
+  ecr_repository_url     = module.ecr.repository_url
+  image_tag              = var.initial_image_tag
+  secret_arn             = module.secrets.secret_arn
+  log_group_name         = module.logs.log_group_name
+  cpu                    = var.ecs_cpu
+  memory                 = var.ecs_memory
+  cpu_architecture       = var.cpu_architecture
+  desired_count          = var.ecs_desired_count
+  min_capacity           = var.ecs_min_capacity
+  max_capacity           = var.ecs_max_capacity
+  container_port         = var.container_port
+  environment            = var.environment
+  enable_admin_bootstrap = var.enable_admin_bootstrap
+  tags                   = local.tags
 
   # Do not start tasks before the secret has an AWSCURRENT version and the
   # execution role has all policies required to retrieve it.
   depends_on = [module.secrets, module.iam]
+}
+
+module "environment_scheduler" {
+  source = "../../modules/environment-scheduler"
+  count  = var.enable_scheduled_shutdown ? 1 : 0
+
+  name                 = local.name
+  environment          = var.environment
+  aws_region           = var.aws_region
+  shutdown_time        = var.shutdown_time
+  shutdown_timezone    = var.shutdown_timezone
+  ecs_cluster_name     = module.ecs.cluster_name
+  ecs_service_name     = module.ecs.service_name
+  ecs_service_arn      = module.ecs.service_arn
+  scalable_resource_id = module.ecs.scalable_resource_id
+  rds_instance_arn     = module.rds.arn
+  rds_instance_id      = module.rds.identifier
+  log_retention_days   = 7
+  tags                 = local.tags
+
+  depends_on = [module.ecs, module.rds]
 }
 
 resource "aws_cloudwatch_metric_alarm" "ecs_cpu" {

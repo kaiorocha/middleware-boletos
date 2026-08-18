@@ -55,6 +55,9 @@ variable "container_port" {
 variable "environment" {
   type = string
 }
+variable "enable_admin_bootstrap" {
+  type = bool
+}
 variable "tags" {
   type = map(string)
 }
@@ -88,10 +91,17 @@ resource "aws_ecs_task_definition" "api" {
       name = "APP_ENV", value = var.environment
       }, {
       name = "PORT", value = tostring(var.container_port)
+      }, {
+      name = "ENABLE_ADMIN_BOOTSTRAP", value = tostring(var.enable_admin_bootstrap)
     }]
-    secrets = [for key in ["DATABASE_URL", "JWT_SECRET", "JWT_ISSUER", "JWT_AUDIENCE", "CORS_ALLOWED_ORIGINS"] : {
-      name = key, valueFrom = "${var.secret_arn}:${key}::"
-    }]
+    secrets = concat(
+      [for key in ["DATABASE_URL", "JWT_SECRET", "JWT_ISSUER", "JWT_AUDIENCE", "CORS_ALLOWED_ORIGINS"] : {
+        name = key, valueFrom = "${var.secret_arn}:${key}::"
+      }],
+      var.enable_admin_bootstrap ? [for key in ["BOOTSTRAP_ADMIN_EMAIL", "BOOTSTRAP_ADMIN_NAME", "BOOTSTRAP_ADMIN_PASSWORD"] : {
+        name = key, valueFrom = "${var.secret_arn}:${key}::"
+      }] : []
+    )
     logConfiguration = {
       logDriver = "awslogs", options = {
         awslogs-group = var.log_group_name, awslogs-region = var.region, awslogs-stream-prefix = "api"
@@ -149,6 +159,13 @@ resource "aws_appautoscaling_target" "api" {
   resource_id        = "service/${aws_ecs_cluster.this.name}/${aws_ecs_service.api.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
+
+  # Runtime ownership is deliberate: the scheduler and deployment workflow
+  # toggle only min_capacity. Terraform continues to own max_capacity and all
+  # other target attributes.
+  lifecycle {
+    ignore_changes = [min_capacity]
+  }
 }
 resource "aws_appautoscaling_policy" "cpu" {
   name               = "${var.name}-cpu"
@@ -188,4 +205,10 @@ output "service_name" {
 }
 output "task_definition_arn" {
   value = aws_ecs_task_definition.api.arn
+}
+output "service_arn" {
+  value = aws_ecs_service.api.id
+}
+output "scalable_resource_id" {
+  value = aws_appautoscaling_target.api.resource_id
 }

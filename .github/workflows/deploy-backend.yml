@@ -30,12 +30,17 @@ jobs:
             echo "SUBNETS=$(terraform -chdir="$TF_DIR" output -json public_subnet_ids | jq -r 'join(",")')"
             echo "SECURITY_GROUP=$(terraform -chdir="$TF_DIR" output -raw api_security_group_id)"
             echo "API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)"
+            echo "RDS_INSTANCE_ID=$(terraform -chdir="$TF_DIR" output -raw rds_instance_id)"
           } >> "$GITHUB_ENV"
       - uses: aws-actions/amazon-ecr-login@v2
       - name: Build and push immutable image
         run: |
           docker build --platform linux/amd64 -t "$ECR_URL:$IMAGE_TAG" backend
           docker push "$ECR_URL:$IMAGE_TAG"
+      - name: Start develop environment
+        if: inputs.environment == 'develop'
+        timeout-minutes: 20
+        run: bash scripts/aws/develop-environment-control.sh start develop
       - name: Register candidate task definition
         run: |
           aws ecs describe-task-definition --task-definition "$TASK_DEFINITION" --query taskDefinition > task-definition.json

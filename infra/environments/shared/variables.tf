@@ -100,12 +100,52 @@ variable "jwt_audience" {
 variable "cors_allowed_origins" {
   type = string
 }
+variable "enable_admin_bootstrap" {
+  type        = bool
+  default     = false
+  description = "Temporarily injects the first platform administrator credentials into the API task. Disable after the user is created."
+}
+variable "bootstrap_admin_email" {
+  type    = string
+  default = "admin@middleware.local"
+}
+variable "bootstrap_admin_name" {
+  type    = string
+  default = "Platform Administrator"
+}
 variable "log_retention_days" {
   type = number
 }
 variable "enable_basic_alarms" {
   type    = bool
   default = false
+}
+variable "enable_scheduled_shutdown" {
+  type        = bool
+  default     = false
+  description = "Creates the daily compute shutdown scheduler. This is permitted only for develop."
+  validation {
+    condition     = !var.enable_scheduled_shutdown || var.environment == "develop"
+    error_message = "Scheduled shutdown can only be enabled for environment=develop."
+  }
+}
+variable "shutdown_time" {
+  type        = string
+  default     = "20:00"
+  description = "Daily shutdown time in HH:MM (24-hour) format."
+  validation {
+    condition     = can(regex("^(?:[01][0-9]|2[0-3]):[0-5][0-9]$", var.shutdown_time))
+    error_message = "shutdown_time must use HH:MM in 24-hour format."
+  }
+}
+variable "shutdown_timezone" {
+  type        = string
+  default     = "America/Sao_Paulo"
+  description = "IANA timezone interpreted by EventBridge Scheduler."
+  validation {
+    condition     = length(trimspace(var.shutdown_timezone)) > 0
+    error_message = "shutdown_timezone cannot be empty."
+  }
 }
 variable "enable_custom_domain" {
   type    = bool
