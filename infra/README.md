@@ -58,6 +58,8 @@ Inclua também `iam:ListAttachedRolePolicies` na declaração `ManageProjectGitH
 
 No Environment `bootstrap`, configure `AWS_BOOTSTRAP_ROLE_ARN` e `AWS_ACCOUNT_ID`. Execute `AWS Bootstrap` com o nome do bucket, o ARN do provider OIDC existente e a confirmação `BOOTSTRAP`. Ao concluir, o resumo do job mostra os valores de `TERRAFORM_STATE_BUCKET` e `AWS_ROLE_ARN`.
 
+Sempre que a infraestrutura passar a gerenciar uma nova categoria de recurso IAM ou serviço AWS, execute novamente `AWS Bootstrap` antes do apply do ambiente. Por exemplo, o controle de desligamento de develop precisa atualizar a role operacional com permissões limitadas às suas duas roles IAM, função Lambda e agenda do EventBridge Scheduler. A role operacional não pode conceder novas permissões a si mesma.
+
 Configure esses dois valores nos Environments `develop` e `production`, junto de `CORS_ALLOWED_ORIGINS`. Configure como Repository variables `AWS_ROLE_ARN`, `TERRAFORM_STATE_BUCKET`, `DEVELOP_CORS_ALLOWED_ORIGINS` e `PRODUCTION_CORS_ALLOWED_ORIGINS`, usados pelos plans de PR.
 
 O primeiro provisionamento de cada ambiente é feito pelo workflow `Terraform Bootstrap Environment`. Ele cria primeiro o ECR, publica a tag imutável `bootstrap` se ainda não existir, executa plan/apply completo, aguarda o ECS e testa `/health` e `/ready`. Develop deve ser inicializado primeiro; production requer aprovação do Environment correspondente. Depois, deploys usam sempre o SHA completo do commit.

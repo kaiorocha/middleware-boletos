@@ -96,6 +96,18 @@ resource "aws_iam_role_policy" "github" {
         Resource = "*"
       },
       {
+        Sid      = "ManageDevelopEnvironmentControlLambda"
+        Effect   = "Allow"
+        Action   = ["lambda:*"]
+        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:middleware-boletos-develop-environment-control"
+      },
+      {
+        Sid      = "ManageDevelopEnvironmentControlSchedule"
+        Effect   = "Allow"
+        Action   = ["scheduler:*"]
+        Resource = "arn:aws:scheduler:${var.aws_region}:${data.aws_caller_identity.current.account_id}:schedule/default/middleware-boletos-develop-daily-shutdown"
+      },
+      {
         Sid      = "ReadIam"
         Effect   = "Allow"
         Action   = ["iam:Get*", "iam:List*"]
@@ -111,6 +123,15 @@ resource "aws_iam_role_policy" "github" {
         ]
       },
       {
+        Sid    = "ManageDevelopEnvironmentControlRoles"
+        Effect = "Allow"
+        Action = ["iam:CreateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy"]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-develop-environment-control-role",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-develop-daily-shutdown-role"
+        ]
+      },
+      {
         Sid    = "PassProjectEcsRoles"
         Effect = "Allow"
         Action = ["iam:PassRole"]
@@ -121,6 +142,28 @@ resource "aws_iam_role_policy" "github" {
         Condition = {
           StringEquals = {
             "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid      = "PassDevelopEnvironmentControlLambdaRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-develop-environment-control-role"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "lambda.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid      = "PassDevelopEnvironmentControlSchedulerRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-develop-daily-shutdown-role"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "scheduler.amazonaws.com"
           }
         }
       },
