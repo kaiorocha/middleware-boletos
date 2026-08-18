@@ -88,6 +88,7 @@ jobs:
           CLUSTER=$(terraform -chdir="$TF_DIR" output -raw ecs_cluster_name)
           SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)
           API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment >/dev/null
           aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
           curl --fail --retry 12 --retry-delay 10 "$API_URL/health"
           curl --fail --retry 12 --retry-delay 10 "$API_URL/ready"

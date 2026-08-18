@@ -150,6 +150,10 @@ module "ecs" {
   container_port     = var.container_port
   environment        = var.environment
   tags               = local.tags
+
+  # Do not start tasks before the secret has an AWSCURRENT version and the
+  # execution role has all policies required to retrieve it.
+  depends_on = [module.secrets, module.iam]
 }
 
 resource "aws_cloudwatch_metric_alarm" "ecs_cpu" {

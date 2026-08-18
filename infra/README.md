@@ -62,6 +62,8 @@ Configure esses dois valores nos Environments `develop` e `production`, junto de
 
 O primeiro provisionamento de cada ambiente é feito pelo workflow `Terraform Bootstrap Environment`. Ele cria primeiro o ECR, publica a tag imutável `bootstrap` se ainda não existir, executa plan/apply completo, aguarda o ECS e testa `/health` e `/ready`. Develop deve ser inicializado primeiro; production requer aprovação do Environment correspondente. Depois, deploys usam sempre o SHA completo do commit.
 
+O módulo ECS depende explicitamente das versões do Secrets Manager e das policies IAM: nenhuma task é iniciada antes de existir uma versão `AWSCURRENT` e de a execution role poder lê-la. Ao final do primeiro apply, o workflow força uma nova implantação para recuperar com segurança qualquer tentativa inicial interrompida.
+
 ## Parâmetros e custos
 
 Develop começa com 1 task (256 CPU/512 MiB, min 1/max 2), RDS `db.t4g.micro`, 20 GiB gp3 com autoscaling até 100 GiB, Single-AZ, 3 dias de backup, sem deletion protection, logs por 7 dias. Production começa com 1 task (min 1/max 4), o mesmo tamanho de compute/database, 7 dias de backup, deletion protection, snapshot final e logs por 30 dias. Autoscaling usa CPU 60% e memória 70%, cooldown de saída 60s e entrada 300s. Rolling deploy usa 100/200% e circuit breaker com rollback.
