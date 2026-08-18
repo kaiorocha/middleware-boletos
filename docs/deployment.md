@@ -23,3 +23,7 @@ Notes:
 - Use image rollback for quick revert.
 - Ensure secrets (DB, JWT, provider credentials) are set in environment or secret manager for each environment (staging/production).
 - Do not share staging and production databases or credentials.
+
+Develop/HML deploys include environment startup after the immutable image is pushed and before the candidate task definition and migration are run. The reusable control script starts a stopped RDS instance, waits up to roughly 20 minutes for `available`, restores ECS autoscaling minimum and desired count to 1, and only then allows migration and deployment to continue. Smoke tests require both `/health` and `/ready` to return HTTP 200.
+
+Production does not execute this startup step and has no shutdown scheduler; it remains continuously active. The environment guard in the control script rejects any value other than `develop` before issuing AWS mutation calls.

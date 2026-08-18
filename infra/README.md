@@ -72,7 +72,7 @@ O RDS permanece na major PostgreSQL 16, mas a minor não é hardcoded: o data so
 
 O padrão é `X86_64`, compatível com o build atual `linux/amd64`. Para ARM64, primeiro publique imagens `linux/arm64` e altere `cpu_architecture = "ARM64"`. Custos são controlados por `ecs_cpu`, `ecs_memory`, capacidades, classe/storage/Multi-AZ do RDS, retenção de logs e flags de domínio/alarmes.
 
-O Terraform gera as senhas do banco e JWT, e grava um JSON no Secrets Manager com `DATABASE_URL`, `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` e `CORS_ALLOWED_ORIGINS`. Elas não são outputs. Credenciais Moncalieri continuam no modelo existente `TenantProvider.Config`; não são duplicadas em segredo global.
+O Terraform gera as senhas do banco, JWT e bootstrap administrativo, e grava um JSON no Secrets Manager com `DATABASE_URL`, `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`, `CORS_ALLOWED_ORIGINS`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_NAME` e `BOOTSTRAP_ADMIN_PASSWORD`. Elas não são outputs nem aparecem nos logs dos workflows. A senha administrativa tem 32 caracteres aleatórios e também fica protegida pelo state remoto criptografado. Credenciais Moncalieri continuam no modelo existente `TenantProvider.Config`; não são duplicadas em segredo global.
 
 ## GitHub Actions
 
@@ -106,6 +106,31 @@ A separação de responsabilidades é deliberada e segue o fluxo de execução p
 Por isso, o lifecycle do ECS Service ignora exclusivamente `task_definition` e `desired_count`. Essas duas propriedades possuem controladores externos definidos; não é uma regra genérica para esconder drift. Um apply de infraestrutura não reverte a aplicação para a imagem `bootstrap` nem reduz uma escala ativa. Mudanças no template da Task Definition feitas pelo Terraform tornam-se a nova base para os deploys seguintes, pois o workflow lê o output da definição-base gerenciada pelo Terraform, substitui sua imagem pelo SHA e registra a revisão candidata.
 
 Depois do bootstrap inicial necessário para estabelecer S3 e OIDC, plans, applies, migrations e deploys dos ambientes devem ser executados pelos workflows versionados. Não registrar Task Definitions nem atualizar o ECS Service manualmente pelo console ou CLI.
+
+## Develop / HML on-demand
+
+Develop é ligado sob demanda: todo deploy inicia o RDS, aguarda o estado `available`, restaura o mínimo do autoscaling e o desired count do ECS para 1 antes das migrations. Não existe start matinal. O workflow **Develop Environment Control** também oferece `start`, `stop` e `status`; no start manual, aguarda estabilidade e valida `/health` e `/ready`.
+
+Por padrão, o EventBridge Scheduler executa diariamente às 20:00 em `America/Sao_Paulo`, com `FlexibleTimeWindow = OFF`. O horário e timezone vêm exclusivamente de `shutdown_time` e `shutdown_timezone` no tfvars de develop. No shutdown, a Lambda valida `environment=develop`, define o mínimo do autoscaling como 0, reduz o ECS para 0, aguarda as tasks encerrarem e só então para o RDS. Sábados e domingos permanecem desligados se não houver deploy ou start manual.
+
+O Terraform ignora somente o `min_capacity`, que tem ownership operacional compartilhado com essa automação; continua gerenciando `max_capacity` e os demais atributos. O módulo possui validações Terraform, payload fixo, configuração fixa da Lambda e IAM escopado que impedem sua criação/operação para production. Production permanece 24x7 com `enable_scheduled_shutdown = false`.
+
+O RDS pode ser iniciado automaticamente pela AWS após até 7 dias parado; o shutdown diário volta a pará-lo no próximo ciclo. ECS e RDS desligados reduzem significativamente o compute mensal de develop, mas ALB, storage, ECR, Secrets, CloudWatch, VPC e outros componentes continuam provisionados e podem gerar custo fixo.
+
+### Primeiro PLATFORM_ADMIN
+
+O bootstrap administrativo é temporário e idempotente. Com `enable_admin_bootstrap = true`, a Task Definition recebe `ENABLE_ADMIN_BOOTSTRAP=true` e as três credenciais diretamente do Secrets Manager. Se já existir um `PLATFORM_ADMIN`, a API não cria outro usuário.
+
+Para criar o primeiro administrador em develop:
+
+1. Mantenha `enable_admin_bootstrap = true` em `infra/environments/develop/terraform.tfvars.example`, faça commit e push.
+2. Execute `Terraform Apply Develop` no GitHub Actions. Isso atualiza o secret e a Task Definition base, mas não troca diretamente a revisão em execução.
+3. Execute `Deploy Backend Develop`. O workflow deriva a revisão candidata da nova definição base, executa migrations e atualiza o ECS Service.
+4. No console AWS, abra Secrets Manager, selecione `middleware-boletos-develop/api` e use **Retrieve secret value**. O login está em `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD`.
+5. Confirme o login pela rota `POST /api/v1/auth/login` ou pelo frontend local apontando para a URL do ALB.
+6. Altere imediatamente `enable_admin_bootstrap = false`, faça commit e push e execute novamente `Terraform Apply Develop` e `Deploy Backend Develop`.
+
+Ao desabilitar a flag, as credenciais deixam de ser injetadas nas tasks seguintes. O usuário criado permanece no banco. Os valores continuam no secret e no state para manter o histórico Terraform, mas ficam inacessíveis à aplicação; a senha do usuário pode ser trocada pelo fluxo administrativo quando disponível. Em production, a flag permanece `false` até que um bootstrap explicitamente aprovado seja necessário.
 
 ## Domínio e frontend
 
