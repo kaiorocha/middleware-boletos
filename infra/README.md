@@ -42,28 +42,25 @@ Evolução futura: mover ECS para subnets privadas com NAT Gateway ou VPC endpoi
 
 ## Bootstrap e primeiro provisionamento
 
-O bootstrap é intencionalmente separado e mantém state local inicialmente:
+O bootstrap é executado pelo workflow manual `AWS Bootstrap`, usando o GitHub Environment `bootstrap` e a role criada uma única vez na conta AWS. O workflow garante que o bucket exista, inicializa o backend remoto em `middleware-boletos/bootstrap/terraform.tfstate`, importa o bucket pré-criado e aplica suas configurações e a role operacional definitiva.
 
-```bash
-cd infra/bootstrap/terraform-state
-cp terraform.tfvars.example terraform.tfvars
-terraform init
-terraform plan
-terraform apply # somente após revisão explícita
+A role de bootstrap precisa acessar os objetos do próprio state. Além das permissões de bucket e IAM configuradas inicialmente, sua policy deve conter, substituindo o nome do bucket:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+  "Resource": "arn:aws:s3:::NOME_EXATO_DO_BUCKET/middleware-boletos/bootstrap/*"
+}
 ```
 
-Se o OIDC provider já existir na conta, informe `github_oidc_provider_arn`. Copie os outputs para as GitHub Environment variables `AWS_ROLE_ARN` e `TERRAFORM_STATE_BUCKET`, em ambos os environments.
+Inclua também `iam:ListAttachedRolePolicies` na declaração `ManageProjectGitHubRole`; o provider AWS usa essa leitura ao reconciliar a role operacional.
 
-Para cada ambiente, copie `backend.hcl.example` para `backend.hcl`, ajuste o bucket, e use:
+No Environment `bootstrap`, configure `AWS_BOOTSTRAP_ROLE_ARN` e `AWS_ACCOUNT_ID`. Execute `AWS Bootstrap` com o nome do bucket, o ARN do provider OIDC existente e a confirmação `BOOTSTRAP`. Ao concluir, o resumo do job mostra os valores de `TERRAFORM_STATE_BUCKET` e `AWS_ROLE_ARN`.
 
-```bash
-cd infra/environments/develop
-cp terraform.tfvars.example terraform.tfvars
-terraform init -backend-config=backend.hcl
-terraform plan
-```
+Configure esses dois valores nos Environments `develop` e `production`, junto de `CORS_ALLOWED_ORIGINS`. Configure como Repository variables `AWS_ROLE_ARN`, `TERRAFORM_STATE_BUCKET`, `DEVELOP_CORS_ALLOWED_ORIGINS` e `PRODUCTION_CORS_ALLOWED_ORIGINS`, usados pelos plans de PR.
 
-O primeiro apply tem uma sequência especial porque o ECS exige uma imagem existente: execute primeiro `terraform apply -target=module.ecr`, autentique no ECR, publique a imagem backend com tag imutável `bootstrap`, e só então execute plan/apply completo. Depois, deploys usam sempre o SHA completo do commit.
+O primeiro provisionamento de cada ambiente é feito pelo workflow `Terraform Bootstrap Environment`. Ele cria primeiro o ECR, publica a tag imutável `bootstrap` se ainda não existir, executa plan/apply completo, aguarda o ECS e testa `/health` e `/ready`. Develop deve ser inicializado primeiro; production requer aprovação do Environment correspondente. Depois, deploys usam sempre o SHA completo do commit.
 
 ## Parâmetros e custos
 
@@ -84,12 +81,27 @@ Crie GitHub Environments `develop` e `production`. Em cada um configure as vari�
 Configure required reviewers no environment `production`. A proteção é uma configuração do GitHub, não um arquivo versionado.
 
 - `terraform-plan.yml`: PRs de infra, fmt/init/validate/plan nos dois states, nunca apply.
+- `aws-bootstrap.yml`: bootstrap controlado do state e da role operacional.
+- `terraform-bootstrap-environment.yml`: primeiro ECR/imagem/apply de cada ambiente.
 - `terraform-apply-develop.yml`: apply manual de develop.
 - `terraform-apply-production.yml`: apply manual de production, sujeito à aprovação.
 - `deploy-backend-develop.yml`: push em `develop` com mudança backend ou manual.
 - `deploy-backend-production.yml`: exclusivamente manual.
+- `rollback-backend.yml`: rollback manual para uma revisão anterior da mesma família, com aprovação e smoke test.
 
 O deploy constrói `linux/amd64`, publica `<ECR>:<commit SHA>`, registra uma task definition candidata, executa a candidata com override `migrate`, espera a task e verifica exit code. Somente após sucesso atualiza o service, espera estabilidade e testa `/health` e `/ready`. Migration falha aborta antes do update. Depois do update, o circuit breaker do ECS reverte uma implantação que não estabiliza.
+
+### Ownership do ECS Service
+
+A separação de responsabilidades é deliberada e segue o fluxo de execução pelo GitHub Actions:
+
+- Terraform gerencia cluster, service, rede, load balancer, IAM, configuração-base da task e proteções de deployment.
+- GitHub Actions registra e implanta revisões imutáveis da Task Definition, sempre identificadas pelo SHA do commit.
+- Application Auto Scaling controla o `desired_count` dentro dos limites declarados pelo Terraform.
+
+Por isso, o lifecycle do ECS Service ignora exclusivamente `task_definition` e `desired_count`. Essas duas propriedades possuem controladores externos definidos; não é uma regra genérica para esconder drift. Um apply de infraestrutura não reverte a aplicação para a imagem `bootstrap` nem reduz uma escala ativa. Mudanças no template da Task Definition feitas pelo Terraform tornam-se a nova base para os deploys seguintes, pois o workflow lê o output da definição-base gerenciada pelo Terraform, substitui sua imagem pelo SHA e registra a revisão candidata.
+
+Depois do bootstrap inicial necessário para estabelecer S3 e OIDC, plans, applies, migrations e deploys dos ambientes devem ser executados pelos workflows versionados. Não registrar Task Definitions nem atualizar o ECS Service manualmente pelo console ou CLI.
 
 ## Domínio e frontend
 

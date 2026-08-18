@@ -18,6 +18,8 @@ jobs:
     defaults:
       run:
         working-directory: infra/environments/${{ matrix.environment }}
+    env:
+      TF_VAR_cors_allowed_origins: ${{ matrix.environment == 'develop' && vars.DEVELOP_CORS_ALLOWED_ORIGINS || vars.PRODUCTION_CORS_ALLOWED_ORIGINS }}
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
@@ -34,4 +36,4 @@ jobs:
       - name: Validate
         run: terraform validate
       - name: Plan
-        run: terraform plan -input=false -lock-timeout=5m -var-file=terraform.tfvars.example -var="cors_allowed_origins=${{ vars.CORS_ALLOWED_ORIGINS }}"
+        run: terraform plan -input=false -lock-timeout=5m -var-file=terraform.tfvars.example

@@ -43,7 +43,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
   }
 }
 resource "aws_iam_openid_connect_provider" "github" {
-  count           = var.github_oidc_provider_arn == "" ? 1 : 0
+  count           = var.oidc_provider_arn == "" ? 1 : 0
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
@@ -52,7 +52,7 @@ resource "aws_iam_openid_connect_provider" "github" {
   }
 }
 locals {
-  oidc_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
+  oidc_arn = var.oidc_provider_arn != "" ? var.oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
 }
 data "aws_iam_policy_document" "github_assume" {
   statement {
@@ -90,7 +90,55 @@ resource "aws_iam_role_policy" "github" {
         Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = ["${aws_s3_bucket.state.arn}/middleware-boletos/*"]
       },
       {
-        Effect = "Allow", Action = ["ec2:*", "ecs:*", "ecr:*", "elasticloadbalancing:*", "application-autoscaling:*", "rds:*", "logs:*", "cloudwatch:*", "secretsmanager:*", "acm:*", "route53:*", "iam:Get*", "iam:List*", "iam:CreateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:PassRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy"], Resource = "*"
+        Sid      = "ManageProjectInfrastructure"
+        Effect   = "Allow"
+        Action   = ["ec2:*", "ecs:*", "ecr:*", "elasticloadbalancing:*", "application-autoscaling:*", "rds:*", "logs:*", "cloudwatch:*", "secretsmanager:*", "acm:*", "route53:*"]
+        Resource = "*"
+      },
+      {
+        Sid      = "ReadIam"
+        Effect   = "Allow"
+        Action   = ["iam:Get*", "iam:List*"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ManageProjectEcsRoles"
+        Effect = "Allow"
+        Action = ["iam:CreateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy"]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-develop-ecs-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-production-ecs-*"
+        ]
+      },
+      {
+        Sid    = "PassProjectEcsRoles"
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-develop-ecs-*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/middleware-boletos-production-ecs-*"
+        ]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid      = "CreateRequiredServiceLinkedRoles"
+        Effect   = "Allow"
+        Action   = ["iam:CreateServiceLinkedRole"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "iam:AWSServiceName" = [
+              "ecs.amazonaws.com",
+              "ecs.application-autoscaling.amazonaws.com",
+              "rds.amazonaws.com",
+              "elasticloadbalancing.amazonaws.com"
+            ]
+          }
+        }
       }
     ]
   })

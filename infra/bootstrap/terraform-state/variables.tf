@@ -9,7 +9,7 @@ variable "github_repository" {
   type    = string
   default = "kaiorocha/middleware-boletos"
 }
-variable "github_oidc_provider_arn" {
+variable "oidc_provider_arn" {
   type        = string
   default     = ""
   description = "Existing provider ARN. Leave empty to create it."

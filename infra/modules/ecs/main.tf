@@ -129,6 +129,19 @@ resource "aws_ecs_service" "api" {
     container_port   = var.container_port
   }
   tags = var.tags
+
+  # Deployment ownership is intentionally split:
+  # - Terraform owns the service topology and its deployment safeguards.
+  # - GitHub Actions registers and deploys immutable task definition revisions.
+  # - Application Auto Scaling owns the running desired count.
+  # Without these exceptions, a later infrastructure apply could roll the
+  # service back to Terraform's bootstrap revision or reset a scaled service.
+  lifecycle {
+    ignore_changes = [
+      task_definition,
+      desired_count,
+    ]
+  }
 }
 resource "aws_appautoscaling_target" "api" {
   max_capacity       = var.max_capacity
