@@ -18,16 +18,16 @@ func (r *TenantRepo) Create(t *domain.Tenant) error {
 	if t.ID == "" {
 		t.ID = uuid.New().String()
 	}
-	_, err := r.db.Exec(`INSERT INTO tenants (id,name,owner_id,created_at,updated_at) VALUES ($1,$2,$3,now(),now())`, t.ID, t.Name, t.OwnerID)
+	_, err := r.db.Exec(`INSERT INTO tenants (id,name,document,address,district,city,postal_code,state,country_code,area_code,phone_number,webhook_url,owner_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())`, t.ID, t.Name, t.Document, t.Address, t.District, t.City, t.PostalCode, t.State, t.CountryCode, t.AreaCode, t.PhoneNumber, t.WebhookURL, t.OwnerID)
 	return err
 }
 
 func (r *TenantRepo) FindByID(id string) (*domain.Tenant, error) {
-	row := r.db.QueryRow(`SELECT id,name,owner_id,created_at,updated_at,deleted_at FROM tenants WHERE id = $1 AND deleted_at IS NULL`, id)
+	row := r.db.QueryRow(`SELECT id,name,COALESCE(document,''),COALESCE(address,''),COALESCE(district,''),COALESCE(city,''),COALESCE(postal_code,''),COALESCE(state,''),COALESCE(country_code,''),COALESCE(area_code,''),COALESCE(phone_number,''),COALESCE(webhook_url,''),owner_id,created_at,updated_at,deleted_at FROM tenants WHERE id = $1 AND deleted_at IS NULL`, id)
 	var t domain.Tenant
 	var ownerID sql.NullString
 	var deleted *time.Time
-	if err := row.Scan(&t.ID, &t.Name, &ownerID, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
+	if err := row.Scan(&t.ID, &t.Name, &t.Document, &t.Address, &t.District, &t.City, &t.PostalCode, &t.State, &t.CountryCode, &t.AreaCode, &t.PhoneNumber, &t.WebhookURL, &ownerID, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
 		return nil, err
 	}
 	if ownerID.Valid {
@@ -41,7 +41,7 @@ func (r *TenantRepo) FindByID(id string) (*domain.Tenant, error) {
 }
 
 func (r *TenantRepo) List() ([]domain.Tenant, error) {
-	rows, err := r.db.Query(`SELECT id,name,owner_id,created_at,updated_at,deleted_at FROM tenants WHERE deleted_at IS NULL ORDER BY created_at DESC`)
+	rows, err := r.db.Query(`SELECT id,name,COALESCE(document,''),COALESCE(address,''),COALESCE(district,''),COALESCE(city,''),COALESCE(postal_code,''),COALESCE(state,''),COALESCE(country_code,''),COALESCE(area_code,''),COALESCE(phone_number,''),COALESCE(webhook_url,''),owner_id,created_at,updated_at,deleted_at FROM tenants WHERE deleted_at IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (r *TenantRepo) List() ([]domain.Tenant, error) {
 		var t domain.Tenant
 		var ownerID sql.NullString
 		var deleted *time.Time
-		if err := rows.Scan(&t.ID, &t.Name, &ownerID, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Document, &t.Address, &t.District, &t.City, &t.PostalCode, &t.State, &t.CountryCode, &t.AreaCode, &t.PhoneNumber, &t.WebhookURL, &ownerID, &t.CreatedAt, &t.UpdatedAt, &deleted); err != nil {
 			return nil, err
 		}
 		if ownerID.Valid {
@@ -67,7 +67,7 @@ func (r *TenantRepo) List() ([]domain.Tenant, error) {
 }
 
 func (r *TenantRepo) Update(t *domain.Tenant) error {
-	_, err := r.db.Exec(`UPDATE tenants SET name = $1, owner_id = $2, updated_at = now() WHERE id = $3 AND deleted_at IS NULL`, t.Name, t.OwnerID, t.ID)
+	_, err := r.db.Exec(`UPDATE tenants SET name=$1,document=$2,address=$3,district=$4,city=$5,postal_code=$6,state=$7,country_code=$8,area_code=$9,phone_number=$10,webhook_url=$11,owner_id=$12,updated_at=now() WHERE id=$13 AND deleted_at IS NULL`, t.Name, t.Document, t.Address, t.District, t.City, t.PostalCode, t.State, t.CountryCode, t.AreaCode, t.PhoneNumber, t.WebhookURL, t.OwnerID, t.ID)
 	return err
 }
 

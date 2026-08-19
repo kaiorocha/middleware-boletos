@@ -22,13 +22,25 @@ func ptrString(s string) *string {
 	return &s
 }
 
-type tenantRepoMock struct{ created bool }
+func validTenant(name string) domain.Tenant {
+	return domain.Tenant{Name: name, Document: "12.345.678/0001-90", Address: "Rua Um, 123", District: "Centro", City: "Sao Paulo", PostalCode: "12345-678", State: "SP", CountryCode: "55", AreaCode: "11", PhoneNumber: "99999-8888", WebhookURL: "https://example.com/webhooks"}
+}
 
-func (m *tenantRepoMock) Create(*domain.Tenant) error             { m.created = true; return nil }
-func (m *tenantRepoMock) FindByID(string) (*domain.Tenant, error) { return &domain.Tenant{}, nil }
-func (m *tenantRepoMock) List() ([]domain.Tenant, error)          { return nil, nil }
-func (m *tenantRepoMock) Update(*domain.Tenant) error             { return nil }
-func (m *tenantRepoMock) Delete(string) error                     { return nil }
+type tenantRepoMock struct {
+	created bool
+	found   *domain.Tenant
+}
+
+func (m *tenantRepoMock) Create(*domain.Tenant) error { m.created = true; return nil }
+func (m *tenantRepoMock) FindByID(string) (*domain.Tenant, error) {
+	if m.found != nil {
+		return m.found, nil
+	}
+	return &domain.Tenant{}, nil
+}
+func (m *tenantRepoMock) List() ([]domain.Tenant, error) { return nil, nil }
+func (m *tenantRepoMock) Update(*domain.Tenant) error    { return nil }
+func (m *tenantRepoMock) Delete(string) error            { return nil }
 
 type onboardingRepoMock struct {
 	result *domain.OnboardingResult
@@ -310,7 +322,8 @@ func TestTenantServiceRejectEmptyName(t *testing.T) {
 func TestTenantServiceCreateValid(t *testing.T) {
 	repo := &tenantRepoMock{}
 	svc := NewTenantService(repo)
-	err := svc.Create(&domain.Tenant{Name: "acme-corp"})
+	tenant := validTenant("acme-corp")
+	err := svc.Create(&tenant)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -501,7 +514,7 @@ func TestOnboardingServiceCreateTenantValidatesAndDelegatesTransaction(t *testin
 	config := `{"api_key":"tenant"}`
 	admin := &domain.User{Email: " ADMIN@EXAMPLE.COM ", Name: "Admin", PasswordHash: "hash"}
 	result, err := NewOnboardingService(repo).CreateTenant(domain.OnboardingInput{
-		Tenant:    domain.Tenant{Name: " Tenant Demo "},
+		Tenant:    validTenant(" Tenant Demo "),
 		Admin:     admin,
 		Providers: []domain.OnboardingProviderInput{{ProviderID: "550e8400-e29b-41d4-a716-446655440002", Active: true, Config: &config}},
 	})
@@ -519,7 +532,7 @@ func TestOnboardingServiceCreateTenantValidatesAndDelegatesTransaction(t *testin
 func TestOnboardingServiceMapsInvalidProviderToProviderNotAllowed(t *testing.T) {
 	repo := &onboardingRepoMock{err: sql.ErrNoRows}
 	_, err := NewOnboardingService(repo).CreateTenant(domain.OnboardingInput{
-		Tenant:    domain.Tenant{Name: "Tenant Demo"},
+		Tenant:    validTenant("Tenant Demo"),
 		Providers: []domain.OnboardingProviderInput{{ProviderID: "550e8400-e29b-41d4-a716-446655440002", Active: true}},
 	})
 	if !errors.Is(err, ErrProviderNotAllowed) {
@@ -1156,7 +1169,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("invalid payload: %v", err)
 		}
-		if payload.Data.DadosSacado.CpfCnpj != 12345678900 || payload.Data.DadosSacado.Cep != 12345678 || payload.Data.DadosSacado.Uf != "SP" {
+		if payload.Data.DadosSacado.CpfCnpj != 12345678000190 || payload.Data.DadosSacado.Cep != 12345678 || payload.Data.DadosSacado.Uf != "SP" {
 			t.Fatalf("unexpected payer payload: %+v", payload.Data.DadosSacado)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1164,6 +1177,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 				"NossoNumero":    "NN123",
 				"LinhaDigitavel": "linha",
 				"CodigoBarras":   "barra",
+				"Base64":         "JVBERi0xLjQ=",
 			},
 		})
 	}))
@@ -1189,6 +1203,11 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
+		WithTenantRepository(&tenantRepoMock{found: func() *domain.Tenant {
+			tenant := validTenant("Tenant Demo")
+			tenant.ID = validTenantUUID
+			return &tenant
+		}()}).
 		WithProviderRepository(providerRepo).
 		WithBlacklistService(&blacklistComplianceMock{}).
 		WithProviderFactory(factory.NewProviderFactory())
@@ -1197,7 +1216,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got.Status != "ISSUED" || got.OurNumber == nil || *got.OurNumber != "NN123" {
+	if got.Status != "ISSUED" || got.OurNumber == nil || *got.OurNumber != "NN123" || got.Base64 == nil || *got.Base64 != "JVBERi0xLjQ=" {
 		t.Fatalf("unexpected boleto: %+v", got)
 	}
 }

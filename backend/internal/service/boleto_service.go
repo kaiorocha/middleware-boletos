@@ -28,9 +28,12 @@ type blacklistCompliance interface {
 }
 
 type BoletoService struct {
-	repo         boletoRepo
-	customers    customerRepo
-	providers    providerRepo
+	repo      boletoRepo
+	customers customerRepo
+	providers providerRepo
+	tenants   interface {
+		FindByID(string) (*domain.Tenant, error)
+	}
 	blacklist    blacklistCompliance
 	factory      contracts.ProviderFactory
 	payerBuilder base.PayerBuilder
@@ -57,6 +60,13 @@ func (s *BoletoService) WithCustomerRepository(repo customerRepo) *BoletoService
 
 func (s *BoletoService) WithProviderRepository(repo providerRepo) *BoletoService {
 	s.providers = repo
+	return s
+}
+
+func (s *BoletoService) WithTenantRepository(repo interface {
+	FindByID(string) (*domain.Tenant, error)
+}) *BoletoService {
+	s.tenants = repo
 	return s
 }
 
@@ -203,7 +213,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return nil, ErrValidation
 	}
 
-	var payer *types.Payer
+	var fallbackPayer *types.Payer
 
 	// Case A: Traditional boleto with customer
 	if boleto.CustomerID != nil {
@@ -248,12 +258,9 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			)
 			return nil, NewCustomerBlocked("Este cliente está bloqueado para novas emissões.")
 		}
-
-		// Build payer from customer data
-		var errPayer error
-		payer, errPayer = s.payerBuilder.Build(*customer)
-		if errPayer != nil {
-			return nil, errPayer
+		fallbackPayer, err = s.payerBuilder.Build(*customer)
+		if err != nil {
+			return nil, err
 		}
 
 	} else if boleto.RecipientEmail != "" {
@@ -280,15 +287,25 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			)
 			return nil, NewRecipientBlocked("Este destinatário está bloqueado para novas emissões.")
 		}
-
-		// Build minimal payer for proposal boleto
-		payer = &types.Payer{
-			Email: email,
-		}
+		fallbackPayer = &types.Payer{Email: email}
 
 	} else {
 		// Neither CustomerID nor RecipientEmail provided
 		return nil, ErrValidation
+	}
+
+	payer := fallbackPayer
+	if s.tenants != nil {
+		tenant, err := s.tenants.FindByID(tenantID)
+		if err != nil || tenant.ID != "" && tenant.ID != tenantID {
+			return nil, ErrValidation
+		}
+		payer = &types.Payer{
+			Document: tenant.Document, Name: tenant.Name, Address: tenant.Address,
+			District: tenant.District, City: tenant.City, PostalCode: tenant.PostalCode,
+			State: tenant.State, CountryCode: tenant.CountryCode, AreaCode: tenant.AreaCode,
+			PhoneNumber: tenant.PhoneNumber, Email: NormalizeEmail(boleto.RecipientEmail),
+		}
 	}
 
 	providerConfig, err := s.providerConfigForTenant(tenantID, *boleto.ProviderID)
@@ -338,6 +355,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	boleto.Barcode = stringPtr(response.Barcode)
 	boleto.DigitableLine = stringPtr(response.DigitableLine)
 	boleto.OurNumber = stringPtr(response.OurNumber)
+	boleto.Base64 = stringPtr(response.Base64)
 	if !response.IssuedAt.IsZero() {
 		boleto.IssuedAt = &response.IssuedAt
 	}

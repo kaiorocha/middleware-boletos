@@ -207,7 +207,7 @@ Cria um tenant/empresa. Requer role `PLATFORM_ADMIN`.
 curl -s -X POST http://localhost:8080/api/v1/tenants \
   -H "Authorization: Bearer <platform-admin-token>" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Tenant A"}'
+  -d '{"name":"Tenant A","document":"12.345.678/0001-90","address":"Rua Um, 123","district":"Centro","city":"São Paulo","postal_code":"12345-678","state":"SP","country_code":"55","area_code":"11","phone_number":"99999-8888","webhook_url":"https://cliente.example.com/webhooks/boletos"}'
 ```
 
 ### GET /api/v1/tenants
@@ -253,6 +253,10 @@ Busca um tenant por ID.
 ```bash
 curl -s http://localhost:8080/api/v1/tenants/<tenantId>
 ```
+
+### PUT /api/v1/tenants/:id
+
+Atualiza os dados cadastrais usados como sacado nas emissões e a URL que receberá webhooks. Requer `TENANT_ADMIN`. Nome, CNPJ, endereço, bairro, cidade, CEP, UF, DDI, DDD e celular são obrigatórios; `webhook_url` é opcional e, quando informado, deve usar HTTP ou HTTPS.
 
 ## Dashboard
 
@@ -660,9 +664,12 @@ Campos persistidos após emissão:
 | `barcode` | Código de barras fake |
 | `digitable_line` | Linha digitável fake |
 | `our_number` | Nosso número fake |
+| `base64` | PDF do boleto em Base64, quando retornado pelo provider |
 | `issued_at` | Timestamp da emissão simulada |
 
 Para Mock, boletos proposta são emitidos com apenas email, valor e vencimento.
+
+Na Moncalieri, o sacado é sempre preenchido com os dados completos do tenant. O e-mail continua sendo o destinatário informado na criação. A integração envia `RetornarBase64=true`, persiste o PDF devolvido e retorna seu conteúdo no campo `base64`.
 
 Para Moncalieri, o adapter atual mapeia `Data.NossoNumero`, `Data.LinhaDigitavel` e `Data.CodigoBarras` da API do provider. A config aceita JSON com `base_url`, `api_key`, `codigo_canal`, `codigo_cliente`, `timeout_seconds` e `instrucoes`. O mapper Moncalieri ainda exige dados completos de sacado (`document`, `name`, endereço, bairro, cidade, CEP e UF`) no payload padronizado do provider; se faltar campo obrigatório, a API retorna `INVALID_REQUEST`.
 

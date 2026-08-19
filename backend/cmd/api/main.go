@@ -99,6 +99,7 @@ func main() {
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
 	boletoSvc := service.NewBoletoService(boletoRepo).
+		WithTenantRepository(tenantRepo).
 		WithCustomerRepository(custRepo).
 		WithProviderRepository(providerRepo).
 		WithBlacklistService(blacklistSvc).

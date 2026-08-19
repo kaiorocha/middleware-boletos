@@ -26,13 +26,16 @@ type gerarBoletoData struct {
 }
 
 type sacadoData struct {
-	CpfCnpj  int64  `json:"CpfCnpj"`
-	Nome     string `json:"Nome"`
-	Endereco string `json:"Endereco"`
-	Bairro   string `json:"Bairro"`
-	Cidade   string `json:"Cidade"`
-	Cep      int    `json:"Cep"`
-	Uf       string `json:"Uf"`
+	CpfCnpj               int64  `json:"CpfCnpj"`
+	Nome                  string `json:"Nome"`
+	Endereco              string `json:"Endereco"`
+	Bairro                string `json:"Bairro"`
+	Cidade                string `json:"Cidade"`
+	Cep                   int    `json:"Cep"`
+	Uf                    string `json:"Uf"`
+	DdiTerceiro           int    `json:"DdiTerceiro"`
+	DddTerceiro           int    `json:"DddTerceiro"`
+	NumeroCelularTerceiro int64  `json:"NumeroCelularTerceiro"`
 }
 
 type gerarBoletoResponse struct {

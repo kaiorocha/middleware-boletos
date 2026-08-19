@@ -39,7 +39,7 @@ func mapIssueRequest(cfg Config, req types.IssueRequest) (envelope[gerarBoletoDa
 			Email:                strings.TrimSpace(req.Payer.Email),
 			DadosSacado:          payer,
 			IdentificadorCliente: identifier,
-			RetornarBase64:       false,
+			RetornarBase64:       true,
 			Instrucoes:           instructions,
 		},
 	}, nil
@@ -54,14 +54,29 @@ func mapSacado(payer types.Payer) (sacadoData, error) {
 	if err != nil {
 		return sacadoData{}, err
 	}
+	ddi, err := parseRequiredDigits(payer.CountryCode, "payer country code")
+	if err != nil {
+		return sacadoData{}, err
+	}
+	ddd, err := parseRequiredDigits(payer.AreaCode, "payer area code")
+	if err != nil {
+		return sacadoData{}, err
+	}
+	phone, err := parseRequiredDigits64(payer.PhoneNumber, "payer phone number")
+	if err != nil {
+		return sacadoData{}, err
+	}
 	out := sacadoData{
-		CpfCnpj:  document,
-		Nome:     strings.TrimSpace(payer.Name),
-		Endereco: strings.TrimSpace(payer.Address),
-		Bairro:   strings.TrimSpace(payer.District),
-		Cidade:   strings.TrimSpace(payer.City),
-		Cep:      postalCode,
-		Uf:       strings.ToUpper(strings.TrimSpace(payer.State)),
+		CpfCnpj:               document,
+		Nome:                  strings.TrimSpace(payer.Name),
+		Endereco:              strings.TrimSpace(payer.Address),
+		Bairro:                strings.TrimSpace(payer.District),
+		Cidade:                strings.TrimSpace(payer.City),
+		Cep:                   postalCode,
+		Uf:                    strings.ToUpper(strings.TrimSpace(payer.State)),
+		DdiTerceiro:           ddi,
+		DddTerceiro:           ddd,
+		NumeroCelularTerceiro: phone,
 	}
 	if out.Nome == "" || out.Endereco == "" || out.Bairro == "" || out.Cidade == "" || out.Uf == "" {
 		return sacadoData{}, providererrors.New(errInvalidRequest, "payer name, address, district, city and state are required", providerName, false)
@@ -76,7 +91,7 @@ func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.I
 	if err := responseError(resp.ResultCode, resp.Message, resp.ValidationData); err != nil {
 		return types.IssueResponse{}, err
 	}
-	if resp.Data.NossoNumero == "" || resp.Data.LinhaDigitavel == "" || resp.Data.CodigoBarras == "" {
+	if resp.Data.NossoNumero == "" || resp.Data.LinhaDigitavel == "" || resp.Data.CodigoBarras == "" || resp.Data.Base64 == "" {
 		return types.IssueResponse{}, providererrors.New(errProviderUnexpected, "provider response is missing boleto fields", providerName, false)
 	}
 	externalID := strings.TrimSpace(req.ExternalID)
@@ -91,6 +106,7 @@ func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.I
 		Barcode:       resp.Data.CodigoBarras,
 		DigitableLine: resp.Data.LinhaDigitavel,
 		OurNumber:     resp.Data.NossoNumero,
+		Base64:        resp.Data.Base64,
 		Status:        types.StatusIssued,
 		IssuedAt:      time.Now().UTC(),
 	}, nil

@@ -388,8 +388,18 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name  string `json:"name"`
-		Admin *struct {
+		Name        string `json:"name"`
+		Document    string `json:"document"`
+		Address     string `json:"address"`
+		District    string `json:"district"`
+		City        string `json:"city"`
+		PostalCode  string `json:"postal_code"`
+		State       string `json:"state"`
+		CountryCode string `json:"country_code"`
+		AreaCode    string `json:"area_code"`
+		PhoneNumber string `json:"phone_number"`
+		WebhookURL  string `json:"webhook_url"`
+		Admin       *struct {
 			Name     string `json:"name"`
 			Email    string `json:"email"`
 			Password string `json:"password"`
@@ -433,7 +443,7 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.OnboardingSvc != nil {
 		result, err := a.OnboardingSvc.CreateTenant(domain.OnboardingInput{
-			Tenant:    domain.Tenant{Name: in.Name},
+			Tenant:    domain.Tenant{Name: in.Name, Document: in.Document, Address: in.Address, District: in.District, City: in.City, PostalCode: in.PostalCode, State: in.State, CountryCode: in.CountryCode, AreaCode: in.AreaCode, PhoneNumber: in.PhoneNumber, WebhookURL: in.WebhookURL},
 			Admin:     admin,
 			Providers: providers,
 		})
@@ -445,7 +455,7 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := &domain.Tenant{Name: in.Name}
+	tenant := &domain.Tenant{Name: in.Name, Document: in.Document, Address: in.Address, District: in.District, City: in.City, PostalCode: in.PostalCode, State: in.State, CountryCode: in.CountryCode, AreaCode: in.AreaCode, PhoneNumber: in.PhoneNumber, WebhookURL: in.WebhookURL}
 	if err := a.TenantSvc.Create(tenant); err != nil {
 		writeServiceError(w, err)
 		return
@@ -760,6 +770,29 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(parts) == 1 {
+		if r.Method == http.MethodPut {
+			if !a.requireTenantAdmin(w, r) {
+				return
+			}
+			current, err := a.TenantSvc.Get(tenantID)
+			if err != nil {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "tenant not found")
+				return
+			}
+			var in domain.Tenant
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+				return
+			}
+			in.ID = tenantID
+			in.OwnerID = current.OwnerID
+			if err := a.TenantSvc.Update(&in); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, in)
+			return
+		}
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 			return

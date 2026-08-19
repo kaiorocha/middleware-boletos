@@ -495,7 +495,7 @@ func TestGlobalTenantRoutesRequirePlatformAdmin(t *testing.T) {
 		{
 			name:   "POST authenticated without platform admin",
 			method: http.MethodPost,
-			body:   `{"name":"Tenant Novo"}`,
+			body:   `{"name":"Tenant Novo","document":"12345678000190","address":"Rua Um, 123","district":"Centro","city":"Sao Paulo","postal_code":"12345678","state":"SP","country_code":"55","area_code":"11","phone_number":"999998888"}`,
 			token:  testJWT(testUserID, []string{tenantID}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
 			want:   http.StatusForbidden,
 		},
@@ -509,7 +509,7 @@ func TestGlobalTenantRoutesRequirePlatformAdmin(t *testing.T) {
 		{
 			name:   "POST platform admin",
 			method: http.MethodPost,
-			body:   `{"name":"Tenant Novo"}`,
+			body:   `{"name":"Tenant Novo","document":"12345678000190","address":"Rua Um, 123","district":"Centro","city":"Sao Paulo","postal_code":"12345678","state":"SP","country_code":"55","area_code":"11","phone_number":"999998888"}`,
 			token:  testJWTWithRoles(testUserID, []string{tenantID}, []string{authn.RolePlatformAdmin}, time.Now().Add(time.Hour), testJWTIssuer, testJWTAud, testJWTSecret),
 			want:   http.StatusCreated,
 		},
@@ -799,6 +799,15 @@ func TestPlatformAdminCreatesTenantAdmin(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tenants", strings.NewReader(`{
 		"name":"Cliente Demonstração",
+		"document":"12345678000190",
+		"address":"Rua Um, 123",
+		"district":"Centro",
+		"city":"Sao Paulo",
+		"postal_code":"12345678",
+		"state":"SP",
+		"country_code":"55",
+		"area_code":"11",
+		"phone_number":"999998888",
 		"admin":{"name":"Cliente Admin","email":"cliente@demo.local","password":"Cliente123456!"}
 	}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -1022,7 +1031,7 @@ func TestEmitBoletoRouteUsesTenantBoletoHandler(t *testing.T) {
 	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
 		ID:          validBoletoID,
 		TenantID:    validTenantID,
-		CustomerID: &validCustomerID,
+		CustomerID:  &validCustomerID,
 		ProviderID:  &validProviderID,
 		AmountCents: 15000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
@@ -1072,7 +1081,7 @@ func TestEmitBoletoRouteReturnsCustomerBlocked(t *testing.T) {
 	boletoRepo := &apiBoletoRepo{item: &domain.Boleto{
 		ID:          validBoletoID,
 		TenantID:    validTenantID,
-		CustomerID: &validCustomerID,
+		CustomerID:  &validCustomerID,
 		ProviderID:  &validProviderID,
 		AmountCents: 15000,
 		DueDate:     time.Now().AddDate(0, 0, 7),
