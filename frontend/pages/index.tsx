@@ -186,6 +186,16 @@ function AdminView(props) {
   const [notice, setNotice] = useState('')
   const [form, setForm] = useState({
     name: 'Cliente Demonstração',
+    document: '',
+    address: '',
+    district: '',
+    city: '',
+    postalCode: '',
+    state: '',
+    countryCode: '55',
+    areaCode: '',
+    phoneNumber: '',
+    webhookUrl: '',
     adminName: 'Administrador Cliente',
     adminEmail: 'cliente@demo.local',
     adminPassword: 'Cliente123456!',
@@ -227,6 +237,16 @@ function AdminView(props) {
     setError('')
     const payload = {
       name: form.name,
+      document: form.document,
+      address: form.address,
+      district: form.district,
+      city: form.city,
+      postal_code: form.postalCode,
+      state: form.state,
+      country_code: form.countryCode,
+      area_code: form.areaCode,
+      phone_number: form.phoneNumber,
+      webhook_url: form.webhookUrl || undefined,
       admin: { name: form.adminName, email: form.adminEmail, password: form.adminPassword },
       providers: form.providerIds.map((provider_id) => ({ provider_id, active: true, config: providerConfigs[provider_id] || undefined })),
     }
@@ -285,6 +305,14 @@ function AdminView(props) {
           <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at)])} /></section>
           <FormPanel title="Novo Tenant" onSubmit={createTenant}>
             <label>Nome do Tenant<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+            <label>CNPJ<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} /></label>
+            <label>Endereço<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
+            <label>Bairro<input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} /></label>
+            <label>Cidade<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
+            <label>CEP<input value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} /></label>
+            <label>UF<input maxLength={2} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></label>
+            <div className="threeCols"><label>DDI<input value={form.countryCode} onChange={(e) => setForm({ ...form, countryCode: e.target.value })} /></label><label>DDD<input value={form.areaCode} onChange={(e) => setForm({ ...form, areaCode: e.target.value })} /></label><label>Celular<input value={form.phoneNumber} onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })} /></label></div>
+            <label>URL de webhooks<input type="url" value={form.webhookUrl} onChange={(e) => setForm({ ...form, webhookUrl: e.target.value })} placeholder="https://cliente.exemplo/webhooks" /></label>
             <label>Nome do Administrador<input value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} /></label>
             <label>E-mail do Administrador<input value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} /></label>
             <label>Senha inicial<input type="password" value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} /></label>

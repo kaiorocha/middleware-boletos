@@ -21,8 +21,7 @@ func NewOnboardingService(repo onboardingRepo) *OnboardingService {
 }
 
 func (s *OnboardingService) CreateTenant(input domain.OnboardingInput) (*domain.OnboardingResult, error) {
-	input.Tenant.Name = strings.TrimSpace(input.Tenant.Name)
-	if input.Tenant.Name == "" {
+	if err := normalizeAndValidateTenant(&input.Tenant); err != nil {
 		return nil, ErrValidation
 	}
 	if input.Admin != nil {

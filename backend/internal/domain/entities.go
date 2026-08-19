@@ -4,12 +4,22 @@ import "time"
 
 // Tenant represents an organization using the middleware
 type Tenant struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	OwnerID   *string    `json:"owner_id,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Document    string     `json:"document"`
+	Address     string     `json:"address"`
+	District    string     `json:"district"`
+	City        string     `json:"city"`
+	PostalCode  string     `json:"postal_code"`
+	State       string     `json:"state"`
+	CountryCode string     `json:"country_code"`
+	AreaCode    string     `json:"area_code"`
+	PhoneNumber string     `json:"phone_number"`
+	WebhookURL  string     `json:"webhook_url"`
+	OwnerID     *string    `json:"owner_id,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 // User represents a system user
@@ -89,6 +99,7 @@ type Boleto struct {
 	Barcode        *string    `json:"barcode,omitempty"`
 	DigitableLine  *string    `json:"digitable_line,omitempty"`
 	OurNumber      *string    `json:"our_number,omitempty"`
+	Base64         *string    `json:"base64,omitempty"`
 	IssuedAt       *time.Time `json:"issued_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
@@ -219,19 +230,19 @@ type AuditLog struct {
 
 // BlacklistEntry blocks boleto emissions for a tenant/document or tenant/email pair.
 type BlacklistEntry struct {
-	ID               string     `json:"id"`
-	TenantID         string     `json:"tenant_id"`
-	EntryType        string     `json:"entry_type"`
-	Value            string     `json:"value"`
-	ValueNormalized  string     `json:"value_normalized"`
-	Document         string     `json:"document"`
-	Name             string     `json:"name"`
-	Reason           string     `json:"reason"`
-	Notes            *string    `json:"notes,omitempty"`
-	Source           string     `json:"source"`
-	CreatedBy        *string    `json:"created_by,omitempty"`
-	Active           bool       `json:"active"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
+	ID              string     `json:"id"`
+	TenantID        string     `json:"tenant_id"`
+	EntryType       string     `json:"entry_type"`
+	Value           string     `json:"value"`
+	ValueNormalized string     `json:"value_normalized"`
+	Document        string     `json:"document"`
+	Name            string     `json:"name"`
+	Reason          string     `json:"reason"`
+	Notes           *string    `json:"notes,omitempty"`
+	Source          string     `json:"source"`
+	CreatedBy       *string    `json:"created_by,omitempty"`
+	Active          bool       `json:"active"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 }

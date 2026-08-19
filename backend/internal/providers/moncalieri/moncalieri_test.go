@@ -38,6 +38,7 @@ func TestIssueBoletoSuccess(t *testing.T) {
 				NossoNumero:    "NN123",
 				LinhaDigitavel: "34191.00000 00000.000000 00000.000000 1 12345678901234",
 				CodigoBarras:   "3419112345678901234",
+				Base64:         "JVBERi0xLjQ=",
 			},
 		})
 	}))
@@ -58,10 +59,13 @@ func TestIssueBoletoSuccess(t *testing.T) {
 	if gotPayload.Data.DadosSacado.CpfCnpj != 12345678900 || gotPayload.Data.DadosSacado.Cep != 12345678 {
 		t.Fatalf("unexpected payer payload: %+v", gotPayload.Data.DadosSacado)
 	}
+	if !gotPayload.Data.RetornarBase64 || gotPayload.Data.DadosSacado.DdiTerceiro != 55 || gotPayload.Data.DadosSacado.DddTerceiro != 11 || gotPayload.Data.DadosSacado.NumeroCelularTerceiro != 999998888 {
+		t.Fatalf("expected base64 and phone fields in payload: %+v", gotPayload.Data)
+	}
 	if gotPayload.Data.Valor != 123.45 {
 		t.Fatalf("expected amount 123.45, got %v", gotPayload.Data.Valor)
 	}
-	if resp.Status != types.StatusIssued || resp.OurNumber != "NN123" || resp.Barcode == "" || resp.DigitableLine == "" || resp.IssuedAt.IsZero() {
+	if resp.Status != types.StatusIssued || resp.OurNumber != "NN123" || resp.Barcode == "" || resp.DigitableLine == "" || resp.Base64 != "JVBERi0xLjQ=" || resp.IssuedAt.IsZero() {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
@@ -192,14 +196,17 @@ func validIssueRequest() types.IssueRequest {
 		AmountCents: 12345,
 		DueDate:     time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
 		Payer: &types.Payer{
-			Document:   "123.456.789-00",
-			Name:       "Cliente Demo",
-			Address:    "Rua Um, 123",
-			District:   "Centro",
-			City:       "Sao Paulo",
-			PostalCode: "12345-678",
-			State:      "sp",
-			Email:      "cliente@example.com",
+			Document:    "123.456.789-00",
+			Name:        "Cliente Demo",
+			Address:     "Rua Um, 123",
+			District:    "Centro",
+			City:        "Sao Paulo",
+			PostalCode:  "12345-678",
+			State:       "sp",
+			Email:       "cliente@example.com",
+			CountryCode: "55",
+			AreaCode:    "11",
+			PhoneNumber: "99999-8888",
 		},
 	}
 }

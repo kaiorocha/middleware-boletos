@@ -35,14 +35,17 @@ type IssueRequest struct {
 }
 
 type Payer struct {
-	Document   string
-	Name       string
-	Address    string
-	District   string
-	City       string
-	PostalCode string
-	State      string
-	Email      string
+	Document    string
+	Name        string
+	Address     string
+	District    string
+	City        string
+	PostalCode  string
+	State       string
+	Email       string
+	CountryCode string
+	AreaCode    string
+	PhoneNumber string
 }
 
 type IssueResponse struct {
@@ -50,6 +53,7 @@ type IssueResponse struct {
 	Barcode       string       `json:"barcode"`
 	DigitableLine string       `json:"digitable_line"`
 	OurNumber     string       `json:"our_number"`
+	Base64        string       `json:"base64,omitempty"`
 	Status        BoletoStatus `json:"status"`
 	IssuedAt      time.Time    `json:"issued_at"`
 }

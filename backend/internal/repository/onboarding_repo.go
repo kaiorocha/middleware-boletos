@@ -30,7 +30,7 @@ func (r *OnboardingRepo) CreateTenantOnboarding(input domain.OnboardingInput) (*
 	if tenant.ID == "" {
 		tenant.ID = uuid.New().String()
 	}
-	err = tx.QueryRow(`INSERT INTO tenants (id,name,owner_id,created_at,updated_at) VALUES ($1,$2,$3,now(),now()) RETURNING created_at,updated_at`, tenant.ID, tenant.Name, tenant.OwnerID).Scan(&tenant.CreatedAt, &tenant.UpdatedAt)
+	err = tx.QueryRow(`INSERT INTO tenants (id,name,document,address,district,city,postal_code,state,country_code,area_code,phone_number,webhook_url,owner_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now()) RETURNING created_at,updated_at`, tenant.ID, tenant.Name, tenant.Document, tenant.Address, tenant.District, tenant.City, tenant.PostalCode, tenant.State, tenant.CountryCode, tenant.AreaCode, tenant.PhoneNumber, tenant.WebhookURL, tenant.OwnerID).Scan(&tenant.CreatedAt, &tenant.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
