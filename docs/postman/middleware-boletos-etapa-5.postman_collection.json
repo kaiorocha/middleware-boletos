@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "00000000-0000-4000-8000-6d6964646c65",
-    "name": "middleware-boletos - Etapa 5",
-    "description": "Validação do fluxo de boleto proposta, Compliance por email, Production Readiness e integração com providers.",
+    "name": "middleware-boletos - Etapa 5 Final",
+    "description": "Validação final do fluxo de boleto proposta, dados cadastrais do tenant, Compliance por email, Production Readiness e integração com providers.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -140,6 +140,90 @@
     {
       "key": "moncalieriBoletoId",
       "value": ""
+    },
+    {
+      "key": "tenantDocument",
+      "value": "12345678000195"
+    },
+    {
+      "key": "tenantAddress",
+      "value": "Rua das Integracoes, 100"
+    },
+    {
+      "key": "tenantDistrict",
+      "value": "Centro"
+    },
+    {
+      "key": "tenantCity",
+      "value": "Sao Paulo"
+    },
+    {
+      "key": "tenantPostalCode",
+      "value": "01311000"
+    },
+    {
+      "key": "tenantState",
+      "value": "SP"
+    },
+    {
+      "key": "tenantCountryCode",
+      "value": "55"
+    },
+    {
+      "key": "tenantAreaCode",
+      "value": "11"
+    },
+    {
+      "key": "tenantPhoneNumber",
+      "value": "999998888"
+    },
+    {
+      "key": "tenantWebhookUrl",
+      "value": "https://estabelecimento.example.com/webhooks/boletos"
+    },
+    {
+      "key": "updatedTenantName",
+      "value": "Tenant Postman Etapa 5 Atualizado"
+    },
+    {
+      "key": "updatedTenantDocument",
+      "value": "98765432000110"
+    },
+    {
+      "key": "updatedTenantAddress",
+      "value": "Avenida Paulista, 1000"
+    },
+    {
+      "key": "updatedTenantDistrict",
+      "value": "Bela Vista"
+    },
+    {
+      "key": "updatedTenantCity",
+      "value": "Sao Paulo"
+    },
+    {
+      "key": "updatedTenantPostalCode",
+      "value": "01310100"
+    },
+    {
+      "key": "updatedTenantState",
+      "value": "SP"
+    },
+    {
+      "key": "updatedTenantCountryCode",
+      "value": "55"
+    },
+    {
+      "key": "updatedTenantAreaCode",
+      "value": "11"
+    },
+    {
+      "key": "updatedTenantPhoneNumber",
+      "value": "988887777"
+    },
+    {
+      "key": "updatedTenantWebhookUrl",
+      "value": "https://estabelecimento.example.com/webhooks/boletos/updated"
     }
   ],
   "item": [
@@ -484,7 +568,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Tenant Postman Etapa 5 {{runNonce}}\",\n  \"admin\": {\n    \"name\": \"Tenant Admin Postman\",\n    \"email\": \"{{tenantAdminEmail}}\",\n    \"password\": \"{{tenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{mockProviderId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"delay_ms\\\":0}\"\n    }\n  ]\n}",
+              "raw": "{\n  \"name\": \"Tenant Postman Etapa 5 {{runNonce}}\",\n  \"document\": \"{{tenantDocument}}\",\n  \"address\": \"{{tenantAddress}}\",\n  \"district\": \"{{tenantDistrict}}\",\n  \"city\": \"{{tenantCity}}\",\n  \"postal_code\": \"{{tenantPostalCode}}\",\n  \"state\": \"{{tenantState}}\",\n  \"country_code\": \"{{tenantCountryCode}}\",\n  \"area_code\": \"{{tenantAreaCode}}\",\n  \"phone_number\": \"{{tenantPhoneNumber}}\",\n  \"webhook_url\": \"{{tenantWebhookUrl}}\",\n  \"admin\": {\n    \"name\": \"Tenant Admin Postman\",\n    \"email\": \"{{tenantAdminEmail}}\",\n    \"password\": \"{{tenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{mockProviderId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"delay_ms\\\":0}\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -504,6 +588,7 @@
                   "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
                   "pm.test(\"tenant id exists\", function () { pm.expect(json.data.tenant.id).to.be.a(\"string\").and.not.empty; });",
                   "pm.test(\"tenant admin returned\", function () { pm.expect(json.data.admin.email).to.eql(pm.collectionVariables.get(\"tenantAdminEmail\")); });",
+                  "pm.test(\"tenant billing fields persisted\", function () { pm.expect(json.data.tenant.document).to.eql(pm.collectionVariables.get(\"tenantDocument\")); pm.expect(json.data.tenant.postal_code).to.eql(pm.collectionVariables.get(\"tenantPostalCode\")); pm.expect(json.data.tenant.webhook_url).to.eql(pm.collectionVariables.get(\"tenantWebhookUrl\")); });",
                   "pm.collectionVariables.set(\"tenantId\", json.data.tenant.id);"
                 ]
               }
@@ -555,6 +640,110 @@
                   "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
                   "pm.test(\"access_token exists\", function () { pm.expect(json.data.access_token).to.be.a(\"string\").and.not.empty; });",
                   "pm.collectionVariables.set(\"tenant_admin_access_token\", json.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Tenant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"tenant has billing fields\", function () { pm.expect(json.data.document).to.eql(pm.collectionVariables.get(\"tenantDocument\")); pm.expect(json.data.address).to.eql(pm.collectionVariables.get(\"tenantAddress\")); pm.expect(json.data.webhook_url).to.eql(pm.collectionVariables.get(\"tenantWebhookUrl\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Tenant",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{updatedTenantName}} {{runNonce}}\",\n  \"document\": \"{{updatedTenantDocument}}\",\n  \"address\": \"{{updatedTenantAddress}}\",\n  \"district\": \"{{updatedTenantDistrict}}\",\n  \"city\": \"{{updatedTenantCity}}\",\n  \"postal_code\": \"{{updatedTenantPostalCode}}\",\n  \"state\": \"{{updatedTenantState}}\",\n  \"country_code\": \"{{updatedTenantCountryCode}}\",\n  \"area_code\": \"{{updatedTenantAreaCode}}\",\n  \"phone_number\": \"{{updatedTenantPhoneNumber}}\",\n  \"webhook_url\": \"{{updatedTenantWebhookUrl}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"updated tenant fields persisted\", function () { pm.expect(json.data.id).to.eql(pm.collectionVariables.get(\"tenantId\")); pm.expect(json.data.document).to.eql(pm.collectionVariables.get(\"updatedTenantDocument\")); pm.expect(json.data.address).to.eql(pm.collectionVariables.get(\"updatedTenantAddress\")); pm.expect(json.data.webhook_url).to.eql(pm.collectionVariables.get(\"updatedTenantWebhookUrl\")); });"
                 ]
               }
             }
@@ -1463,7 +1652,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Tenant Moncalieri Homologacao {{runNonce}}\",\n  \"admin\": {\n    \"name\": \"Admin Moncalieri Homologacao\",\n    \"email\": \"{{moncalieriTenantAdminEmail}}\",\n    \"password\": \"{{moncalieriTenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{moncalieriProviderId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"base_url\\\":\\\"{{moncalieriBaseUrl}}\\\",\\\"api_key\\\":\\\"{{moncalieriApiKey}}\\\",\\\"codigo_canal\\\":{{moncalieriCodigoCanal}},\\\"codigo_cliente\\\":{{moncalieriCodigoCliente}},\\\"timeout_seconds\\\":30}\"\n    }\n  ]\n}",
+              "raw": "{\n  \"name\": \"Tenant Moncalieri Homologacao {{runNonce}}\",\n  \"document\": \"{{tenantDocument}}\",\n  \"address\": \"{{tenantAddress}}\",\n  \"district\": \"{{tenantDistrict}}\",\n  \"city\": \"{{tenantCity}}\",\n  \"postal_code\": \"{{tenantPostalCode}}\",\n  \"state\": \"{{tenantState}}\",\n  \"country_code\": \"{{tenantCountryCode}}\",\n  \"area_code\": \"{{tenantAreaCode}}\",\n  \"phone_number\": \"{{tenantPhoneNumber}}\",\n  \"webhook_url\": \"{{tenantWebhookUrl}}\",\n  \"admin\": {\n    \"name\": \"Admin Moncalieri Homologacao\",\n    \"email\": \"{{moncalieriTenantAdminEmail}}\",\n    \"password\": \"{{moncalieriTenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{moncalieriProviderId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"base_url\\\":\\\"{{moncalieriBaseUrl}}\\\",\\\"api_key\\\":\\\"{{moncalieriApiKey}}\\\",\\\"codigo_canal\\\":{{moncalieriCodigoCanal}},\\\"codigo_cliente\\\":{{moncalieriCodigoCliente}},\\\"timeout_seconds\\\":30}\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
