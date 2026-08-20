@@ -10,6 +10,16 @@ Nesta etapa, o fluxo principal passa a ser boleto proposta: a API cria uma inten
 http://localhost:8080
 ```
 
+## OpenAPI
+
+A especificação OpenAPI 3.0.3 publicável para integração dos estabelecimentos está em:
+
+```text
+docs/openapi/middleware-boletos-etapa-5.openapi.json
+```
+
+Ela cobre autenticação, dados cadastrais do tenant, providers habilitados, boleto proposta, emissão, transações e Compliance.
+
 ## Padrão de resposta
 
 ### Sucesso

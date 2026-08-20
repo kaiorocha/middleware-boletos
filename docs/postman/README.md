@@ -19,7 +19,7 @@ As collections das etapas 2, 3 e 4 permanecem nesta pasta como histórico.
 1. Abra o Postman.
 2. Clique em **Import**.
 3. Selecione `docs/postman/middleware-boletos-etapa-5.postman_collection.json`.
-4. Confirme a importação da collection `middleware-boletos - Etapa 5`.
+4. Confirme a importação da collection `middleware-boletos - Etapa 5 Final`.
 
 ## Como rodar o backend localmente
 
@@ -47,6 +47,32 @@ A collection já define defaults seguros para execução local:
 - `platformAdminPassword = ChangeMe123456!`
 - `tenantAdminPassword = Tenant123456!`
 - `amountCents = 10000`
+
+Também há defaults para os dados cadastrais obrigatórios do tenant:
+
+- `tenantDocument`
+- `tenantAddress`
+- `tenantDistrict`
+- `tenantCity`
+- `tenantPostalCode`
+- `tenantState`
+- `tenantCountryCode`
+- `tenantAreaCode`
+- `tenantPhoneNumber`
+- `tenantWebhookUrl`
+
+E defaults equivalentes para o teste de atualização do tenant:
+
+- `updatedTenantDocument`
+- `updatedTenantAddress`
+- `updatedTenantDistrict`
+- `updatedTenantCity`
+- `updatedTenantPostalCode`
+- `updatedTenantState`
+- `updatedTenantCountryCode`
+- `updatedTenantAreaCode`
+- `updatedTenantPhoneNumber`
+- `updatedTenantWebhookUrl`
 
 O pre-request script da collection gera automaticamente por execução:
 
@@ -78,18 +104,20 @@ Os scripts de teste capturam automaticamente:
 4. Create Mock Provider
 5. Create Tenant With Tenant Admin and Mock Provider
 6. Login Tenant Admin
-7. Create Proposal Boleto
-8. Emit Proposal Boleto
-9. Get Boleto
-10. Tenant Transactions
-11. Admin Transactions
-12. Block Recipient Email
-13. Create Blocked Proposal Boleto
-14. Emit Blocked Proposal - RECIPIENT_BLOCKED
-15. Unblock Email
-16. Emit After Unblock
-17. Idempotency External ID
-18. Moncalieri Homologação
+7. Get Tenant
+8. Update Tenant
+9. Create Proposal Boleto
+10. Emit Proposal Boleto
+11. Get Boleto
+12. Tenant Transactions
+13. Admin Transactions
+14. Block Recipient Email
+15. Create Blocked Proposal Boleto
+16. Emit Blocked Proposal - RECIPIENT_BLOCKED
+17. Unblock Email
+18. Emit After Unblock
+19. Idempotency External ID
+20. Moncalieri Homologação
 
 ## Moncalieri Homologação
 
@@ -110,7 +138,7 @@ Como os requests dessa pasta ficam desabilitados, habilite e execute manualmente
 
 ## Collections disponíveis
 
-- `middleware-boletos-etapa-5.postman_collection.json`: boleto proposta, Compliance por email, `RECIPIENT_BLOCKED`, idempotência e readiness.
+- `middleware-boletos-etapa-5.postman_collection.json`: versão final da Etapa 5 com dados cadastrais do tenant, atualização de tenant, boleto proposta, Compliance por email, `RECIPIENT_BLOCKED`, idempotência e readiness.
 - `middleware-boletos-etapa-4.postman_collection.json`: painel operacional, dashboard, blacklist e RBAC da etapa anterior.
 - `middleware-boletos-etapa-3.postman_collection.json`: arquitetura de providers, MockProvider, MoncalieriProvider, health, balance e webhook.
 - `middleware-boletos-etapa-2.postman_collection.json`: rotas CRUD iniciais e validações básicas.

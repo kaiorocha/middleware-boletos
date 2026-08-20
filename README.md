@@ -68,6 +68,14 @@ Ela pode ser importada no Postman para validar login, setup de tenant/provider, 
 
 As collections das etapas 2, 3 e 4 permanecem em `docs/postman/` como histórico.
 
+## OpenAPI
+
+A especificação OpenAPI publicável para integração dos estabelecimentos está disponível em:
+
+`docs/openapi/middleware-boletos-etapa-5.openapi.json`
+
+Ela pode ser importada em Swagger UI, Redoc, Stoplight, Insomnia ou Postman.
+
 ## Demo SaaS
 
 O fluxo demonstrável está documentado em `docs/demo.md`.
