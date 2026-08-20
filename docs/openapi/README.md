@@ -1,45 +1,38 @@
 # OpenAPI
 
-Esta pasta contém a especificação OpenAPI publicável do `middleware-boletos`.
+Esta pasta contém dois contratos OpenAPI do `middleware-boletos`, com finalidades distintas.
 
-Arquivo principal:
+Contratos:
 
 ```text
-docs/openapi/middleware-boletos-etapa-5.openapi.json
+middleware-boletos-etapa-5.openapi.json   # interno/completo; não publicar
+middleware-boletos-public.openapi.json    # integração externa; fonte do portal
 ```
 
 ## Como usar
 
-O arquivo está em OpenAPI `3.0.3` e pode ser importado em ferramentas como Swagger UI, Redoc, Stoplight, Insomnia ou Postman.
-
-Para publicar uma documentação estática, use o arquivo JSON como entrada da ferramenta escolhida. Exemplo com Swagger UI local:
+Os arquivos estão em OpenAPI `3.0.3`. Para validar o contrato público:
 
 ```bash
-docker run --rm -p 8081:8080 \
-  -e SWAGGER_JSON=/openapi/middleware-boletos-etapa-5.openapi.json \
-  -v "$PWD/docs/openapi:/openapi" \
-  swaggerapi/swagger-ui
+bash scripts/docs/validate-public-openapi.sh
 ```
 
-Depois acesse:
-
-```text
-http://localhost:8081
-```
+O portal Scalar e suas instruções locais ficam em `developer-portal/README.md`. Durante o build, `PUBLIC_API_PRODUCTION_URL` e o `PUBLIC_API_HML_URL` opcional substituem os servers somente em `dist/openapi.json`; o arquivo-fonte permanece imutável.
 
 ## Escopo
 
-A especificação cobre os endpoints principais para integração de estabelecimentos:
+A especificação pública cobre somente os endpoints para integração de estabelecimentos:
 
 - autenticação;
-- consulta e atualização cadastral do tenant;
+- descoberta dos tenants autorizados;
 - providers habilitados para o tenant;
 - criação e emissão de boleto proposta;
 - consulta de boletos;
 - transações paginadas;
 - Compliance por email/documento;
-- health/readiness;
-- endpoints administrativos necessários para onboarding e catálogo de providers.
+- webhook de provider.
+
+Health/readiness, onboarding global, catálogo global de providers e todo `/api/v1/admin/*` permanecem exclusivamente no contrato interno.
 
 Os schemas refletem a resposta padrão da API:
 

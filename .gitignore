@@ -1,6 +1,7 @@
 # Node
 node_modules
 .next
+developer-portal/dist
 
 # Go
 /bin

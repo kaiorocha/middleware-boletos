@@ -1,0 +1,8 @@
+aws_region                = "us-east-1"
+environment               = "production"
+enable_custom_domain      = false
+domain_name               = "example.com"
+docs_subdomain            = "docs"
+route53_zone_id           = ""
+github_oidc_provider_arn  = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+github_repository         = "kaiorocha/middleware-boletos"

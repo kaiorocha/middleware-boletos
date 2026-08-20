@@ -1,0 +1,66 @@
+name: Publish Public API Docs
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag or branch to publish (use an earlier ref for rollback)
+        required: true
+        default: main
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: publish-public-api-docs
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: public-docs
+    env:
+      PUBLIC_API_PRODUCTION_URL: ${{ vars.PUBLIC_API_PRODUCTION_URL }}
+      PUBLIC_API_HML_URL: ${{ vars.PUBLIC_API_HML_URL }}
+      PUBLIC_DOCS_URL: ${{ vars.PUBLIC_DOCS_URL }}
+      DOCS_BUCKET: ${{ vars.PUBLIC_DOCS_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.PUBLIC_DOCS_DISTRIBUTION_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.ref }}' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: developer-portal/package-lock.json
+      - name: Install portal dependencies
+        working-directory: developer-portal
+        run: npm ci
+      - name: Validate public contract
+        run: bash scripts/docs/validate-public-openapi.sh
+      - name: Build immutable distribution directory
+        working-directory: developer-portal
+        run: npm run build
+      - name: Validate build contents
+        run: |
+          test -s developer-portal/dist/index.html
+          test -s developer-portal/dist/openapi.json
+          test -s developer-portal/dist/assets/portal.js
+          node scripts/docs/validate-public-openapi.mjs developer-portal/dist/openapi.json
+      - uses: aws-actions/configure-aws-credentials@v5
+        with: { role-to-assume: '${{ vars.PUBLIC_DOCS_PUBLISH_ROLE_ARN }}', aws-region: us-east-1 }
+      - name: Validate publication targets
+        run: test -n "$DOCS_BUCKET" && test -n "$DISTRIBUTION_ID" && test -n "$PUBLIC_DOCS_URL"
+      - name: Publish to private S3 bucket
+        run: |
+          aws s3 sync developer-portal/dist/ "s3://$DOCS_BUCKET" --delete --cache-control 'public,max-age=31536000,immutable'
+          aws s3 cp developer-portal/dist/index.html "s3://$DOCS_BUCKET/index.html" --content-type 'text/html; charset=utf-8' --cache-control 'no-cache'
+          aws s3 cp developer-portal/dist/openapi.json "s3://$DOCS_BUCKET/openapi.json" --content-type 'application/json; charset=utf-8' --cache-control 'no-cache'
+      - name: Invalidate mutable documents
+        run: aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/index.html' '/openapi.json'
+      - name: Smoke test
+        run: |
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$PUBLIC_DOCS_URL/"
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$PUBLIC_DOCS_URL/openapi.json" | jq -e '.openapi and .info.version' >/dev/null
