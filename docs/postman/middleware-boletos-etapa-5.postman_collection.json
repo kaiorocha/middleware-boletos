@@ -1,0 +1,1839 @@
+{
+  "info": {
+    "_postman_id": "00000000-0000-4000-8000-6d6964646c65",
+    "name": "middleware-boletos - Etapa 5 Final",
+    "description": "Validação final do fluxo de boleto proposta, dados cadastrais do tenant, Compliance por email, Production Readiness e integração com providers.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const currentNonce = pm.collectionVariables.get(\"runNonce\");",
+          "if (!currentNonce) {",
+          "  const ts = Date.now();",
+          "  pm.collectionVariables.set(\"runNonce\", String(ts));",
+          "  if (!pm.collectionVariables.get(\"tenantAdminEmail\")) pm.collectionVariables.set(\"tenantAdminEmail\", `tenant.admin+${ts}@teste.com`);",
+          "  if (!pm.collectionVariables.get(\"tenantAdminPassword\")) pm.collectionVariables.set(\"tenantAdminPassword\", \"Tenant123456!\");",
+          "  pm.collectionVariables.set(\"recipientEmail\", `cliente+${ts}@teste.com`);",
+          "  pm.collectionVariables.set(\"externalId\", `postman-${ts}`);",
+          "  pm.collectionVariables.set(\"idempotencyExternalId\", `postman-idempotency-${ts}`);",
+          "}",
+          "const due = new Date();",
+          "due.setDate(due.getDate() + 7);",
+          "pm.collectionVariables.set(\"dueDate\", due.toISOString().slice(0, 10));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "platformAdminEmail",
+      "value": "admin@middleware.local"
+    },
+    {
+      "key": "platformAdminPassword",
+      "value": "ChangeMe123456!"
+    },
+    {
+      "key": "platform_admin_access_token",
+      "value": ""
+    },
+    {
+      "key": "tenantAdminEmail",
+      "value": ""
+    },
+    {
+      "key": "tenantAdminPassword",
+      "value": "Tenant123456!"
+    },
+    {
+      "key": "tenant_admin_access_token",
+      "value": ""
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "mockProviderId",
+      "value": ""
+    },
+    {
+      "key": "moncalieriProviderId",
+      "value": ""
+    },
+    {
+      "key": "boletoId",
+      "value": ""
+    },
+    {
+      "key": "blockedBoletoId",
+      "value": ""
+    },
+    {
+      "key": "blacklistEntryId",
+      "value": ""
+    },
+    {
+      "key": "recipientEmail",
+      "value": ""
+    },
+    {
+      "key": "externalId",
+      "value": ""
+    },
+    {
+      "key": "blockedExternalId",
+      "value": ""
+    },
+    {
+      "key": "idempotencyExternalId",
+      "value": ""
+    },
+    {
+      "key": "amountCents",
+      "value": "10000"
+    },
+    {
+      "key": "dueDate",
+      "value": ""
+    },
+    {
+      "key": "moncalieriApiKey",
+      "value": "REPLACE_WITH_SECRET"
+    },
+    {
+      "key": "moncalieriBaseUrl",
+      "value": "REPLACE_WITH_MONCALIERI_BASE_URL"
+    },
+    {
+      "key": "moncalieriCodigoCanal",
+      "value": "0"
+    },
+    {
+      "key": "moncalieriCodigoCliente",
+      "value": "0"
+    },
+    {
+      "key": "moncalieriTenantId",
+      "value": ""
+    },
+    {
+      "key": "moncalieriTenantAdminEmail",
+      "value": ""
+    },
+    {
+      "key": "moncalieriTenantAdminPassword",
+      "value": "Tenant123456!"
+    },
+    {
+      "key": "moncalieri_tenant_admin_access_token",
+      "value": ""
+    },
+    {
+      "key": "moncalieriBoletoId",
+      "value": ""
+    },
+    {
+      "key": "tenantDocument",
+      "value": "12345678000195"
+    },
+    {
+      "key": "tenantAddress",
+      "value": "Rua das Integracoes, 100"
+    },
+    {
+      "key": "tenantDistrict",
+      "value": "Centro"
+    },
+    {
+      "key": "tenantCity",
+      "value": "Sao Paulo"
+    },
+    {
+      "key": "tenantPostalCode",
+      "value": "01311000"
+    },
+    {
+      "key": "tenantState",
+      "value": "SP"
+    },
+    {
+      "key": "tenantCountryCode",
+      "value": "55"
+    },
+    {
+      "key": "tenantAreaCode",
+      "value": "11"
+    },
+    {
+      "key": "tenantPhoneNumber",
+      "value": "999998888"
+    },
+    {
+      "key": "tenantWebhookUrl",
+      "value": "https://estabelecimento.example.com/webhooks/boletos"
+    },
+    {
+      "key": "updatedTenantName",
+      "value": "Tenant Postman Etapa 5 Atualizado"
+    },
+    {
+      "key": "updatedTenantDocument",
+      "value": "98765432000110"
+    },
+    {
+      "key": "updatedTenantAddress",
+      "value": "Avenida Paulista, 1000"
+    },
+    {
+      "key": "updatedTenantDistrict",
+      "value": "Bela Vista"
+    },
+    {
+      "key": "updatedTenantCity",
+      "value": "Sao Paulo"
+    },
+    {
+      "key": "updatedTenantPostalCode",
+      "value": "01310100"
+    },
+    {
+      "key": "updatedTenantState",
+      "value": "SP"
+    },
+    {
+      "key": "updatedTenantCountryCode",
+      "value": "55"
+    },
+    {
+      "key": "updatedTenantAreaCode",
+      "value": "11"
+    },
+    {
+      "key": "updatedTenantPhoneNumber",
+      "value": "988887777"
+    },
+    {
+      "key": "updatedTenantWebhookUrl",
+      "value": "https://estabelecimento.example.com/webhooks/boletos/updated"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Health",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"status ok\", function () { pm.expect(json.data.status).to.eql(\"ok\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ready"
+              ],
+              "query": []
+            },
+            "description": "/ready depende da conectividade com PostgreSQL."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"status ready\", function () { pm.expect(json.data.status).to.eql(\"ready\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 - Auth",
+      "item": [
+        {
+          "name": "Login Platform Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{platformAdminEmail}}\",\n  \"password\": \"{{platformAdminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.collectionVariables.set(\"runNonce\", String(ts));",
+                  "pm.collectionVariables.set(\"tenantAdminEmail\", `tenant.admin+${ts}@teste.com`);",
+                  "pm.collectionVariables.set(\"moncalieriTenantAdminEmail\", `moncalieri.admin+${ts}@teste.com`);",
+                  "if (!pm.collectionVariables.get(\"tenantAdminPassword\")) pm.collectionVariables.set(\"tenantAdminPassword\", \"Tenant123456!\");",
+                  "pm.collectionVariables.set(\"recipientEmail\", `cliente+${ts}@teste.com`);",
+                  "pm.collectionVariables.set(\"externalId\", `postman-${ts}`);",
+                  "pm.collectionVariables.set(\"idempotencyExternalId\", `postman-idempotency-${ts}`);",
+                  "[\"tenantId\",\"mockProviderId\",\"boletoId\",\"blockedBoletoId\",\"blacklistEntryId\",\"tenant_admin_access_token\",\"moncalieriTenantId\",\"moncalieriBoletoId\",\"moncalieri_tenant_admin_access_token\"].forEach(k => pm.collectionVariables.set(k, \"\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"access_token exists\", function () { pm.expect(json.data.access_token).to.be.a(\"string\").and.not.empty; });",
+                  "pm.collectionVariables.set(\"platform_admin_access_token\", json.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Invalid - 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{platformAdminEmail}}\",\n  \"password\": \"senha-incorreta\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", function () { pm.response.to.have.status(401); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has error\", function () { pm.expect(json).to.have.property(\"error\"); });",
+                  "pm.test(\"error.code = UNAUTHORIZED\", function () { pm.expect(json.error.code).to.eql(\"UNAUTHORIZED\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Platform Setup",
+      "item": [
+        {
+          "name": "Find Existing Mock Provider",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/providers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "providers"
+              ],
+              "query": []
+            },
+            "description": "Captura um provider Mock existente para permitir reexecução da collection em banco local já usado."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "const items = json.data || [];",
+                  "const mock = items.find(p => p.name === \"Mock\");",
+                  "if (mock) {",
+                  "  pm.collectionVariables.set(\"mockProviderId\", mock.id);",
+                  "  postman.setNextRequest(\"Create Tenant With Tenant Admin and Mock Provider\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Mock Provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/providers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "providers"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Mock\",\n  \"type\": \"BANK\",\n  \"config\": \"{\\\"delay_ms\\\":0}\",\n  \"metadata\": \"{\\\"stage\\\":\\\"postman-etapa-5\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"provider id exists\", function () { pm.expect(json.data.id).to.be.a(\"string\").and.not.empty; });",
+                  "pm.test(\"provider is Mock\", function () { pm.expect(json.data.name).to.eql(\"Mock\"); });",
+                  "pm.collectionVariables.set(\"mockProviderId\", json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Tenant With Tenant Admin and Mock Provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "tenants"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tenant Postman Etapa 5 {{runNonce}}\",\n  \"document\": \"{{tenantDocument}}\",\n  \"address\": \"{{tenantAddress}}\",\n  \"district\": \"{{tenantDistrict}}\",\n  \"city\": \"{{tenantCity}}\",\n  \"postal_code\": \"{{tenantPostalCode}}\",\n  \"state\": \"{{tenantState}}\",\n  \"country_code\": \"{{tenantCountryCode}}\",\n  \"area_code\": \"{{tenantAreaCode}}\",\n  \"phone_number\": \"{{tenantPhoneNumber}}\",\n  \"webhook_url\": \"{{tenantWebhookUrl}}\",\n  \"admin\": {\n    \"name\": \"Tenant Admin Postman\",\n    \"email\": \"{{tenantAdminEmail}}\",\n    \"password\": \"{{tenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{mockProviderId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"delay_ms\\\":0}\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"tenant id exists\", function () { pm.expect(json.data.tenant.id).to.be.a(\"string\").and.not.empty; });",
+                  "pm.test(\"tenant admin returned\", function () { pm.expect(json.data.admin.email).to.eql(pm.collectionVariables.get(\"tenantAdminEmail\")); });",
+                  "pm.test(\"tenant billing fields persisted\", function () { pm.expect(json.data.tenant.document).to.eql(pm.collectionVariables.get(\"tenantDocument\")); pm.expect(json.data.tenant.postal_code).to.eql(pm.collectionVariables.get(\"tenantPostalCode\")); pm.expect(json.data.tenant.webhook_url).to.eql(pm.collectionVariables.get(\"tenantWebhookUrl\")); });",
+                  "pm.collectionVariables.set(\"tenantId\", json.data.tenant.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Tenant Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{tenantAdminEmail}}\",\n  \"password\": \"{{tenantAdminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"access_token exists\", function () { pm.expect(json.data.access_token).to.be.a(\"string\").and.not.empty; });",
+                  "pm.collectionVariables.set(\"tenant_admin_access_token\", json.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Tenant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"tenant has billing fields\", function () { pm.expect(json.data.document).to.eql(pm.collectionVariables.get(\"tenantDocument\")); pm.expect(json.data.address).to.eql(pm.collectionVariables.get(\"tenantAddress\")); pm.expect(json.data.webhook_url).to.eql(pm.collectionVariables.get(\"tenantWebhookUrl\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Tenant",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{updatedTenantName}} {{runNonce}}\",\n  \"document\": \"{{updatedTenantDocument}}\",\n  \"address\": \"{{updatedTenantAddress}}\",\n  \"district\": \"{{updatedTenantDistrict}}\",\n  \"city\": \"{{updatedTenantCity}}\",\n  \"postal_code\": \"{{updatedTenantPostalCode}}\",\n  \"state\": \"{{updatedTenantState}}\",\n  \"country_code\": \"{{updatedTenantCountryCode}}\",\n  \"area_code\": \"{{updatedTenantAreaCode}}\",\n  \"phone_number\": \"{{updatedTenantPhoneNumber}}\",\n  \"webhook_url\": \"{{updatedTenantWebhookUrl}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"updated tenant fields persisted\", function () { pm.expect(json.data.id).to.eql(pm.collectionVariables.get(\"tenantId\")); pm.expect(json.data.document).to.eql(pm.collectionVariables.get(\"updatedTenantDocument\")); pm.expect(json.data.address).to.eql(pm.collectionVariables.get(\"updatedTenantAddress\")); pm.expect(json.data.webhook_url).to.eql(pm.collectionVariables.get(\"updatedTenantWebhookUrl\")); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Proposal Boleto / Mock",
+      "item": [
+        {
+          "name": "Create Proposal Boleto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"provider_id\": \"{{mockProviderId}}\",\n  \"amount_cents\": {{amountCents}},\n  \"due_date\": \"{{dueDate}}\",\n  \"external_id\": \"{{externalId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"boleto id exists\", function () { pm.expect(json.data.id).to.be.a(\"string\").and.not.empty; });",
+                  "pm.test(\"proposal fields persisted\", function () { pm.expect(json.data.recipient_email).to.eql(pm.collectionVariables.get(\"recipientEmail\")); pm.expect(json.data.amount_cents).to.eql(Number(pm.collectionVariables.get(\"amountCents\"))); pm.expect(json.data.status).to.eql(\"CREATED\"); });",
+                  "pm.collectionVariables.set(\"boletoId\", json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Emit Proposal Boleto - Mock",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{boletoId}}/emit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos",
+                "{{boletoId}}",
+                "emit"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"mock emission issued\", function () { pm.expect(json.data.status).to.eql(\"ISSUED\"); });",
+                  "pm.test(\"provider boleto fields exist\", function () { pm.expect(json.data.our_number).to.be.a(\"string\").and.not.empty; pm.expect(json.data.barcode).to.be.a(\"string\").and.not.empty; pm.expect(json.data.digitable_line).to.be.a(\"string\").and.not.empty; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Boleto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{boletoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos",
+                "{{boletoId}}"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"boleto belongs to tenant and recipient\", function () { pm.expect(json.data.tenant_id).to.eql(pm.collectionVariables.get(\"tenantId\")); pm.expect(json.data.recipient_email).to.eql(pm.collectionVariables.get(\"recipientEmail\")); pm.expect(json.data.provider_id).to.eql(pm.collectionVariables.get(\"mockProviderId\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tenant Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/transactions?email={{recipientEmail}}&external_id={{externalId}}&limit=50&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{recipientEmail}}"
+                },
+                {
+                  "key": "external_id",
+                  "value": "{{externalId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"transaction appears for tenant\", function () { const items = json.data.items || []; pm.expect(items.some(i => i.id === pm.collectionVariables.get(\"boletoId\") && i.recipient_email === pm.collectionVariables.get(\"recipientEmail\"))).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/transactions?tenant_id={{tenantId}}&email={{recipientEmail}}&external_id={{externalId}}&limit=50&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "tenant_id",
+                  "value": "{{tenantId}}"
+                },
+                {
+                  "key": "email",
+                  "value": "{{recipientEmail}}"
+                },
+                {
+                  "key": "external_id",
+                  "value": "{{externalId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"transaction appears globally\", function () { const items = json.data.items || []; pm.expect(items.some(i => i.id === pm.collectionVariables.get(\"boletoId\"))).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Compliance Email",
+      "item": [
+        {
+          "name": "Block Recipient Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "blacklist"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entry_type\": \"EMAIL\",\n  \"value\": \"{{recipientEmail}}\",\n  \"reason\": \"Cliente solicitou não receber novas emissões\",\n  \"source\": \"MANUAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"email block created\", function () { pm.expect(json.data.entry_type).to.eql(\"EMAIL\"); pm.expect(json.data.value).to.eql(pm.collectionVariables.get(\"recipientEmail\")); pm.expect(json.data.active).to.eql(true); });",
+                  "pm.collectionVariables.set(\"blacklistEntryId\", json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Blacklist - Recipient Email",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist?q={{recipientEmail}}&active=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "blacklist"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{recipientEmail}}"
+                },
+                {
+                  "key": "active",
+                  "value": "true"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"recipient email appears as active block\", function () { const items = json.data || []; pm.expect(items.some(i => i.id === pm.collectionVariables.get(\"blacklistEntryId\") && i.entry_type === \"EMAIL\" && i.active === true)).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Blocked Proposal Boleto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"provider_id\": \"{{mockProviderId}}\",\n  \"amount_cents\": {{amountCents}},\n  \"due_date\": \"{{dueDate}}\",\n  \"external_id\": \"{{blockedExternalId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"blockedExternalId\", `postman-blocked-${Date.now()}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.collectionVariables.set(\"blockedBoletoId\", json.data.id);",
+                  "pm.test(\"blocked scenario boleto is CREATED\", function () { pm.expect(json.data.status).to.eql(\"CREATED\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Emit Blocked Proposal - RECIPIENT_BLOCKED",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{blockedBoletoId}}/emit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos",
+                "{{blockedBoletoId}}",
+                "emit"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", function () { pm.response.to.have.status(409); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has error\", function () { pm.expect(json).to.have.property(\"error\"); });",
+                  "pm.test(\"error.code = RECIPIENT_BLOCKED\", function () { pm.expect(json.error.code).to.eql(\"RECIPIENT_BLOCKED\"); });",
+                  "pm.test(\"recipient blocked message\", function () { pm.expect(json.error.message).to.eql(\"Este destinatário está bloqueado para novas emissões.\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Blocked Boleto - Not Issued",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{blockedBoletoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos",
+                "{{blockedBoletoId}}"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"blocked boleto was not issued\", function () { pm.expect(json.data.status).to.eql(\"CREATED\"); pm.expect(json.data.status).to.not.eql(\"ISSUED\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unblock Email",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/blacklist/{{blacklistEntryId}}/unblock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "blacklist",
+                "{{blacklistEntryId}}",
+                "unblock"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"entry inactive\", function () { pm.expect(json.data.active).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Emit After Unblock",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos/{{blockedBoletoId}}/emit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos",
+                "{{blockedBoletoId}}",
+                "emit"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"boleto issued after unblock\", function () { pm.expect(json.data.status).to.eql(\"ISSUED\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - Idempotency",
+      "description": "`tenant_id + external_id` é único para boletos ativos. O mesmo external_id pode existir em tenants diferentes.",
+      "item": [
+        {
+          "name": "Create Boleto With External ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"provider_id\": \"{{mockProviderId}}\",\n  \"amount_cents\": {{amountCents}},\n  \"due_date\": \"{{dueDate}}\",\n  \"external_id\": \"{{idempotencyExternalId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.test(\"external_id persisted\", function () { pm.expect(json.data.external_id).to.eql(pm.collectionVariables.get(\"idempotencyExternalId\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate External ID - 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{tenantId}}",
+                "boletos"
+              ],
+              "query": []
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"provider_id\": \"{{mockProviderId}}\",\n  \"amount_cents\": {{amountCents}},\n  \"due_date\": \"{{dueDate}}\",\n  \"external_id\": \"{{idempotencyExternalId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", function () { pm.response.to.have.status(409); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has error\", function () { pm.expect(json).to.have.property(\"error\"); });",
+                  "pm.test(\"error.code = DUPLICATE_RESOURCE\", function () { pm.expect(json.error.code).to.eql(\"DUPLICATE_RESOURCE\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Moncalieri - Homologação",
+      "description": "Requests de homologação desabilitados por padrão. Preencha `moncalieriBaseUrl`, `moncalieriApiKey`, `moncalieriCodigoCanal` e `moncalieriCodigoCliente` apenas localmente antes de executar. O código atual aceita config JSON com `base_url`, `api_key`, `codigo_canal`, `codigo_cliente`, `timeout_seconds` e `instrucoes`; não há contrato de `client_id`/`client_secret`. Para associar Moncalieri a um tenant existente não há endpoint dedicado; use o onboarding `POST /api/v1/admin/tenants` com `providers`.",
+      "item": [
+        {
+          "name": "Create Moncalieri Provider",
+          "disabled": true,
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/providers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "providers"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Moncalieri\",\n  \"type\": \"BANK\",\n  \"config\": \"{\\\"base_url\\\":\\\"{{moncalieriBaseUrl}}\\\",\\\"api_key\\\":\\\"{{moncalieriApiKey}}\\\",\\\"codigo_canal\\\":{{moncalieriCodigoCanal}},\\\"codigo_cliente\\\":{{moncalieriCodigoCliente}},\\\"timeout_seconds\\\":30,\\\"instrucoes\\\":\\\"Nao receber apos o vencimento.\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.collectionVariables.set(\"moncalieriProviderId\", json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Tenant With Moncalieri Provider",
+          "disabled": true,
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{platform_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "tenants"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tenant Moncalieri Homologacao {{runNonce}}\",\n  \"document\": \"{{tenantDocument}}\",\n  \"address\": \"{{tenantAddress}}\",\n  \"district\": \"{{tenantDistrict}}\",\n  \"city\": \"{{tenantCity}}\",\n  \"postal_code\": \"{{tenantPostalCode}}\",\n  \"state\": \"{{tenantState}}\",\n  \"country_code\": \"{{tenantCountryCode}}\",\n  \"area_code\": \"{{tenantAreaCode}}\",\n  \"phone_number\": \"{{tenantPhoneNumber}}\",\n  \"webhook_url\": \"{{tenantWebhookUrl}}\",\n  \"admin\": {\n    \"name\": \"Admin Moncalieri Homologacao\",\n    \"email\": \"{{moncalieriTenantAdminEmail}}\",\n    \"password\": \"{{moncalieriTenantAdminPassword}}\"\n  },\n  \"providers\": [\n    {\n      \"provider_id\": \"{{moncalieriProviderId}}\",\n      \"active\": true,\n      \"config\": \"{\\\"base_url\\\":\\\"{{moncalieriBaseUrl}}\\\",\\\"api_key\\\":\\\"{{moncalieriApiKey}}\\\",\\\"codigo_canal\\\":{{moncalieriCodigoCanal}},\\\"codigo_cliente\\\":{{moncalieriCodigoCliente}},\\\"timeout_seconds\\\":30}\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.collectionVariables.set(\"moncalieriTenantId\", json.data.tenant.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Moncalieri Tenant Admin",
+          "disabled": true,
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{moncalieriTenantAdminEmail}}\",\n  \"password\": \"{{moncalieriTenantAdminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.collectionVariables.set(\"moncalieri_tenant_admin_access_token\", json.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Moncalieri Proposal Boleto",
+          "disabled": true,
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{moncalieri_tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{moncalieriTenantId}}/boletos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{moncalieriTenantId}}",
+                "boletos"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{recipientEmail}}\",\n  \"provider_id\": \"{{moncalieriProviderId}}\",\n  \"amount_cents\": {{amountCents}},\n  \"due_date\": \"{{dueDate}}\",\n  \"external_id\": \"moncalieri-{{runNonce}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"response has data\", function () { pm.expect(json).to.have.property(\"data\"); });",
+                  "pm.collectionVariables.set(\"moncalieriBoletoId\", json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Emit Proposal Boleto - Moncalieri",
+          "disabled": true,
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{moncalieri_tenant_admin_access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenants/{{moncalieriTenantId}}/boletos/{{moncalieriBoletoId}}/emit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenants",
+                "{{moncalieriTenantId}}",
+                "boletos",
+                "{{moncalieriBoletoId}}",
+                "emit"
+              ],
+              "query": []
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"structural response\", function () { pm.expect([200,400,403,502]).to.include(pm.response.code); const json = pm.response.json(); pm.expect(json.data || json.error).to.exist; });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

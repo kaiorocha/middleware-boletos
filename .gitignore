@@ -1,0 +1,21 @@
+# Node
+node_modules
+.next
+developer-portal/dist
+
+# Go
+/bin
+
+# Env
+.env
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+backend.hcl
+
+# Docker
+docker-compose.override.yml
