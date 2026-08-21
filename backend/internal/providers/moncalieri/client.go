@@ -19,6 +19,10 @@ type client struct {
 	httpClient *http.Client
 }
 
+type responseBodyCapture interface {
+	captureResponseBody([]byte)
+}
+
 func newClient(cfg Config) *client {
 	timeout := 30 * time.Second
 	if cfg.TimeoutSeconds > 0 {
@@ -64,7 +68,12 @@ func (c *client) post(ctx context.Context, path string, payload any, out any) er
 		return providererrors.New(errProviderUnexpected, "provider returned empty response", providerName, false)
 	}
 	if err := json.Unmarshal(respBody, out); err != nil {
-		return providererrors.New(errProviderUnexpected, "failed to decode provider response", providerName, false)
+		perr := providererrors.New(errProviderUnexpected, "failed to decode provider response", providerName, false)
+		perr.ResponseBody = sanitizeProviderResponse(respBody)
+		return perr
+	}
+	if capture, ok := out.(responseBodyCapture); ok {
+		capture.captureResponseBody(respBody)
 	}
 	return nil
 }
@@ -118,7 +127,7 @@ func isSensitiveResponseField(key string) bool {
 	for _, fragment := range []string{
 		"apikey", "authorization", "token", "secret", "password", "senha",
 		"cpf", "cnpj", "document", "email", "telefone", "phone", "celular",
-		"address", "endereco", "base64", "barcode", "codigobarras", "linhadigitavel",
+		"address", "endereco", "base64", "barcode", "codigobarras", "linhadigitavel", "nossonumero",
 	} {
 		if strings.Contains(normalized, fragment) {
 			return true

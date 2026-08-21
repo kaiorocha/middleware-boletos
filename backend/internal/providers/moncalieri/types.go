@@ -43,13 +43,31 @@ type gerarBoletoResponse struct {
 	ResultCode     int                     `json:"ResultCode"`
 	Message        string                  `json:"Message"`
 	ValidationData validationData          `json:"ValidationData"`
+	rawBody        []byte
 }
 
 type gerarBoletoResponseData struct {
-	NossoNumero    string `json:"NossoNumero"`
-	LinhaDigitavel string `json:"LinhaDigitavel"`
-	CodigoBarras   string `json:"CodigoBarras"`
-	Base64         string `json:"Base64"`
+	NossoNumero     string `json:"NossoNumero"`
+	LinhaDigitavel  string `json:"LinhaDigitavel"`
+	CodigoBarras    string `json:"CodigoBarras"`
+	Base64          string `json:"Base64"`
+	BoletoBase64    string `json:"BoletoBase64"`
+	ArquivoBase64   string `json:"ArquivoBase64"`
+	PdfBase64       string `json:"PdfBase64"`
+	DocumentoBase64 string `json:"DocumentoBase64"`
+}
+
+func (r *gerarBoletoResponse) captureResponseBody(body []byte) {
+	r.rawBody = append(r.rawBody[:0], body...)
+}
+
+func (d gerarBoletoResponseData) boletoBase64() string {
+	for _, value := range []string{d.Base64, d.BoletoBase64, d.ArquivoBase64, d.PdfBase64, d.DocumentoBase64} {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type consultarBoletoData struct {

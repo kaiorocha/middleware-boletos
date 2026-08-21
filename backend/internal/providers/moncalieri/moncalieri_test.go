@@ -85,6 +85,52 @@ func TestIssueBoletoRequiresPayerData(t *testing.T) {
 	assertProviderErrorCode(t, err, errInvalidRequest)
 }
 
+func TestMapIssueResponseAcceptsProviderBase64Aliases(t *testing.T) {
+	tests := []struct {
+		name string
+		data gerarBoletoResponseData
+	}{
+		{name: "Base64", data: gerarBoletoResponseData{Base64: "pdf"}},
+		{name: "BoletoBase64", data: gerarBoletoResponseData{BoletoBase64: "pdf"}},
+		{name: "ArquivoBase64", data: gerarBoletoResponseData{ArquivoBase64: "pdf"}},
+		{name: "PdfBase64", data: gerarBoletoResponseData{PdfBase64: "pdf"}},
+		{name: "DocumentoBase64", data: gerarBoletoResponseData{DocumentoBase64: "pdf"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.data.NossoNumero = "NN123"
+			tt.data.LinhaDigitavel = "linha"
+			tt.data.CodigoBarras = "barra"
+			got, err := mapIssueResponse(validIssueRequest(), gerarBoletoResponse{Data: tt.data})
+			if err != nil {
+				t.Fatalf("expected alias to be accepted, got %v", err)
+			}
+			if got.Base64 != "pdf" {
+				t.Fatalf("expected normalized base64, got %q", got.Base64)
+			}
+		})
+	}
+}
+
+func TestIssueBoletoReportsMissingFieldsAndSanitizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Data":{"NossoNumero":"NN123","LinhaDigitavel":"linha","CodigoBarras":"barra","Base64":""}}`))
+	}))
+	defer server.Close()
+
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	_, err := provider.IssueBoleto(context.Background(), validIssueRequest())
+	assertProviderErrorCode(t, err, errProviderUnexpected)
+	perr := err.(*providererrors.ProviderError)
+	if perr.Message != "provider response is missing fields: Base64" {
+		t.Fatalf("unexpected error message: %s", perr.Message)
+	}
+	if perr.ResponseBody != `{"Data":{"Base64":"[REDACTED]","CodigoBarras":"[REDACTED]","LinhaDigitavel":"[REDACTED]","NossoNumero":"[REDACTED]"}}` {
+		t.Fatalf("unexpected sanitized response: %s", perr.ResponseBody)
+	}
+}
+
 func TestGetBoletoSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/CashIn/ConsultarBoleto" {

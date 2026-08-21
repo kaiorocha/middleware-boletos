@@ -89,10 +89,29 @@ func mapSacado(payer types.Payer) (sacadoData, error) {
 
 func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.IssueResponse, error) {
 	if err := responseError(resp.ResultCode, resp.Message, resp.ValidationData); err != nil {
+		if perr, ok := err.(*providererrors.ProviderError); ok {
+			perr.ResponseBody = sanitizeProviderResponse(resp.rawBody)
+		}
 		return types.IssueResponse{}, err
 	}
-	if resp.Data.NossoNumero == "" || resp.Data.LinhaDigitavel == "" || resp.Data.CodigoBarras == "" || resp.Data.Base64 == "" {
-		return types.IssueResponse{}, providererrors.New(errProviderUnexpected, "provider response is missing boleto fields", providerName, false)
+	base64Value := strings.TrimSpace(resp.Data.boletoBase64())
+	missing := make([]string, 0, 4)
+	if strings.TrimSpace(resp.Data.NossoNumero) == "" {
+		missing = append(missing, "NossoNumero")
+	}
+	if strings.TrimSpace(resp.Data.LinhaDigitavel) == "" {
+		missing = append(missing, "LinhaDigitavel")
+	}
+	if strings.TrimSpace(resp.Data.CodigoBarras) == "" {
+		missing = append(missing, "CodigoBarras")
+	}
+	if base64Value == "" {
+		missing = append(missing, "Base64")
+	}
+	if len(missing) > 0 {
+		perr := providererrors.New(errProviderUnexpected, "provider response is missing fields: "+strings.Join(missing, ", "), providerName, false)
+		perr.ResponseBody = sanitizeProviderResponse(resp.rawBody)
+		return types.IssueResponse{}, perr
 	}
 	externalID := strings.TrimSpace(req.ExternalID)
 	if externalID == "" {
@@ -106,7 +125,7 @@ func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.I
 		Barcode:       resp.Data.CodigoBarras,
 		DigitableLine: resp.Data.LinhaDigitavel,
 		OurNumber:     resp.Data.NossoNumero,
-		Base64:        resp.Data.Base64,
+		Base64:        base64Value,
 		Status:        types.StatusIssued,
 		IssuedAt:      time.Now().UTC(),
 	}, nil

@@ -73,24 +73,30 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-  deploy-backend-develop:
-    name: Deploy backend to develop
+  trigger-backend-develop:
+    name: Trigger backend deploy
     if: needs.detect-changes.outputs.backend == 'true'
     needs: [detect-changes, backend, frontend]
-    uses: ./.github/workflows/deploy-backend.yml
-    with:
-      environment: develop
+    runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
+      actions: write
+    steps:
+      - name: Dispatch backend deploy workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-backend-develop.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
 
-  deploy-frontend-develop:
-    name: Deploy frontend to develop
+  trigger-frontend-develop:
+    name: Trigger frontend deploy
     if: needs.detect-changes.outputs.frontend == 'true'
     needs: [detect-changes, backend, frontend]
-    uses: ./.github/workflows/deploy-frontend.yml
-    with:
-      environment: develop
+    runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
+      actions: write
+    steps:
+      - name: Dispatch frontend deploy workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-frontend-develop.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
