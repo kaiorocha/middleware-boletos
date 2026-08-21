@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,13 +138,33 @@ func TestCancelBoletoSuccess(t *testing.T) {
 
 func TestProviderHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"Message":"api-key inválida","api_key":"must-not-leak","ValidationData":{"Errors":[{"FieldName":"CodigoCliente","ErrorMessage":"cliente não autorizado"}]}}`))
 	}))
 	defer server.Close()
 
 	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
 	_, err := provider.GetBoleto(context.Background(), types.GetRequest{OurNumber: "NN123"})
 	assertProviderErrorCode(t, err, errProviderHTTP)
+	perr := err.(*providererrors.ProviderError)
+	if perr.HTTPStatus != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", perr.HTTPStatus)
+	}
+	if perr.ResponseBody != `{"Message":"api-key inválida","ValidationData":{"Errors":[{"ErrorMessage":"cliente não autorizado","FieldName":"CodigoCliente"}]},"api_key":"[REDACTED]"}` {
+		t.Fatalf("unexpected sanitized provider response: %s", perr.ResponseBody)
+	}
+}
+
+func TestProviderHTTPErrorResponseIsTruncated(t *testing.T) {
+	body := make([]byte, maxLoggedProviderResponseBytes+100)
+	for index := range body {
+		body[index] = 'x'
+	}
+	got := sanitizeProviderResponse(body)
+	if len(got) != maxLoggedProviderResponseBytes+len("...[truncated]") || !strings.HasSuffix(got, "...[truncated]") {
+		t.Fatalf("expected bounded response, got length %d", len(got))
+	}
 }
 
 func TestMapStatus(t *testing.T) {

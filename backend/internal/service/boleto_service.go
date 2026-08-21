@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/base"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
+	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
 
@@ -335,7 +337,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if err != nil {
 		boleto.Status = string(types.StatusFailed)
 		_ = s.repo.Update(boleto)
-		s.logger.Error("boleto emission failed",
+		logAttributes := []any{
 			"tenant", tenantID,
 			"provider", providerConfig.Name,
 			"request_id", requestID(ctx),
@@ -343,7 +345,19 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			"latency_ms", time.Since(start).Milliseconds(),
 			"result", "failed",
 			"error", err.Error(),
-		)
+		}
+		var providerErr *providererrors.ProviderError
+		if errors.As(err, &providerErr) {
+			logAttributes = append(logAttributes,
+				"provider_error_code", providerErr.Code,
+				"provider_http_status", providerErr.HTTPStatus,
+				"provider_retryable", providerErr.Retryable,
+			)
+			if providerErr.ResponseBody != "" {
+				logAttributes = append(logAttributes, "provider_response", providerErr.ResponseBody)
+			}
+		}
+		s.logger.Error("boleto emission failed", logAttributes...)
 		return nil, err
 	}
 	if !base.CanTransition(types.StatusProcessing, response.Status) {

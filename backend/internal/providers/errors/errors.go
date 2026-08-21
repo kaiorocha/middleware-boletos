@@ -3,11 +3,12 @@ package errors
 import "fmt"
 
 type ProviderError struct {
-	Code       string `json:"code"`
-	Message    string `json:"message"`
-	Provider   string `json:"provider,omitempty"`
-	Retryable  bool   `json:"retryable"`
-	HTTPStatus int    `json:"http_status,omitempty"`
+	Code         string `json:"code"`
+	Message      string `json:"message"`
+	Provider     string `json:"provider,omitempty"`
+	Retryable    bool   `json:"retryable"`
+	HTTPStatus   int    `json:"http_status,omitempty"`
+	ResponseBody string `json:"-"`
 }
 
 func (e *ProviderError) Error() string {

@@ -57,6 +57,7 @@ func (c *client) post(ctx context.Context, path string, payload any, out any) er
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		perr := providererrors.New(errProviderHTTP, fmt.Sprintf("provider returned HTTP %d", resp.StatusCode), providerName, resp.StatusCode >= 500)
 		perr.HTTPStatus = resp.StatusCode
+		perr.ResponseBody = sanitizeProviderResponse(respBody)
 		return perr
 	}
 	if len(respBody) == 0 {
@@ -66,4 +67,62 @@ func (c *client) post(ctx context.Context, path string, payload any, out any) er
 		return providererrors.New(errProviderUnexpected, "failed to decode provider response", providerName, false)
 	}
 	return nil
+}
+
+const maxLoggedProviderResponseBytes = 4096
+
+func sanitizeProviderResponse(body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return ""
+	}
+
+	var payload any
+	if json.Unmarshal(trimmed, &payload) == nil {
+		redactSensitiveResponseFields(payload)
+		if sanitized, err := json.Marshal(payload); err == nil {
+			trimmed = sanitized
+		}
+	}
+
+	truncated := len(trimmed) > maxLoggedProviderResponseBytes
+	if truncated {
+		trimmed = trimmed[:maxLoggedProviderResponseBytes]
+	}
+	response := strings.ToValidUTF8(string(trimmed), "�")
+	if truncated {
+		response += "...[truncated]"
+	}
+	return response
+}
+
+func redactSensitiveResponseFields(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if isSensitiveResponseField(key) {
+				typed[key] = "[REDACTED]"
+				continue
+			}
+			redactSensitiveResponseFields(child)
+		}
+	case []any:
+		for _, child := range typed {
+			redactSensitiveResponseFields(child)
+		}
+	}
+}
+
+func isSensitiveResponseField(key string) bool {
+	normalized := strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(key))
+	for _, fragment := range []string{
+		"apikey", "authorization", "token", "secret", "password", "senha",
+		"cpf", "cnpj", "document", "email", "telefone", "phone", "celular",
+		"address", "endereco", "base64", "barcode", "codigobarras", "linhadigitavel",
+	} {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return false
 }

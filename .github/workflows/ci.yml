@@ -7,6 +7,31 @@ on:
     branches: [ develop, main ]
 
 jobs:
+  detect-changes:
+    name: Detect deploy changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED_FILES=$(git show --pretty=format: --name-only "$AFTER_SHA")
+          else
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
+          fi
+          if grep -q '^backend/' <<< "$CHANGED_FILES"; then echo 'backend=true' >> "$GITHUB_OUTPUT"; else echo 'backend=false' >> "$GITHUB_OUTPUT"; fi
+          if grep -q '^frontend/' <<< "$CHANGED_FILES"; then echo 'frontend=true' >> "$GITHUB_OUTPUT"; else echo 'frontend=false' >> "$GITHUB_OUTPUT"; fi
+
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -50,8 +75,8 @@ jobs:
 
   deploy-backend-develop:
     name: Deploy backend to develop
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [backend, frontend]
+    if: needs.detect-changes.outputs.backend == 'true'
+    needs: [detect-changes, backend, frontend]
     uses: ./.github/workflows/deploy-backend.yml
     with:
       environment: develop
@@ -61,8 +86,8 @@ jobs:
 
   deploy-frontend-develop:
     name: Deploy frontend to develop
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    needs: [backend, frontend]
+    if: needs.detect-changes.outputs.frontend == 'true'
+    needs: [detect-changes, backend, frontend]
     uses: ./.github/workflows/deploy-frontend.yml
     with:
       environment: develop
