@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
-const API_DEFAULT = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8080' : '')
+const API_CONFIGURED = process.env.NEXT_PUBLIC_API_URL || ''
 const SESSION_KEY = 'middleware-boletos-session'
+const SESSION_COOKIE = 'giga_panel_session'
 const IS_DEVELOPMENT = process.env.NEXT_PUBLIC_APP_ENV === 'development'
 const DEFAULT_EMAIL = IS_DEVELOPMENT
   ? process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || 'admin@middleware.local'
@@ -31,16 +32,25 @@ const fmtDate = (value) => {
 }
 
 async function apiFetch(baseUrl, path, token, options: any = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  })
+  let response
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    })
+  } catch {
+    throw new Error('Não foi possível conectar à API. Verifique se o ambiente está disponível e tente novamente.')
+  }
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
+    if (response.status === 401 && token && typeof window !== 'undefined') {
+      clearSession()
+      window.location.replace('/login')
+    }
     const error: any = new Error(payload?.error?.message || 'Falha ao executar operação')
     error.code = payload?.error?.code
     error.status = response.status
@@ -57,30 +67,59 @@ function targetPath(session) {
 function readSession() {
   if (typeof window === 'undefined') return null
   try {
-    return JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null')
+    const session = JSON.parse(window.localStorage.getItem(SESSION_KEY) || 'null')
+    if (session?._expires_at && Date.now() >= session._expires_at) {
+      clearSession()
+      return null
+    }
+    return session
   } catch {
     return null
   }
 }
 
 function saveSession(session) {
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  const maxAge = Math.max(60, Number(session.expires_in || 3600))
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, _expires_at: Date.now() + (maxAge * 1000) }))
+  const role = session.user?.roles?.includes('PLATFORM_ADMIN') ? 'admin' : 'tenant'
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  document.cookie = `${SESSION_COOKIE}=${role}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`
 }
 
 function clearSession() {
   window.localStorage.removeItem(SESSION_KEY)
+  document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
+}
+
+function resolveApiBaseUrl() {
+  if (typeof window === 'undefined') return API_CONFIGURED
+  if (['localhost', '127.0.0.1'].includes(window.location.hostname)) return 'http://localhost:8080'
+  // In AWS, the ALB routes /api/* to the backend on the same origin. This
+  // avoids mixed-content failures and removes cross-origin auth from the panel.
+  return ''
 }
 
 export default function SaaSPanel() {
-  const baseUrl = API_DEFAULT
+  const [baseUrl, setBaseUrl] = useState(API_CONFIGURED)
   const [session, setSession] = useState(null)
   const [route, setRoute] = useState('/login')
   const [error, setError] = useState('')
 
   useEffect(() => {
+    setBaseUrl(resolveApiBaseUrl())
     const current = readSession()
+    const expected = targetPath(current)
+    const requested = window.location.pathname
+    if (!current && requested !== '/login' && requested !== '/') {
+      window.location.replace('/login')
+      return
+    }
+    if (current && ['/admin', '/app'].includes(requested) && requested !== expected) {
+      window.location.replace(expected)
+      return
+    }
     setSession(current)
-    const path = window.location.pathname === '/' ? targetPath(current) : window.location.pathname
+    const path = requested === '/' ? expected : requested
     setRoute(path)
     if (window.location.pathname !== path) window.history.replaceState(null, '', path)
   }, [])
@@ -93,7 +132,7 @@ export default function SaaSPanel() {
   const logout = () => {
     clearSession()
     setSession(null)
-    navigate('/login')
+    window.location.replace('/login')
   }
 
   const login = async (email, password) => {
@@ -105,7 +144,7 @@ export default function SaaSPanel() {
     const next = payload.data
     saveSession(next)
     setSession(next)
-    navigate(targetPath(next))
+    window.location.assign(targetPath(next))
   }
 
   if (route === '/login' || !session) {
@@ -140,8 +179,8 @@ function LoginView({ login, error, setError }) {
       <form className="loginCard" onSubmit={submit}>
         <strong>Giga Pagamentos</strong>
         <h1>Entrar</h1>
-        <label>E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <label>E-mail<input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label>Senha<input type="password" required autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         {error && <div className="errorBox">{error}</div>}
         <button disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
       </form>
