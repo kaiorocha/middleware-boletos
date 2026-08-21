@@ -227,7 +227,7 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 	}
 	args = append(args, filters.Limit, filters.Offset)
 	query := fmt.Sprintf(`
-		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), COALESCE(c.document,''), b.recipient_email, b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line
+		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), COALESCE(c.document,''), b.recipient_email, b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line, b.barcode, COALESCE(length(b.base64), 0)
 		FROM boletos b
 		LEFT JOIN tenants t ON t.id = b.tenant_id
 		LEFT JOIN customers c ON c.id = b.customer_id
@@ -254,7 +254,8 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 		var ourNumber sql.NullString
 		var issuedAt sql.NullTime
 		var digitableLine sql.NullString
-		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &customerID, &customerName, &customerDocument, &recipientEmail, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine); err != nil {
+		var barcode sql.NullString
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.TenantName, &customerID, &customerName, &customerDocument, &recipientEmail, &providerID, &providerName, &item.AmountCents, &item.DueDate, &item.Status, &externalID, &ourNumber, &item.CreatedAt, &issuedAt, &digitableLine, &barcode, &item.Base64Size); err != nil {
 			return nil, err
 		}
 		if customerID.Valid {
@@ -293,6 +294,11 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 			v := digitableLine.String
 			item.DigitableLine = &v
 		}
+		if barcode.Valid {
+			v := barcode.String
+			item.Barcode = &v
+		}
+		item.Base64Available = item.Base64Size > 0
 		out.Items = append(out.Items, item)
 	}
 	return &out, rows.Err()

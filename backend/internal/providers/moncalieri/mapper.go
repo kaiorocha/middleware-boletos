@@ -27,7 +27,7 @@ func mapIssueRequest(cfg Config, req types.IssueRequest) (envelope[gerarBoletoDa
 		instructions = strings.TrimSpace(cfg.Instrucoes)
 	}
 	if instructions == "" {
-		instructions = "Nao receber apos o vencimento."
+		instructions = "Nao receber após o vencimento."
 	}
 
 	return envelope[gerarBoletoData]{

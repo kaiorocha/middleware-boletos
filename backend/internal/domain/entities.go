@@ -177,6 +177,9 @@ type BoletoTransaction struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	IssuedAt         *time.Time `json:"issued_at,omitempty"`
 	DigitableLine    *string    `json:"digitable_line,omitempty"`
+	Barcode          *string    `json:"barcode,omitempty"`
+	Base64Available  bool       `json:"base64_available"`
+	Base64Size       int        `json:"base64_size"`
 }
 
 type PaginatedTransactions struct {
