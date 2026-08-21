@@ -22,8 +22,18 @@ jobs:
           WEB_ECR_URL=$(terraform output -raw web_ecr_repository_url)
           aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${WEB_ECR_URL%/*}"
           if ! aws ecr describe-images --repository-name middleware-boletos-frontend-production --image-ids imageTag=bootstrap >/dev/null 2>&1; then
-            docker build --platform linux/amd64 -t "$WEB_ECR_URL:bootstrap" ../../../frontend
+            docker build --platform linux/amd64 -f ../../../frontend/Dockerfile -t "$WEB_ECR_URL:bootstrap" ../../..
             docker push "$WEB_ECR_URL:bootstrap"
           fi
-      - run: terraform plan -input=false -lock-timeout=5m -out=tfplan -var-file=terraform.tfvars.example -var="cors_allowed_origins=${{ vars.CORS_ALLOWED_ORIGINS }}"
+      - run: terraform plan -input=false -lock-timeout=5m -out=tfplan -var-file=terraform.tfvars.example -var="cors_allowed_origins=${{ vars.CORS_ALLOWED_ORIGINS }}" -var="enable_https=${{ vars.ENABLE_HTTPS || 'false' }}"
       - run: terraform apply -input=false tfplan
+      - name: Show external DNS CNAME records
+        run: |
+          {
+            echo '### External DNS records'
+            echo 'Create the ACM validation CNAMEs first, then the API and app CNAMEs. After ACM reports ISSUED, set the environment variable ENABLE_HTTPS=true and run this workflow again.'
+            echo '```json'
+            terraform output -json acm_validation_cname_records
+            terraform output -json external_domain_cname_records
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

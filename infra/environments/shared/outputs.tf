@@ -44,10 +44,22 @@ output "cloudwatch_log_group" {
   value = module.logs.log_group_name
 }
 output "api_url" {
-  value = var.enable_custom_domain ? "https://${local.api_fqdn}" : "http://${module.alb.dns_name}"
+  value = var.enable_https ? "https://${local.api_fqdn}" : "http://${module.alb.dns_name}"
 }
 output "app_url" {
-  value = var.enable_custom_domain ? "https://${local.app_fqdn}" : "http://${module.alb.dns_name}"
+  value = var.enable_https ? "https://${local.app_fqdn}" : "http://${module.alb.dns_name}"
+}
+output "acm_certificate_arn" {
+  value = module.dns.certificate_arn
+}
+output "acm_validation_cname_records" {
+  value = module.dns.validation_records
+}
+output "external_domain_cname_records" {
+  value = var.enable_custom_domain ? {
+    api = { name = local.api_fqdn, type = "CNAME", value = module.alb.dns_name }
+    app = { name = local.app_fqdn, type = "CNAME", value = module.alb.dns_name }
+  } : {}
 }
 output "environment_scheduler_name" {
   value = try(module.environment_scheduler[0].schedule_name, null)

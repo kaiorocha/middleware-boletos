@@ -80,7 +80,7 @@ jobs:
           if aws ecr describe-images --repository-name "$WEB_REPOSITORY" --image-ids imageTag=bootstrap >/dev/null 2>&1; then
             echo "Frontend bootstrap image already exists; preserving immutable tag."
           else
-            docker build --platform linux/amd64 -t "$WEB_ECR_URL:bootstrap" frontend
+            docker build --platform linux/amd64 -f frontend/Dockerfile -t "$WEB_ECR_URL:bootstrap" .
             docker push "$WEB_ECR_URL:bootstrap"
           fi
 

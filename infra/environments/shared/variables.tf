@@ -191,6 +191,24 @@ variable "route53_zone_id" {
   type    = string
   default = ""
 }
+variable "manage_route53_records" {
+  type        = bool
+  default     = false
+  description = "Create DNS records in Route53. Keep false when DNS is hosted externally."
+  validation {
+    condition     = !var.manage_route53_records || length(trimspace(var.route53_zone_id)) > 0
+    error_message = "route53_zone_id is required when manage_route53_records is true."
+  }
+}
+variable "enable_https" {
+  type        = bool
+  default     = false
+  description = "Enable the ALB HTTPS listener after the ACM validation CNAMEs have been created."
+  validation {
+    condition     = !var.enable_https || var.enable_custom_domain
+    error_message = "enable_custom_domain must be true when enable_https is true."
+  }
+}
 variable "enable_amplify" {
   type        = bool
   default     = false

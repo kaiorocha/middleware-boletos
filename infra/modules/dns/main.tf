@@ -4,6 +4,10 @@ variable "enabled" {
 variable "zone_id" {
   type = string
 }
+variable "manage_route53_records" {
+  type    = bool
+  default = false
+}
 variable "fqdn" {
   type = string
 }
@@ -28,7 +32,7 @@ resource "aws_acm_certificate" "api" {
   }
 }
 resource "aws_route53_record" "validation" {
-  for_each = var.enabled ? {
+  for_each = var.enabled && var.manage_route53_records ? {
     for dvo in aws_acm_certificate.api[0].domain_validation_options : dvo.domain_name => {
       name = dvo.resource_record_name, record = dvo.resource_record_value, type = dvo.resource_record_type
     }
@@ -40,10 +44,19 @@ resource "aws_route53_record" "validation" {
   ttl     = 60
 }
 resource "aws_acm_certificate_validation" "api" {
-  count                   = var.enabled ? 1 : 0
+  count                   = var.enabled && var.manage_route53_records ? 1 : 0
   certificate_arn         = aws_acm_certificate.api[0].arn
   validation_record_fqdns = [for record in aws_route53_record.validation : record.fqdn]
 }
 output "certificate_arn" {
-  value = var.enabled ? aws_acm_certificate_validation.api[0].certificate_arn : null
+  value = var.enabled ? aws_acm_certificate.api[0].arn : null
+}
+output "validation_records" {
+  value = var.enabled ? [
+    for option in aws_acm_certificate.api[0].domain_validation_options : {
+      name  = option.resource_record_name
+      type  = option.resource_record_type
+      value = option.resource_record_value
+    }
+  ] : []
 }

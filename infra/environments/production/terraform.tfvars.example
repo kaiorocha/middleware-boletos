@@ -16,5 +16,7 @@ domain_name                 = "giga.app.br"
 api_subdomain               = "api"
 app_subdomain               = "app"
 route53_zone_id             = ""
+manage_route53_records      = false
+enable_https                = false
 initial_image_tag           = "bootstrap"
 web_ecs_max_capacity        = 4

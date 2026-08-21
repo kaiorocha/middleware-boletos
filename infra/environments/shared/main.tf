@@ -116,6 +116,7 @@ module "dns" {
   source                    = "../../modules/dns"
   enabled                   = var.enable_custom_domain
   zone_id                   = var.route53_zone_id
+  manage_route53_records    = var.manage_route53_records
   fqdn                      = local.api_fqdn
   subject_alternative_names = var.enable_custom_domain ? [local.app_fqdn] : []
   tags                      = local.tags
@@ -129,12 +130,12 @@ module "alb" {
   container_port     = var.container_port
   web_container_port = var.web_container_port
   app_fqdn           = local.app_fqdn
-  enable_https       = var.enable_custom_domain
+  enable_https       = var.enable_https
   certificate_arn    = module.dns.certificate_arn
   tags               = local.tags
 }
 resource "aws_route53_record" "api" {
-  count   = var.enable_custom_domain ? 1 : 0
+  count   = var.enable_custom_domain && var.manage_route53_records ? 1 : 0
   zone_id = var.route53_zone_id
   name    = local.api_fqdn
   type    = "A"
@@ -145,7 +146,7 @@ resource "aws_route53_record" "api" {
   }
 }
 resource "aws_route53_record" "app" {
-  count   = var.enable_custom_domain ? 1 : 0
+  count   = var.enable_custom_domain && var.manage_route53_records ? 1 : 0
   zone_id = var.route53_zone_id
   name    = local.app_fqdn
   type    = "A"
