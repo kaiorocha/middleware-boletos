@@ -95,21 +95,8 @@ func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.I
 		return types.IssueResponse{}, err
 	}
 	base64Value := strings.TrimSpace(resp.Data.boletoBase64())
-	missing := make([]string, 0, 4)
 	if strings.TrimSpace(resp.Data.NossoNumero) == "" {
-		missing = append(missing, "NossoNumero")
-	}
-	if strings.TrimSpace(resp.Data.LinhaDigitavel) == "" {
-		missing = append(missing, "LinhaDigitavel")
-	}
-	if strings.TrimSpace(resp.Data.CodigoBarras) == "" {
-		missing = append(missing, "CodigoBarras")
-	}
-	if base64Value == "" {
-		missing = append(missing, "Base64")
-	}
-	if len(missing) > 0 {
-		perr := providererrors.New(errProviderUnexpected, "provider response is missing fields: "+strings.Join(missing, ", "), providerName, false)
+		perr := providererrors.New(errProviderUnexpected, "provider response is missing required field: NossoNumero", providerName, false)
 		perr.ResponseBody = sanitizeProviderResponse(resp.rawBody)
 		return types.IssueResponse{}, perr
 	}

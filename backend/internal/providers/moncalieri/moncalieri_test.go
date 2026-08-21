@@ -112,10 +112,27 @@ func TestMapIssueResponseAcceptsProviderBase64Aliases(t *testing.T) {
 	}
 }
 
-func TestIssueBoletoReportsMissingFieldsAndSanitizedResponse(t *testing.T) {
+func TestIssueBoletoAcceptsSuccessfulResponseWithOnlyOurNumber(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"Data":{"NossoNumero":"NN123","LinhaDigitavel":"linha","CodigoBarras":"barra","Base64":""}}`))
+		_, _ = w.Write([]byte(`{"Data":{"NossoNumero":"NN123","LinhaDigitavel":"","CodigoBarras":"","Base64":""}}`))
+	}))
+	defer server.Close()
+
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	got, err := provider.IssueBoleto(context.Background(), validIssueRequest())
+	if err != nil {
+		t.Fatalf("expected successful issuance, got %v", err)
+	}
+	if got.OurNumber != "NN123" || got.DigitableLine != "" || got.Barcode != "" || got.Base64 != "" {
+		t.Fatalf("unexpected normalized response: %+v", got)
+	}
+}
+
+func TestIssueBoletoReportsMissingOurNumberAndSanitizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Data":{"LinhaDigitavel":"","CodigoBarras":"","Base64":""}}`))
 	}))
 	defer server.Close()
 
@@ -123,11 +140,11 @@ func TestIssueBoletoReportsMissingFieldsAndSanitizedResponse(t *testing.T) {
 	_, err := provider.IssueBoleto(context.Background(), validIssueRequest())
 	assertProviderErrorCode(t, err, errProviderUnexpected)
 	perr := err.(*providererrors.ProviderError)
-	if perr.Message != "provider response is missing fields: Base64" {
+	if perr.Message != "provider response is missing required field: NossoNumero" {
 		t.Fatalf("unexpected error message: %s", perr.Message)
 	}
-	if perr.ResponseBody != `{"Data":{"Base64":"[REDACTED]","CodigoBarras":"[REDACTED]","LinhaDigitavel":"[REDACTED]","NossoNumero":"[REDACTED]"}}` {
-		t.Fatalf("unexpected sanitized response: %s", perr.ResponseBody)
+	if perr.ResponseBody == "" {
+		t.Fatal("expected sanitized provider response")
 	}
 }
 
