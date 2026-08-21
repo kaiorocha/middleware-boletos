@@ -6,6 +6,7 @@
       <excludeFolder url="file://$MODULE_DIR$/infra/bootstrap/terraform-state/.terraform" />
       <excludeFolder url="file://$MODULE_DIR$/infra/environments/develop/.terraform" />
       <excludeFolder url="file://$MODULE_DIR$/infra/environments/production/.terraform" />
+      <excludeFolder url="file://$MODULE_DIR$/infra/public-docs/.terraform" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
