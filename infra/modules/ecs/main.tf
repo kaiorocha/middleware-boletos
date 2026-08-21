@@ -193,7 +193,7 @@ resource "aws_ecs_task_definition" "web" {
       }
     }
     healthCheck = {
-      command = ["CMD-SHELL", "wget -qO- --tries=1 http://localhost:${var.web_container_port}/api/health || exit 1"], interval = 30, timeout = 5, retries = 3, startPeriod = 30
+      command = ["CMD-SHELL", "wget -qO- --tries=1 http://localhost:${var.web_container_port}/web-health || exit 1"], interval = 30, timeout = 5, retries = 3, startPeriod = 30
     }
   }])
   tags = var.tags

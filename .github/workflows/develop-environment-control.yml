@@ -43,4 +43,4 @@ jobs:
           curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$API_URL/health"
           curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$API_URL/ready"
           APP_URL=$(terraform -chdir="$TF_DIR" output -raw app_url)
-          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$APP_URL/api/health"
+          curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$APP_URL/web-health"

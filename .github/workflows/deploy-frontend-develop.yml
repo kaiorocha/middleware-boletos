@@ -1,9 +1,6 @@
 name: Deploy Frontend Develop
 on:
   workflow_dispatch: {}
-  push:
-    branches: [develop]
-    paths: ['frontend/**']
 permissions: { id-token: write, contents: read }
 jobs:
   deploy:

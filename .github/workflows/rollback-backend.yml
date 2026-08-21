@@ -62,7 +62,7 @@ jobs:
             if [ "${{ inputs.component }}" = "web" ]; then
               echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw web_ecs_service_name)"
               echo "BASE_TASK=$(terraform -chdir="$TF_DIR" output -raw web_ecs_task_definition_arn)"
-              echo "SMOKE_URL=$(terraform -chdir="$TF_DIR" output -raw app_url)/api/health"
+              echo "SMOKE_URL=$(terraform -chdir="$TF_DIR" output -raw app_url)/web-health"
             else
               echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
               echo "BASE_TASK=$(terraform -chdir="$TF_DIR" output -raw ecs_task_definition_arn)"

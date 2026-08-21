@@ -26,6 +26,6 @@ Notes:
 - Ensure secrets (DB, JWT, provider credentials) are set in environment or secret manager for each environment (staging/production).
 - Do not share staging and production databases or credentials.
 
-Develop/HML deploys include environment startup after the immutable image is pushed and before the candidate task definition and migration are run. The reusable control script starts a stopped RDS instance, waits up to roughly 20 minutes for `available`, restores API and web ECS autoscaling minimum and desired count to 1, and only then allows deployment to continue. Backend smoke tests require both `/health` and `/ready` to return HTTP 200; frontend smoke tests require `/api/health` to return HTTP 200.
+Develop/HML deploys include environment startup after the immutable image is pushed and before the candidate task definition and migration are run. The reusable control script starts a stopped RDS instance, waits up to roughly 20 minutes for `available`, restores API and web ECS autoscaling minimum and desired count to 1, and only then allows deployment to continue. Backend smoke tests require both `/health` and `/ready` to return HTTP 200; frontend smoke tests require the public static endpoint `/web-health` to return HTTP 200.
 
 Production does not execute this startup step and has no shutdown scheduler; it remains continuously active. The environment guard in the control script rejects any value other than `develop` before issuing AWS mutation calls.

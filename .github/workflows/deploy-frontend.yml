@@ -51,4 +51,4 @@ jobs:
           aws ecs update-service --cluster "$CLUSTER" --service "$WEB_SERVICE" --task-definition "$CANDIDATE_TASK" >/dev/null
           aws ecs wait services-stable --cluster "$CLUSTER" --services "$WEB_SERVICE"
       - name: Smoke test
-        run: curl --fail --retry 6 --retry-delay 10 "$APP_URL/api/health"
+        run: curl --fail --retry 6 --retry-delay 10 "$APP_URL/web-health"
