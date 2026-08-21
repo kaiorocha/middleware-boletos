@@ -13,6 +13,14 @@ variable "security_group_id" {
 variable "container_port" {
   type = number
 }
+variable "web_container_port" {
+  type    = number
+  default = 3000
+}
+variable "app_fqdn" {
+  type    = string
+  default = ""
+}
 variable "enable_https" {
   type = bool
 }
@@ -54,6 +62,25 @@ resource "aws_lb_target_group" "api" {
     Component = "api"
   })
 }
+resource "aws_lb_target_group" "web" {
+  name                 = substr("${var.name}-web", 0, 32)
+  port                 = var.web_container_port
+  protocol             = "HTTP"
+  target_type          = "ip"
+  vpc_id               = var.vpc_id
+  deregistration_delay = 30
+  health_check {
+    path                = "/api/health"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 30
+    timeout             = 5
+    matcher             = "200"
+  }
+  tags = merge(var.tags, {
+    Component = "web"
+  })
+}
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
@@ -74,9 +101,23 @@ resource "aws_lb_listener" "http" {
     for_each = var.enable_https ? [] : [1]
     content {
       type             = "forward"
-      target_group_arn = aws_lb_target_group.api.arn
+      target_group_arn = aws_lb_target_group.web.arn
     }
 
+  }
+}
+resource "aws_lb_listener_rule" "http_api" {
+  count        = var.enable_https ? 0 : 1
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 100
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  condition {
+    path_pattern {
+      values = ["/api/*", "/health", "/ready"]
+    }
   }
 }
 resource "aws_lb_listener" "https" {
@@ -91,6 +132,34 @@ resource "aws_lb_listener" "https" {
     target_group_arn = aws_lb_target_group.api.arn
   }
 }
+resource "aws_lb_listener_rule" "https_api_paths" {
+  count        = var.enable_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 50
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  condition {
+    path_pattern {
+      values = ["/api/*", "/health", "/ready"]
+    }
+  }
+}
+resource "aws_lb_listener_rule" "https_web" {
+  count        = var.enable_https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 100
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.web.arn
+  }
+  condition {
+    host_header {
+      values = [var.app_fqdn]
+    }
+  }
+}
 output "dns_name" {
   value = aws_lb.this.dns_name
 }
@@ -102,4 +171,7 @@ output "arn_suffix" {
 }
 output "target_group_arn" {
   value = aws_lb_target_group.api.arn
+}
+output "web_target_group_arn" {
+  value = aws_lb_target_group.web.arn
 }

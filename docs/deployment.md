@@ -17,6 +17,8 @@ Sequence (minimal):
 8. Deploy frontend image/host (point to new backend API URL if changed).
 9. Run smoke tests (login, list tenants, create proposal boleto with Mock/staging, do not emit real boleto in production).
 
+Frontend deploys use an independent ECS `web` service and ECR repository in the same cluster as the API. The shared ALB sends `/api/*`, `/health`, and `/ready` to the API and sends application traffic to `web`. With custom domains, `api.<domain>` and `app.<domain>` share the same certificate and ALB. Frontend images use immutable commit SHA tags and are deployed by the reusable frontend workflow.
+
 Notes:
 - Migrations must run before new app receives traffic. The application no longer runs migrations automatically during startup; run `migrate` explicitly.
 - If migrations fail, abort deploy and rollback to previous image.
@@ -24,6 +26,6 @@ Notes:
 - Ensure secrets (DB, JWT, provider credentials) are set in environment or secret manager for each environment (staging/production).
 - Do not share staging and production databases or credentials.
 
-Develop/HML deploys include environment startup after the immutable image is pushed and before the candidate task definition and migration are run. The reusable control script starts a stopped RDS instance, waits up to roughly 20 minutes for `available`, restores ECS autoscaling minimum and desired count to 1, and only then allows migration and deployment to continue. Smoke tests require both `/health` and `/ready` to return HTTP 200.
+Develop/HML deploys include environment startup after the immutable image is pushed and before the candidate task definition and migration are run. The reusable control script starts a stopped RDS instance, waits up to roughly 20 minutes for `available`, restores API and web ECS autoscaling minimum and desired count to 1, and only then allows deployment to continue. Backend smoke tests require both `/health` and `/ready` to return HTTP 200; frontend smoke tests require `/api/health` to return HTTP 200.
 
 Production does not execute this startup step and has no shutdown scheduler; it remains continuously active. The environment guard in the control script rejects any value other than `develop` before issuing AWS mutation calls.

@@ -8,6 +8,11 @@ on:
         required: true
         type: choice
         options: [develop, production]
+      component:
+        description: ECS component to roll back
+        required: true
+        type: choice
+        options: [api, web]
       task_definition:
         description: Previous task definition ARN or family:revision
         required: true
@@ -22,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-backend-${{ inputs.environment }}
+  group: ${{ inputs.component == 'web' && 'deploy-web' || 'deploy-backend' }}-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
@@ -54,9 +59,16 @@ jobs:
             -backend-config="use_lockfile=true"
           {
             echo "CLUSTER=$(terraform -chdir="$TF_DIR" output -raw ecs_cluster_name)"
-            echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
-            echo "BASE_TASK=$(terraform -chdir="$TF_DIR" output -raw ecs_task_definition_arn)"
-            echo "API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)"
+            if [ "${{ inputs.component }}" = "web" ]; then
+              echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw web_ecs_service_name)"
+              echo "BASE_TASK=$(terraform -chdir="$TF_DIR" output -raw web_ecs_task_definition_arn)"
+              echo "SMOKE_URL=$(terraform -chdir="$TF_DIR" output -raw app_url)/api/health"
+            else
+              echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
+              echo "BASE_TASK=$(terraform -chdir="$TF_DIR" output -raw ecs_task_definition_arn)"
+              echo "SMOKE_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)/health"
+              echo "READY_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)/ready"
+            fi
           } >> "$GITHUB_ENV"
 
       - name: Validate rollback target
@@ -79,5 +91,5 @@ jobs:
 
       - name: Smoke test
         run: |
-          curl --fail --retry 6 --retry-delay 10 "$API_URL/health"
-          curl --fail --retry 6 --retry-delay 10 "$API_URL/ready"
+          curl --fail --retry 6 --retry-delay 10 "$SMOKE_URL"
+          if [ -n "${READY_URL:-}" ]; then curl --fail --retry 6 --retry-delay 10 "$READY_URL"; fi

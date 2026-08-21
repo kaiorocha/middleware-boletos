@@ -23,13 +23,20 @@ class EnvironmentControlTest(unittest.TestCase):
         os.environ.update({
             "ALLOWED_ENVIRONMENT": "develop", "ECS_CLUSTER": "middleware-boletos-develop",
             "ECS_SERVICE": "api", "SCALABLE_RESOURCE_ID": "service/middleware-boletos-develop/api",
+            "WEB_ECS_SERVICE": "web", "WEB_SCALABLE_RESOURCE_ID": "service/middleware-boletos-develop/web",
             "RDS_INSTANCE_ID": "middleware-boletos-develop-db",
         })
         self.ecs, self.scaling, self.rds = Mock(), Mock(), Mock()
         self.ecs.get_waiter.return_value = FakeWaiter()
-        self.ecs.describe_services.return_value = {"services": [{"desiredCount": 1, "runningCount": 1}]}
+        self.ecs.describe_services.return_value = {"services": [
+            {"serviceName": "api", "desiredCount": 1, "runningCount": 1},
+            {"serviceName": "web", "desiredCount": 1, "runningCount": 1}
+        ]}
         self.scaling.describe_scalable_targets.return_value = {
-            "ScalableTargets": [{"MinCapacity": 1, "MaxCapacity": 2}]
+            "ScalableTargets": [
+                {"ResourceId": "service/middleware-boletos-develop/api", "MinCapacity": 1, "MaxCapacity": 2},
+                {"ResourceId": "service/middleware-boletos-develop/web", "MinCapacity": 1, "MaxCapacity": 2},
+            ]
         }
         self.rds.describe_db_instances.return_value = {
             "DBInstances": [{"DBInstanceStatus": "available"}]
@@ -49,7 +56,9 @@ class EnvironmentControlTest(unittest.TestCase):
 
     def test_stop_active(self):
         control.handler({"action": "stop", "environment": "develop"}, None)
-        self.ecs.update_service.assert_called_once_with(cluster="middleware-boletos-develop", service="api", desiredCount=0)
+        self.assertEqual(self.ecs.update_service.call_count, 2)
+        self.ecs.update_service.assert_any_call(cluster="middleware-boletos-develop", service="api", desiredCount=0)
+        self.ecs.update_service.assert_any_call(cluster="middleware-boletos-develop", service="web", desiredCount=0)
         self.rds.stop_db_instance.assert_called_once()
 
     def test_stop_already_stopped(self):
@@ -63,12 +72,12 @@ class EnvironmentControlTest(unittest.TestCase):
         control.time.sleep = lambda _seconds: None
         control.handler({"action": "start", "environment": "develop"}, None)
         self.rds.start_db_instance.assert_called_once()
-        self.ecs.update_service.assert_called_once()
+        self.assertEqual(self.ecs.update_service.call_count, 2)
 
     def test_start_available(self):
         control.handler({"action": "start", "environment": "develop"}, None)
         self.rds.start_db_instance.assert_not_called()
-        self.ecs.update_service.assert_called_once()
+        self.assertEqual(self.ecs.update_service.call_count, 2)
 
 
 if __name__ == "__main__":

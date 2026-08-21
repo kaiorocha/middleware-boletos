@@ -14,5 +14,7 @@ enable_basic_alarms         = true
 enable_custom_domain        = false
 domain_name                 = "example.com"
 api_subdomain               = "api"
+app_subdomain               = "app"
 route53_zone_id             = ""
 initial_image_tag           = "bootstrap"
+web_ecs_max_capacity        = 4

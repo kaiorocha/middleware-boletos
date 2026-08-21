@@ -7,14 +7,19 @@ variable "zone_id" {
 variable "fqdn" {
   type = string
 }
+variable "subject_alternative_names" {
+  type    = list(string)
+  default = []
+}
 variable "tags" {
   type = map(string)
 }
 
 resource "aws_acm_certificate" "api" {
-  count             = var.enabled ? 1 : 0
-  domain_name       = var.fqdn
-  validation_method = "DNS"
+  count                     = var.enabled ? 1 : 0
+  domain_name               = var.fqdn
+  subject_alternative_names = var.subject_alternative_names
+  validation_method         = "DNS"
   tags = merge(var.tags, {
     Component = "api"
   })

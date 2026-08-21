@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-const API_DEFAULT = 'http://localhost:8080'
+const API_DEFAULT = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8080' : '')
 const SESSION_KEY = 'middleware-boletos-session'
 const IS_DEVELOPMENT = process.env.NEXT_PUBLIC_APP_ENV === 'development'
 const DEFAULT_EMAIL = IS_DEVELOPMENT

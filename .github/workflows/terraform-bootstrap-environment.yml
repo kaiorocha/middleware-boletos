@@ -51,10 +51,10 @@ jobs:
             -backend-config="use_lockfile=true"
           terraform -chdir="$TF_DIR" validate
 
-      - name: Create ECR first
+      - name: Create ECR repositories first
         run: |
           terraform -chdir="$TF_DIR" plan -input=false -lock-timeout=5m \
-            -target=module.ecr \
+            -target=module.ecr -target=module.web_ecr \
             -var-file=terraform.tfvars.example \
             -var="cors_allowed_origins=${{ vars.CORS_ALLOWED_ORIGINS }}" \
             -out=ecr.tfplan
@@ -71,6 +71,17 @@ jobs:
           else
             docker build --platform linux/amd64 -t "$ECR_URL:bootstrap" backend
             docker push "$ECR_URL:bootstrap"
+          fi
+
+      - name: Publish frontend bootstrap image if absent
+        run: |
+          WEB_ECR_URL=$(terraform -chdir="$TF_DIR" output -raw web_ecr_repository_url)
+          WEB_REPOSITORY="middleware-boletos-frontend-${{ inputs.environment }}"
+          if aws ecr describe-images --repository-name "$WEB_REPOSITORY" --image-ids imageTag=bootstrap >/dev/null 2>&1; then
+            echo "Frontend bootstrap image already exists; preserving immutable tag."
+          else
+            docker build --platform linux/amd64 -t "$WEB_ECR_URL:bootstrap" frontend
+            docker push "$WEB_ECR_URL:bootstrap"
           fi
 
       - name: Plan full environment

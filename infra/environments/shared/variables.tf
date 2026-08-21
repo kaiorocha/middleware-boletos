@@ -24,6 +24,10 @@ variable "container_port" {
   type    = number
   default = 8080
 }
+variable "web_container_port" {
+  type    = number
+  default = 3000
+}
 variable "initial_image_tag" {
   type        = string
   default     = "bootstrap"
@@ -55,6 +59,26 @@ variable "ecs_min_capacity" {
 }
 variable "ecs_max_capacity" {
   type = number
+}
+variable "web_ecs_cpu" {
+  type    = number
+  default = 256
+}
+variable "web_ecs_memory" {
+  type    = number
+  default = 512
+}
+variable "web_ecs_desired_count" {
+  type    = number
+  default = 1
+}
+variable "web_ecs_min_capacity" {
+  type    = number
+  default = 1
+}
+variable "web_ecs_max_capacity" {
+  type    = number
+  default = 2
 }
 variable "rds_instance_class" {
   type    = string
