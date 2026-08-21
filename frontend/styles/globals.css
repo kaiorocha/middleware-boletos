@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eefbf7;
+  --color-brand-100: #d5f5ea;
+  --color-brand-200: #ace9d7;
+  --color-brand-500: #15a37d;
+  --color-brand-600: #0d8969;
+  --color-brand-700: #0b6d56;
+  --color-ink-950: #14213d;
+  --font-sans: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
+}
+
+@layer base {
+  * { @apply box-border; }
+  html { @apply scroll-smooth; }
+  body { @apply m-0 bg-slate-50 font-sans text-slate-800 antialiased; }
+  h1, h2, h3, p { @apply m-0; }
+  p { @apply text-slate-500; }
+  button, a, input, select, textarea { @apply transition duration-150; }
+  button { @apply cursor-pointer disabled:cursor-not-allowed disabled:opacity-45; }
+}
+
+@layer components {
+  .loginPage { @apply relative grid min-h-screen place-items-center overflow-hidden bg-slate-50 p-8; }
+  .loginPage::before { content:""; @apply absolute -right-40 -top-40 size-[34rem] rounded-full bg-brand-100/70 blur-3xl; }
+  .loginPage::after { content:""; @apply absolute -bottom-52 -left-44 size-[30rem] rounded-full bg-indigo-100/70 blur-3xl; }
+  .loginCard { @apply relative z-10 grid w-full max-w-md gap-5 rounded-3xl border border-white/80 bg-white/90 p-9 shadow-[0_30px_80px_-32px_rgba(15,23,42,.35)] backdrop-blur; }
+  .loginCard > strong { @apply text-lg font-extrabold tracking-tight text-ink-950; }
+  .loginCard h1 { @apply text-3xl font-extrabold tracking-tight text-ink-950; }
+
+  .shell { @apply min-h-screen lg:grid lg:grid-cols-[272px_minmax(0,1fr)]; }
+  .sidebar { @apply border-b border-slate-200 bg-white px-4 py-5 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5 lg:py-7; }
+  .brand { @apply mb-6 flex items-center gap-3 px-2; }
+  .brand > span { @apply grid size-11 shrink-0 place-items-center rounded-2xl bg-ink-950 text-sm font-black tracking-wide text-white shadow-lg shadow-slate-900/15; }
+  .brand > div { @apply grid leading-tight; }
+  .brand strong { @apply font-extrabold tracking-tight text-ink-950; }
+  .brand small { @apply mt-1 text-[11px] font-medium text-slate-400; }
+  .sidebar nav { @apply flex gap-2 overflow-x-auto pb-1 lg:grid lg:overflow-visible; }
+  .sidebar nav button { @apply min-h-10 shrink-0 rounded-xl border-0 bg-transparent px-3.5 py-2.5 text-left text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-ink-950; }
+  .sidebar nav button.navActive { @apply bg-brand-50 text-brand-700 ring-1 ring-brand-100; }
+
+  .workspace { @apply min-w-0 p-5 sm:p-7 xl:p-10; }
+  .topbar { @apply mb-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-center; }
+  .topbar h1 { @apply text-2xl font-extrabold tracking-tight text-ink-950 sm:text-3xl; }
+  .topbar p { @apply mt-1.5 text-sm; }
+  .controls, .toolbar { @apply mb-6 flex flex-wrap items-end gap-3; }
+  .topbar .controls { @apply mb-0; }
+  .docsLink { @apply inline-flex min-h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:border-brand-200 hover:text-brand-700; }
+
+  label { @apply grid gap-1.5 text-xs font-bold text-slate-600; }
+  input, select, textarea { @apply min-h-10 min-w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-800 outline-none placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-100; }
+  textarea { @apply min-h-24 resize-y; }
+  button { @apply min-h-10 rounded-xl border border-brand-600 bg-brand-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:border-brand-700 hover:bg-brand-700; }
+
+  .notice, .errorBox { @apply mb-5 rounded-2xl border px-4 py-3 text-sm font-medium; }
+  .notice { @apply border-emerald-200 bg-emerald-50 text-emerald-800; }
+  .errorBox { @apply border-rose-200 bg-rose-50 text-rose-800; }
+  .metricGrid { @apply my-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4; }
+  .metric, .panel, .formPanel { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_-22px_rgba(15,23,42,.28)]; }
+  .metric { @apply relative overflow-hidden; }
+  .metric::after { content:""; @apply absolute -right-5 -top-5 size-20 rounded-full bg-brand-50; }
+  .metric span { @apply relative z-10 mb-2 block text-xs font-semibold text-slate-500; }
+  .metric strong { @apply relative z-10 text-2xl font-extrabold tracking-tight text-ink-950; }
+  .panel h2, .formPanel h2 { @apply text-base font-extrabold text-ink-950; }
+  .split { @apply grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]; }
+  .threeCols { @apply grid gap-4 md:grid-cols-2 xl:grid-cols-3; }
+  .tableWrap { @apply overflow-auto rounded-2xl border border-slate-200/80 bg-white shadow-[0_10px_30px_-22px_rgba(15,23,42,.28)]; }
+  table { @apply w-full border-collapse; }
+  th, td { @apply border-b border-slate-100 px-4 py-3.5 text-left align-top text-sm; }
+  th { @apply whitespace-nowrap bg-slate-50/80 text-[11px] font-extrabold uppercase tracking-wider text-slate-500; }
+  tbody tr { @apply hover:bg-slate-50/70; }
+  .emptyCell { @apply py-10 text-center text-slate-400; }
+  .formPanel, .formStack { @apply grid content-start gap-4; }
+  .tenantSelect { @apply mb-4; }
+  fieldset { @apply grid gap-3 rounded-2xl border border-slate-200 p-4; }
+  legend { @apply px-1 text-xs font-extrabold text-slate-600; }
+  .checkRow { @apply flex items-center gap-2; }
+  .checkRow input { @apply min-h-0 min-w-0; }
+  .providerChoice { @apply grid gap-2; }
+  .rowActions { @apply flex flex-wrap gap-2; }
+  .rowActions button, .pager button, .closeButton { @apply border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700; }
+  .pager { @apply mt-4 flex flex-wrap items-center justify-end gap-3 text-sm text-slate-500; }
+  .infoButton { @apply grid size-8 min-h-8 min-w-8 place-items-center rounded-full p-0 font-serif text-base; }
+  .modalBackdrop { @apply fixed inset-0 z-50 grid place-items-center bg-ink-950/55 p-5 backdrop-blur-sm; }
+  .detailsModal { @apply max-h-[calc(100vh-3rem)] w-full max-w-3xl overflow-auto rounded-3xl bg-white p-6 shadow-2xl; }
+  .detailsModal header { @apply mb-5 flex items-start justify-between gap-6; }
+  .detailsModal header p { @apply mt-1.5; }
+  .closeButton { @apply min-h-0 border-0 p-1 text-2xl shadow-none; }
+  .detailsModal dl { @apply grid overflow-hidden rounded-2xl border border-slate-200 sm:grid-cols-2; }
+  .detailsModal dl div { @apply min-w-0 border-b border-slate-100 p-3.5; }
+  .detailsModal dt { @apply mb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400; }
+  .detailsModal dd { @apply m-0 break-words text-sm; }
+  .missingValue { @apply text-amber-600; }
+  .bars { @apply mt-4 grid gap-3; }
+  .bars > div { @apply grid grid-cols-[1fr_2fr_36px] items-center gap-2 text-xs; }
+  .bars div div { @apply h-2 overflow-hidden rounded-full bg-slate-100; }
+  .bars i { @apply block h-full rounded-full bg-brand-500; }
+}
+
+@media (max-width: 640px) {
+  .toolbar, .controls, .pager { @apply grid items-stretch; }
+  .toolbar label, .controls label, input, select, textarea { @apply w-full min-w-0; }
+}

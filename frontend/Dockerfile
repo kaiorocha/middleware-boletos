@@ -4,9 +4,10 @@ ARG NEXT_PUBLIC_API_URL=""
 ARG NEXT_PUBLIC_APP_ENV="production"
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
-COPY package.json package-lock.json* ./
+COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --quiet
-COPY . .
+COPY frontend/ .
+COPY docs/openapi/middleware-boletos-etapa-5.openapi.json public/openapi.json
 RUN mkdir -p public
 ENV NODE_ENV=production
 RUN npm run build

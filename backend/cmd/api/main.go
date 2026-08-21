@@ -89,6 +89,7 @@ func main() {
 	blacklistRepo := repository.NewBlacklistRepo(db)
 	auditRepo := repository.NewAuditLogRepo(db)
 	onboardingRepo := repository.NewOnboardingRepo(db)
+	apiTokenRepo := repository.NewTenantAPITokenRepo(db)
 
 	// services
 	tenantSvc := service.NewTenantService(tenantRepo)
@@ -96,6 +97,7 @@ func main() {
 	customerSvc := service.NewCustomerService(custRepo)
 	providerSvc := service.NewProviderService(providerRepo)
 	onboardingSvc := service.NewOnboardingService(onboardingRepo)
+	apiTokenSvc := service.NewTenantAPITokenService(apiTokenRepo)
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
 	boletoSvc := service.NewBoletoService(boletoRepo).
@@ -119,11 +121,13 @@ func main() {
 		BoletoSvc:     boletoSvc,
 		BlacklistSvc:  blacklistSvc,
 		OnboardingSvc: onboardingSvc,
+		APITokenSvc:   apiTokenSvc,
 		Factory:       providerFactory,
 		Authorizer:    NewIdentityTenantAuthorizer(),
-		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator),
+		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator).WithTenantAPITokens(apiTokenSvc),
 		TokenIssuer:   jwtIssuer,
 		CORSOrigins:   cfg.CORSAllowedOrigins,
+		Environment:   cfg.Env,
 	}
 
 	h := app.routes()

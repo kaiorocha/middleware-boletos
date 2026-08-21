@@ -1,6 +1,6 @@
 # OpenAPI
 
-Esta pasta contém a especificação OpenAPI publicável do `middleware-boletos`.
+Esta pasta contém a especificação OpenAPI publicável da API de boletos da Giga Pagamentos.
 
 Arquivo principal:
 

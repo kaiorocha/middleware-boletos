@@ -42,11 +42,13 @@ type App struct {
 	BoletoSvc     *service.BoletoService
 	BlacklistSvc  *service.BlacklistService
 	OnboardingSvc *service.OnboardingService
+	APITokenSvc   *service.TenantAPITokenService
 	Factory       contracts.ProviderFactory
 	Authorizer    TenantAuthorizer
 	Authenticator *RequestAuthenticator
 	TokenIssuer   authn.TokenIssuer
 	CORSOrigins   []string
+	Environment   string
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -130,6 +132,12 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/admin/providers", a.handleAdminProviders)
 	mux.HandleFunc("/api/v1/admin/providers/", a.handleAdminProviderByID)
 	mux.HandleFunc("/api/v1/admin/tenants", a.handleAdminTenants)
+	mux.HandleFunc("/api/v1/admin/tenants/", a.handleAdminTenantByID)
+	mux.HandleFunc("/api/v1/boletos", a.handlePublicTenantBoletos)
+	mux.HandleFunc("/api/v1/boletos/", a.handlePublicTenantBoletos)
+	mux.HandleFunc("/api/v1/transactions", a.handlePublicTenantTransactions)
+	mux.HandleFunc("/api/v1/blocked-emails", a.handlePublicBlockedEmails)
+	mux.HandleFunc("/api/v1/blocked-emails/", a.handlePublicBlockedEmails)
 	mux.HandleFunc("/api/v1/providers/", a.handleProvidersIntegration)
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
@@ -298,6 +306,7 @@ func (a *App) securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -451,7 +460,12 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 			writeServiceError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"tenant": result.Tenant, "admin": publicUser(result.Admin, tenantIDsForUser(result.Admin)), "providers": maskTenantProviders(result.Providers)})
+		hmlToken, err := a.issueInitialTenantToken(result.Tenant.ID)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"tenant": result.Tenant, "admin": publicUser(result.Admin, tenantIDsForUser(result.Admin)), "providers": maskTenantProviders(result.Providers), "hml_api_token": hmlToken})
 		return
 	}
 
@@ -478,7 +492,173 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		}
 		assignments = append(assignments, *assignment)
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant, "admin": publicUser(admin, tenantIDsForUser(admin)), "providers": maskTenantProviders(assignments)})
+	hmlToken, err := a.issueInitialTenantToken(tenant.ID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant, "admin": publicUser(admin, tenantIDsForUser(admin)), "providers": maskTenantProviders(assignments), "hml_api_token": hmlToken})
+}
+
+func (a *App) issueTenantAPIToken(tenantID, environment string) (*domain.TenantAPIToken, error) {
+	if a.APITokenSvc == nil {
+		return nil, nil
+	}
+	return a.APITokenSvc.Issue(tenantID, environment)
+}
+
+func (a *App) issueInitialTenantToken(tenantID string) (*domain.TenantAPIToken, error) {
+	if strings.EqualFold(strings.TrimSpace(a.Environment), "production") {
+		return nil, nil
+	}
+	return a.issueTenantAPIToken(tenantID, "HML")
+}
+
+func (a *App) handleAdminTenantByID(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePlatformAdmin(w, r) {
+		return
+	}
+	parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/tenants/"))
+	if len(parts) != 3 || parts[1] != "tokens" || parts[2] != "production" || r.Method != http.MethodPost {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
+		return
+	}
+	if !service.IsValidUUID(parts[0]) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid tenant id")
+		return
+	}
+	if _, err := a.TenantSvc.Get(parts[0]); err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "tenant not found")
+		return
+	}
+	token, err := a.issueTenantAPIToken(parts[0], "PRODUCTION")
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, token)
+}
+
+func tenantIDFromRequest(r *http.Request) (string, bool) {
+	identity, ok := authn.IdentityFromContext(r.Context())
+	if !ok || len(identity.TenantIDs) != 1 {
+		return "", false
+	}
+	return identity.TenantIDs[0], true
+}
+
+func (a *App) handlePublicTenantBoletos(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantIDFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "tenant token required")
+		return
+	}
+	tail := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/boletos"))
+	if len(tail) == 0 && r.Method == http.MethodPost {
+		// The provider is an administrative concern. Select the tenant's active assignment.
+		var body struct {
+			Email       string  `json:"email"`
+			AmountCents int64   `json:"amount_cents"`
+			DueDate     string  `json:"due_date"`
+			ExternalID  *string `json:"external_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+			return
+		}
+		providers, err := a.ProviderSvc.ListByTenant(tenantID)
+		if err != nil {
+			writeError(w, http.StatusForbidden, "PROVIDER_NOT_ALLOWED", "tenant has no active provider")
+			return
+		}
+		providerID := ""
+		for _, provider := range providers {
+			if provider.Status == "ACTIVE" {
+				providerID = provider.ID
+				break
+			}
+		}
+		if providerID == "" {
+			writeError(w, http.StatusForbidden, "PROVIDER_NOT_ALLOWED", "tenant has no active provider")
+			return
+		}
+		dueDate, err := service.NormalizeDueDate(body.DueDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid due_date, expected YYYY-MM-DD")
+			return
+		}
+		item := domain.Boleto{TenantID: tenantID, RecipientEmail: body.Email, ProviderID: &providerID, AmountCents: body.AmountCents, DueDate: dueDate, ExternalID: body.ExternalID}
+		if err := a.BoletoSvc.Create(&item); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, item)
+		return
+	}
+	a.handleTenantBoletos(w, r, tenantID, tail)
+}
+
+func (a *App) handlePublicTenantTransactions(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantIDFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "tenant token required")
+		return
+	}
+	a.handleTenantTransactions(w, r, tenantID, nil)
+}
+
+func (a *App) handlePublicBlockedEmails(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := tenantIDFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "tenant token required")
+		return
+	}
+	tail := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/blocked-emails"))
+	if len(tail) == 0 && r.Method == http.MethodGet {
+		active, err := parseOptionalBool(r.URL.Query().Get("active"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid active filter")
+			return
+		}
+		items, err := a.BlacklistSvc.List(tenantID, r.URL.Query().Get("q"), active)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		emails := make([]domain.BlacklistEntry, 0, len(items))
+		for _, item := range items {
+			if strings.EqualFold(item.EntryType, "EMAIL") {
+				emails = append(emails, item)
+			}
+		}
+		writeJSON(w, http.StatusOK, emails)
+		return
+	}
+	if len(tail) == 0 && r.Method == http.MethodPost {
+		var in domain.BlacklistEntry
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+			return
+		}
+		in.TenantID, in.EntryType = tenantID, "EMAIL"
+		if strings.TrimSpace(in.Value) == "" {
+			in.Value = in.Document
+		}
+		if err := a.BlacklistSvc.Create(&in); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, in)
+		return
+	}
+	if len(tail) == 2 && (tail[1] == "block" || tail[1] == "unblock") {
+		entry, err := a.BlacklistSvc.Get(tenantID, tail[0])
+		if err != nil || !strings.EqualFold(entry.EntryType, "EMAIL") {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "email block not found")
+			return
+		}
+	}
+	a.handleTenantBlacklist(w, r, tenantID, tail)
 }
 
 func (a *App) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {

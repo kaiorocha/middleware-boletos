@@ -18,7 +18,7 @@ const statusLabels = {
   FAILED: 'Falha',
 }
 
-const tenantNavBase = ['Dashboard', 'Transações', 'Boletos', 'Clientes', 'Providers', 'Compliance']
+const tenantNavBase = ['Dashboard', 'Transações', 'Boletos', 'Clientes', 'Compliance']
 const adminNav = ['Dashboard da Plataforma', 'Transações', 'Tenants', 'Providers', 'Usuários Administrativos']
 
 const fmtCurrency = (cents) =>
@@ -72,7 +72,7 @@ function clearSession() {
 }
 
 export default function SaaSPanel() {
-  const [baseUrl, setBaseUrl] = useState(API_DEFAULT)
+  const baseUrl = API_DEFAULT
   const [session, setSession] = useState(null)
   const [route, setRoute] = useState('/login')
   const [error, setError] = useState('')
@@ -109,15 +109,15 @@ export default function SaaSPanel() {
   }
 
   if (route === '/login' || !session) {
-    return <LoginView baseUrl={baseUrl} setBaseUrl={setBaseUrl} login={login} error={error} setError={setError} />
+    return <LoginView login={login} error={error} setError={setError} />
   }
 
-  const shellProps = { baseUrl, setBaseUrl, session, logout, error, setError }
+  const shellProps = { baseUrl, session, logout, error, setError }
   if (route === '/admin') return <AdminView {...shellProps} />
   return <TenantView {...shellProps} />
 }
 
-function LoginView({ baseUrl, setBaseUrl, login, error, setError }) {
+function LoginView({ login, error, setError }) {
   const [email, setEmail] = useState(DEFAULT_EMAIL)
   const [password, setPassword] = useState(DEFAULT_PASSWORD)
   const [loading, setLoading] = useState(false)
@@ -138,38 +138,35 @@ function LoginView({ baseUrl, setBaseUrl, login, error, setError }) {
   return (
     <main className="loginPage">
       <form className="loginCard" onSubmit={submit}>
-        <strong>Middleware Boletos</strong>
+        <strong>Giga Pagamentos</strong>
         <h1>Entrar</h1>
-        <label>API<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} /></label>
         <label>E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         {error && <div className="errorBox">{error}</div>}
         <button disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
       </form>
-      <style jsx>{styles}</style>
     </main>
   )
 }
 
-function Shell({ title, nav, active, setActive, children, baseUrl, setBaseUrl, session, logout, error }) {
+function Shell({ title, nav, active, setActive, children, session, logout, error }) {
   return (
     <main className="shell">
       <aside className="sidebar">
-        <div className="brand"><span>MB</span><strong>Middleware Boletos</strong></div>
+        <div className="brand"><span>GP</span><div><strong>Giga Pagamentos</strong><small>Gestão de boletos</small></div></div>
         <nav>{nav.map((item) => <button key={item} className={active === item ? 'navActive' : ''} onClick={() => setActive(item)}>{item}</button>)}</nav>
       </aside>
       <section className="workspace">
         <header className="topbar">
           <div><h1>{title}</h1><p>{session.user.name} · {session.user.email}</p></div>
           <div className="controls">
-            <label>API<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+            <a className="docsLink" href="/docs">Documentação</a>
             <button type="button" onClick={logout}>Sair</button>
           </div>
         </header>
         {error && <div className="errorBox">{error}</div>}
         {children}
       </section>
-      <style jsx>{styles}</style>
     </main>
   )
 }
@@ -251,9 +248,21 @@ function AdminView(props) {
       providers: form.providerIds.map((provider_id) => ({ provider_id, active: true, config: providerConfigs[provider_id] || undefined })),
     }
     try {
-      await apiFetch(baseUrl, '/api/v1/admin/tenants', session.access_token, { method: 'POST', body: JSON.stringify(payload) })
-      setNotice(`Tenant criado. Entregue login ${form.adminEmail} com a senha definida.`)
+      const created = await apiFetch(baseUrl, '/api/v1/admin/tenants', session.access_token, { method: 'POST', body: JSON.stringify(payload) })
+      const token = created.data?.hml_api_token?.token
+      setNotice(token ? `Tenant criado. Token HML (exibido uma única vez): ${token}` : `Tenant criado. Entregue login ${form.adminEmail} com a senha definida.`)
       await load()
+    } catch (err) {
+      setError(`${err.code || err.status}: ${err.message}`)
+    }
+  }
+
+  const issueProductionToken = async (tenant) => {
+    if (!window.confirm(`Emitir um novo token de produção para ${tenant.name}? O token de produção ativo será revogado.`)) return
+    setError('')
+    try {
+      const issued = await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenant.id}/tokens/production`, session.access_token, { method: 'POST' })
+      setNotice(`Token de produção de ${tenant.name} (exibido uma única vez): ${issued.data.token}`)
     } catch (err) {
       setError(`${err.code || err.status}: ${err.message}`)
     }
@@ -302,7 +311,7 @@ function AdminView(props) {
       {active === 'Transações' && <AdminTransactions rows={transactions.items || []} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={() => { setTxOffset(0); load() }} total={transactions.total} limit={transactions.limit || 50} offset={transactions.offset || txOffset} setOffset={setTxOffset} />}
       {active === 'Tenants' && (
         <div className="split">
-          <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at)])} /></section>
+          <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em', 'Token produção']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at), <button key={t.id} type="button" onClick={() => issueProductionToken(t)}>Emitir token</button>])} /></section>
           <FormPanel title="Novo Tenant" onSubmit={createTenant}>
             <label>Nome do Tenant<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
             <label>CNPJ<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} /></label>
@@ -478,7 +487,6 @@ function TenantView(props) {
       {active === 'Transações' && <Transactions rows={transactions} providerById={providerById} filters={filters} setFilters={setFilters} providers={providers} reload={() => { setTenantTxOffset(0); load() }} pagination={tenantTransactions} setOffset={setTenantTxOffset} />}
       {active === 'Boletos' && <Boletos rows={boletos} providerById={providerById} />}
       {active === 'Clientes' && <Customers rows={customers} />}
-      {active === 'Providers' && <Providers rows={providers} />}
       {active === 'Compliance' && <Compliance rows={blacklist} form={blacklistForm} setForm={setBlacklistForm} save={saveBlacklist} canManage={canManageTenant} />}
       {active === 'Usuários' && canManageTenant && <DataTable columns={['Nome', 'Email', 'Roles', 'Status']} rows={users.map((u) => [u.name, u.email, (u.roles || []).join(', '), u.status])} />}
     </Shell>

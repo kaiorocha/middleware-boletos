@@ -1,6 +1,6 @@
-# middleware-boletos
+# Giga Pagamentos — Boletos
 
-Plataforma para emissão e gestão de boletos com arquitetura multi-tenant.  
+Produto de emissão e gestão de boletos da plataforma Giga Pagamentos, com arquitetura multi-tenant.
 **Status atual:** Etapa 5 implementada com boleto proposta, Compliance por email, autenticação JWT, providers por tenant e readiness básico para produção.
 
 ## Stack

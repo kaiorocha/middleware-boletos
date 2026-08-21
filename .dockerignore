@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+.env
+backend
+developer-portal
+infra
+scripts
+frontend/.next
+frontend/node_modules
+frontend/npm-debug.log*
+docs/*
+!docs/openapi/
+docs/openapi/*
+!docs/openapi/middleware-boletos-etapa-5.openapi.json
