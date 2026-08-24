@@ -113,8 +113,9 @@ func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.I
 		DigitableLine: resp.Data.LinhaDigitavel,
 		OurNumber:     resp.Data.NossoNumero,
 		Base64:        base64Value,
-		Status:        types.StatusIssued,
-		IssuedAt:      time.Now().UTC(),
+		// The synchronous response only acknowledges the request. Registration
+		// is confirmed asynchronously by the REGISTRO webhook.
+		Status: types.StatusProcessing,
 	}, nil
 }
 
@@ -127,6 +128,7 @@ func mapBoletoSummary(data consultarBoletoResponseData) types.BoletoSummary {
 		DueDate:       parseProviderDate(data.DataVencimento),
 		Barcode:       data.CodigoBarras,
 		DigitableLine: data.LinhaDigitavel,
+		Base64:        data.boletoBase64(),
 	}
 }
 

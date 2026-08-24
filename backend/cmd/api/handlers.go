@@ -34,21 +34,24 @@ type dbPinger interface {
 }
 
 type App struct {
-	DB            dbPinger
-	TenantSvc     *service.TenantService
-	UserSvc       *service.UserService
-	CustomerSvc   *service.CustomerService
-	ProviderSvc   *service.ProviderService
-	BoletoSvc     *service.BoletoService
-	BlacklistSvc  *service.BlacklistService
-	OnboardingSvc *service.OnboardingService
-	APITokenSvc   *service.TenantAPITokenService
-	Factory       contracts.ProviderFactory
-	Authorizer    TenantAuthorizer
-	Authenticator *RequestAuthenticator
-	TokenIssuer   authn.TokenIssuer
-	CORSOrigins   []string
-	Environment   string
+	DB                dbPinger
+	TenantSvc         *service.TenantService
+	UserSvc           *service.UserService
+	CustomerSvc       *service.CustomerService
+	ProviderSvc       *service.ProviderService
+	BoletoSvc         *service.BoletoService
+	BlacklistSvc      *service.BlacklistService
+	OnboardingSvc     *service.OnboardingService
+	APITokenSvc       *service.TenantAPITokenService
+	Factory           contracts.ProviderFactory
+	Authorizer        TenantAuthorizer
+	Authenticator     *RequestAuthenticator
+	TokenIssuer       authn.TokenIssuer
+	CORSOrigins       []string
+	Environment       string
+	MoncalieriWebhook interface {
+		Receive(context.Context, string, []byte) error
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -139,6 +142,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/blocked-emails", a.handlePublicBlockedEmails)
 	mux.HandleFunc("/api/v1/blocked-emails/", a.handlePublicBlockedEmails)
 	mux.HandleFunc("/api/v1/providers/", a.handleProvidersIntegration)
+	mux.HandleFunc("/api/v1/webhooks/moncalieri/", a.handleMoncalieriWebhook)
 	mux.HandleFunc("/api/v1/users", a.handleUsers)
 	mux.HandleFunc("/api/v1/tenants/", a.handleTenantsScoped)
 	mux.HandleFunc("/api/v1/users/", a.handleUsersByID)
@@ -160,6 +164,33 @@ func (a *App) routes() http.Handler {
 	h = a.recoveryMiddleware(h)
 
 	return h
+}
+
+func (a *App) handleMoncalieriWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		return
+	}
+	providerID := strings.TrimPrefix(r.URL.Path, "/api/v1/webhooks/moncalieri/")
+	if providerID == "" || strings.Contains(providerID, "/") || a.MoncalieriWebhook == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "webhook endpoint not found")
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid webhook payload")
+		return
+	}
+	if err := a.MoncalieriWebhook.Receive(r.Context(), providerID, body); err != nil {
+		if errors.Is(err, service.ErrValidation) {
+			writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid Moncalieri webhook")
+			return
+		}
+		// Non-2xx intentionally asks Moncalieri to retry according to its policy.
+		writeError(w, http.StatusServiceUnavailable, "WEBHOOK_PROCESSING_FAILED", "webhook could not be processed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func corsMiddleware(next http.Handler, allowedOrigins []string) http.Handler {

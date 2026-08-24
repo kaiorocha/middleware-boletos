@@ -100,6 +100,7 @@ func main() {
 	apiTokenSvc := service.NewTenantAPITokenService(apiTokenRepo)
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
+	moncalieriWebhookSvc := service.NewMoncalieriWebhookService(db, boletoRepo, tenantRepo, providerRepo, providerFactory)
 	boletoSvc := service.NewBoletoService(boletoRepo).
 		WithTenantRepository(tenantRepo).
 		WithCustomerRepository(custRepo).
@@ -113,21 +114,22 @@ func main() {
 	}
 
 	app := &App{
-		DB:            db,
-		TenantSvc:     tenantSvc,
-		UserSvc:       userSvc,
-		CustomerSvc:   customerSvc,
-		ProviderSvc:   providerSvc,
-		BoletoSvc:     boletoSvc,
-		BlacklistSvc:  blacklistSvc,
-		OnboardingSvc: onboardingSvc,
-		APITokenSvc:   apiTokenSvc,
-		Factory:       providerFactory,
-		Authorizer:    NewIdentityTenantAuthorizer(),
-		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator).WithTenantAPITokens(apiTokenSvc),
-		TokenIssuer:   jwtIssuer,
-		CORSOrigins:   cfg.CORSAllowedOrigins,
-		Environment:   cfg.Env,
+		DB:                db,
+		TenantSvc:         tenantSvc,
+		UserSvc:           userSvc,
+		CustomerSvc:       customerSvc,
+		ProviderSvc:       providerSvc,
+		BoletoSvc:         boletoSvc,
+		BlacklistSvc:      blacklistSvc,
+		OnboardingSvc:     onboardingSvc,
+		APITokenSvc:       apiTokenSvc,
+		Factory:           providerFactory,
+		Authorizer:        NewIdentityTenantAuthorizer(),
+		Authenticator:     NewRequestAuthenticator(cfg.Env, jwtValidator).WithTenantAPITokens(apiTokenSvc),
+		TokenIssuer:       jwtIssuer,
+		CORSOrigins:       cfg.CORSAllowedOrigins,
+		Environment:       cfg.Env,
+		MoncalieriWebhook: moncalieriWebhookSvc,
 	}
 
 	h := app.routes()

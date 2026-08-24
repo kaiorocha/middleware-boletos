@@ -106,6 +106,7 @@ type BoletoSummary struct {
 	DueDate       time.Time    `json:"due_date"`
 	Barcode       string       `json:"barcode,omitempty"`
 	DigitableLine string       `json:"digitable_line,omitempty"`
+	Base64        string       `json:"base64,omitempty"`
 }
 
 type WebhookEvent struct {

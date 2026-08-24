@@ -78,6 +78,19 @@ func (r *BoletoRepo) FindByID(id string) (*domain.Boleto, error) {
 	return &b, nil
 }
 
+func (r *BoletoRepo) FindByProviderReference(providerID, customerReference, ourNumber string) (*domain.Boleto, error) {
+	var id string
+	err := r.db.QueryRow(`SELECT id FROM boletos
+		WHERE provider_id=$1 AND deleted_at IS NULL
+		AND (($2 <> '' AND (id::text=$2 OR external_id=$2)) OR ($3 <> '' AND our_number=$3))
+		ORDER BY CASE WHEN $2 <> '' AND (id::text=$2 OR external_id=$2) THEN 0 ELSE 1 END LIMIT 1`,
+		providerID, customerReference, ourNumber).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return r.FindByID(id)
+}
+
 func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 	rows, err := r.db.Query(`SELECT id,tenant_id,customer_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,base64,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
 	if err != nil {

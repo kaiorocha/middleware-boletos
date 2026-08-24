@@ -71,9 +71,10 @@ func (d gerarBoletoResponseData) boletoBase64() string {
 }
 
 type consultarBoletoData struct {
-	CodigoCanal   int    `json:"CodigoCanal"`
-	CodigoCliente int    `json:"CodigoCliente"`
-	NossoNumero   string `json:"NossoNumero"`
+	CodigoCanal    int    `json:"CodigoCanal"`
+	CodigoCliente  int    `json:"CodigoCliente"`
+	NossoNumero    string `json:"NossoNumero"`
+	RetornarBase64 bool   `json:"RetornarBase64,omitempty"`
 }
 
 type consultarBoletoResponse struct {
@@ -108,6 +109,19 @@ type consultarBoletoResponseData struct {
 	LinhaDigitavel       string `json:"LinhaDigitavel"`
 	CodigoBarras         string `json:"CodigoBarras"`
 	IdentificadorCliente string `json:"IdentificadorCliente"`
+	Base64               string `json:"Base64"`
+	BoletoBase64         string `json:"BoletoBase64"`
+	ArquivoBase64        string `json:"ArquivoBase64"`
+	PdfBase64            string `json:"PdfBase64"`
+}
+
+func (d consultarBoletoResponseData) boletoBase64() string {
+	for _, value := range []string{d.Base64, d.BoletoBase64, d.ArquivoBase64, d.PdfBase64} {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type solicitarBaixaBoletoResponse struct {

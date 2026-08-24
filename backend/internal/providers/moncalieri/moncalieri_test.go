@@ -66,7 +66,7 @@ func TestIssueBoletoSuccess(t *testing.T) {
 	if gotPayload.Data.Valor != 123.45 {
 		t.Fatalf("expected amount 123.45, got %v", gotPayload.Data.Valor)
 	}
-	if resp.Status != types.StatusIssued || resp.OurNumber != "NN123" || resp.Barcode == "" || resp.DigitableLine == "" || resp.Base64 != "JVBERi0xLjQ=" || resp.IssuedAt.IsZero() {
+	if resp.Status != types.StatusProcessing || resp.OurNumber != "NN123" || resp.Barcode == "" || resp.DigitableLine == "" || resp.Base64 != "JVBERi0xLjQ=" || !resp.IssuedAt.IsZero() {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
@@ -149,9 +149,13 @@ func TestIssueBoletoReportsMissingOurNumberAndSanitizedResponse(t *testing.T) {
 }
 
 func TestGetBoletoSuccess(t *testing.T) {
+	var request envelope[consultarBoletoData]
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/CashIn/ConsultarBoleto" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("failed to decode consultation request: %v", err)
 		}
 		_ = json.NewEncoder(w).Encode(consultarBoletoResponse{
 			Data: consultarBoletoResponseData{
@@ -162,6 +166,7 @@ func TestGetBoletoSuccess(t *testing.T) {
 				LinhaDigitavel:       "linha",
 				CodigoBarras:         "barra",
 				IdentificadorCliente: "boleto-1",
+				Base64:               "JVBERi0xLjQ=",
 			},
 		})
 	}))
@@ -172,8 +177,11 @@ func TestGetBoletoSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got.Status != types.StatusPaid || got.OurNumber != "NN123" || got.AmountCents != 12345 {
+	if got.Status != types.StatusPaid || got.OurNumber != "NN123" || got.AmountCents != 12345 || got.Base64 != "JVBERi0xLjQ=" {
 		t.Fatalf("unexpected boleto summary: %+v", got)
+	}
+	if !request.Data.RetornarBase64 {
+		t.Fatal("expected consultation to request boleto base64")
 	}
 	if got.DueDate.Format("2006-01-02") != "2026-07-30" {
 		t.Fatalf("unexpected due date: %s", got.DueDate)

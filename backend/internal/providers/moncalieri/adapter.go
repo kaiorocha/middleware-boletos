@@ -49,9 +49,10 @@ func (p *Provider) GetBoleto(ctx context.Context, req types.GetRequest) (types.B
 		return types.BoletoSummary{}, providererrors.New(errInvalidRequest, "our_number is required", providerName, false)
 	}
 	payload := envelope[consultarBoletoData]{Data: consultarBoletoData{
-		CodigoCanal:   p.config.CodigoCanal,
-		CodigoCliente: p.config.CodigoCliente,
-		NossoNumero:   strings.TrimSpace(req.OurNumber),
+		CodigoCanal:    p.config.CodigoCanal,
+		CodigoCliente:  p.config.CodigoCliente,
+		NossoNumero:    strings.TrimSpace(req.OurNumber),
+		RetornarBase64: true,
 	}}
 	var resp consultarBoletoResponse
 	if err := p.client.post(ctx, "/api/CashIn/ConsultarBoleto", payload, &resp); err != nil {

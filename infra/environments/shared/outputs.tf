@@ -46,6 +46,11 @@ output "cloudwatch_log_group" {
 output "api_url" {
   value = var.enable_https ? "https://${local.api_fqdn}" : "http://${module.alb.dns_name}"
 }
+
+output "moncalieri_webhook_url_template" {
+  description = "Register this HTTPS URL at Moncalieri, replacing {provider_id} with the provider catalog UUID."
+  value       = "${var.enable_https ? "https://${local.api_fqdn}" : "http://${module.alb.dns_name}"}/api/v1/webhooks/moncalieri/{provider_id}"
+}
 output "app_url" {
   value = var.enable_https ? "https://${local.app_fqdn}" : "http://${module.alb.dns_name}"
 }

@@ -1216,7 +1216,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got.Status != "ISSUED" || got.OurNumber == nil || *got.OurNumber != "NN123" || got.Base64 == nil || *got.Base64 != "JVBERi0xLjQ=" {
+	if got.Status != "PROCESSING" || got.OurNumber == nil || *got.OurNumber != "NN123" || got.IssuedAt != nil {
 		t.Fatalf("unexpected boleto: %+v", got)
 	}
 }
