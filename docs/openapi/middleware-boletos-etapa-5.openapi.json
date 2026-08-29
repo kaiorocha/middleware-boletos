@@ -9,14 +9,14 @@
   "tags": [{"name": "Boletos"}, {"name": "Transações"}, {"name": "Bloqueios"}],
   "paths": {
     "/api/v1/boletos": {
-      "post": {"tags": ["Boletos"], "summary": "Criar boleto", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBoleto"}}}}, "responses": {"201": {"description": "Criado", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}},
+      "post": {"tags": ["Boletos"], "summary": "Criar um ou vários boletos", "description": "Aceita um objeto para criação unitária ou uma lista com até 100 boletos.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/CreateBoleto"}, {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/components/schemas/CreateBoleto"}}]}}}}, "responses": {"201": {"description": "Criado; data será um boleto ou uma lista, conforme o corpo enviado."}, "401": {"$ref": "#/components/responses/Unauthorized"}}},
       "get": {"tags": ["Boletos"], "summary": "Listar boletos", "responses": {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
     },
     "/api/v1/boletos/{boletoId}": {
       "get": {"tags": ["Boletos"], "summary": "Consultar boleto", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "Não encontrado"}}}
     },
     "/api/v1/boletos/{boletoId}/emit": {
-      "post": {"tags": ["Boletos"], "summary": "Emitir boleto", "description": "Retorna nosso número, linha digitável, código de barras e PDF Base64 quando disponibilizados pelo provider.", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "Emitido", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "502": {"description": "Falha no provider"}}}
+      "post": {"tags": ["Boletos"], "summary": "Emitir boleto", "description": "Confirma a solicitação e retorna o Nosso Número. Linha digitável, código de barras e PDF Base64 ficam disponíveis após o registro assíncrono pelo provider.", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "Solicitação aceita", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "502": {"description": "Falha no provider"}}}
     },
     "/api/v1/transactions": {
       "get": {"tags": ["Transações"], "summary": "Consultar transações", "parameters": [{"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50, "maximum": 200}}, {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0}}, {"name": "status", "in": "query", "schema": {"type": "string"}}, {"name": "email", "in": "query", "schema": {"type": "string", "format": "email"}}], "responses": {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}

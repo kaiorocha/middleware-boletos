@@ -65,6 +65,10 @@
   .panel h2, .formPanel h2 { @apply text-base font-extrabold text-ink-950; }
   .split { @apply grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]; }
   .threeCols { @apply grid gap-4 md:grid-cols-2 xl:grid-cols-3; }
+  .twoCols { @apply grid gap-4 sm:grid-cols-2; }
+  .phoneCols { @apply grid grid-cols-[80px_90px_minmax(0,1fr)] gap-3; }
+  .threeCols > label, .twoCols > label, .phoneCols > label { @apply min-w-0; }
+  .threeCols input, .twoCols input, .phoneCols input { @apply w-full min-w-0; }
   .tableWrap { @apply overflow-auto rounded-2xl border border-slate-200/80 bg-white shadow-[0_10px_30px_-22px_rgba(15,23,42,.28)]; }
   table { @apply w-full border-collapse; }
   th, td { @apply border-b border-slate-100 px-4 py-3.5 text-left align-top text-sm; }
@@ -78,6 +82,12 @@
   .checkRow { @apply flex items-center gap-2; }
   .checkRow input { @apply min-h-0 min-w-0; }
   .providerChoice { @apply grid gap-2; }
+  .providerChoice small { @apply pl-6 text-xs text-slate-400; }
+  .tokenRow { @apply grid grid-cols-[90px_minmax(0,1fr)_40px_auto] items-center gap-3; }
+  .tokenRow code { @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 text-xs; }
+  .eyeButton { @apply grid size-9 min-h-9 place-items-center rounded-full p-0; }
+  .eyeButton svg { @apply size-4 fill-none stroke-current stroke-2; }
+  .rotateTokenButton { @apply whitespace-nowrap border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700; }
   .rowActions { @apply flex flex-wrap gap-2; }
   .rowActions button, .pager button, .closeButton { @apply border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700; }
   .pager { @apply mt-4 flex flex-wrap items-center justify-end gap-3 text-sm text-slate-500; }
@@ -101,4 +111,8 @@
 @media (max-width: 640px) {
   .toolbar, .controls, .pager { @apply grid items-stretch; }
   .toolbar label, .controls label, input, select, textarea { @apply w-full min-w-0; }
+  .phoneCols { @apply grid-cols-2; }
+  .phoneCols label:last-child { @apply col-span-2; }
+  .tokenRow { @apply grid-cols-[75px_minmax(0,1fr)_40px]; }
+  .rotateTokenButton { @apply col-span-3; }
 }

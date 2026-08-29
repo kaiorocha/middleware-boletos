@@ -479,7 +479,9 @@ func (a *App) handleAdminTenants(w http.ResponseWriter, r *http.Request) {
 		if provider.Active != nil {
 			active = *provider.Active
 		}
-		providers = append(providers, domain.OnboardingProviderInput{ProviderID: provider.ProviderID, Active: active, Config: provider.Config})
+		// Provider credentials belong to the platform. Tenant assignments inherit
+		// the catalog provider configuration and cannot override its JSON.
+		providers = append(providers, domain.OnboardingProviderInput{ProviderID: provider.ProviderID, Active: active})
 	}
 	if a.OnboardingSvc != nil {
 		result, err := a.OnboardingSvc.CreateTenant(domain.OnboardingInput{
@@ -550,19 +552,73 @@ func (a *App) handleAdminTenantByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/tenants/"))
-	if len(parts) != 3 || parts[1] != "tokens" || parts[2] != "production" || r.Method != http.MethodPost {
+	if len(parts) == 0 || !service.IsValidUUID(parts[0]) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid tenant id")
+		return
+	}
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			tenant, err := a.TenantSvc.Get(parts[0])
+			if err != nil {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "tenant not found")
+				return
+			}
+			providers, err := a.ProviderSvc.ListByTenant(parts[0])
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			tokens, err := a.APITokenSvc.List(parts[0])
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "providers": providers, "tokens": tokens})
+		case http.MethodPut:
+			tenant, err := a.TenantSvc.Get(parts[0])
+			if err != nil {
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "tenant not found")
+				return
+			}
+			if err = json.NewDecoder(r.Body).Decode(tenant); err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+				return
+			}
+			tenant.ID = parts[0]
+			if err = a.TenantSvc.Update(tenant); err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, tenant)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		}
+		return
+	}
+	if len(parts) == 3 && parts[1] == "tokens" && r.Method == http.MethodGet {
+		token, err := a.APITokenSvc.Reveal(parts[0], parts[2])
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, token)
+		return
+	}
+	if len(parts) != 3 || parts[1] != "tokens" || r.Method != http.MethodPost {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
 		return
 	}
-	if !service.IsValidUUID(parts[0]) {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid tenant id")
+	environment := strings.ToUpper(strings.TrimSpace(parts[2]))
+	if environment != "HML" && environment != "PRODUCTION" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid token environment")
 		return
 	}
 	if _, err := a.TenantSvc.Get(parts[0]); err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "tenant not found")
 		return
 	}
-	token, err := a.issueTenantAPIToken(parts[0], "PRODUCTION")
+	token, err := a.issueTenantAPIToken(parts[0], environment)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -587,15 +643,30 @@ func (a *App) handlePublicTenantBoletos(w http.ResponseWriter, r *http.Request) 
 	tail := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/boletos"))
 	if len(tail) == 0 && r.Method == http.MethodPost {
 		// The provider is an administrative concern. Select the tenant's active assignment.
-		var body struct {
+		type createBoletoRequest struct {
 			Email       string  `json:"email"`
 			AmountCents int64   `json:"amount_cents"`
 			DueDate     string  `json:"due_date"`
 			ExternalID  *string `json:"external_id"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var raw json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
 			return
+		}
+		var bodies []createBoletoRequest
+		if strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
+			if err := json.Unmarshal(raw, &bodies); err != nil || len(bodies) == 0 || len(bodies) > 100 {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "batch must contain between 1 and 100 boletos")
+				return
+			}
+		} else {
+			var body createBoletoRequest
+			if err := json.Unmarshal(raw, &body); err != nil {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+				return
+			}
+			bodies = []createBoletoRequest{body}
 		}
 		providers, err := a.ProviderSvc.ListByTenant(tenantID)
 		if err != nil {
@@ -613,17 +684,26 @@ func (a *App) handlePublicTenantBoletos(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusForbidden, "PROVIDER_NOT_ALLOWED", "tenant has no active provider")
 			return
 		}
-		dueDate, err := service.NormalizeDueDate(body.DueDate)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid due_date, expected YYYY-MM-DD")
-			return
+		items := make([]domain.Boleto, 0, len(bodies))
+		for _, body := range bodies {
+			dueDate, err := service.NormalizeDueDate(body.DueDate)
+			if err != nil || !service.IsValidEmail(service.NormalizeEmail(body.Email)) || body.AmountCents <= 0 {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "each boleto requires a valid email, positive amount_cents and due_date in YYYY-MM-DD")
+				return
+			}
+			items = append(items, domain.Boleto{TenantID: tenantID, RecipientEmail: body.Email, ProviderID: &providerID, AmountCents: body.AmountCents, DueDate: dueDate, ExternalID: body.ExternalID})
 		}
-		item := domain.Boleto{TenantID: tenantID, RecipientEmail: body.Email, ProviderID: &providerID, AmountCents: body.AmountCents, DueDate: dueDate, ExternalID: body.ExternalID}
-		if err := a.BoletoSvc.Create(&item); err != nil {
-			writeServiceError(w, err)
-			return
+		for i := range items {
+			if err := a.BoletoSvc.Create(&items[i]); err != nil {
+				writeServiceError(w, err)
+				return
+			}
 		}
-		writeJSON(w, http.StatusCreated, item)
+		if strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
+			writeJSON(w, http.StatusCreated, items)
+		} else {
+			writeJSON(w, http.StatusCreated, items[0])
+		}
 		return
 	}
 	a.handleTenantBoletos(w, r, tenantID, tail)

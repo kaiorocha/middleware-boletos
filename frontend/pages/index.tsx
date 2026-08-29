@@ -239,7 +239,7 @@ function AdminView(props) {
   })
   const [providerForm, setProviderForm] = useState({ name: 'Mock', type: 'BANK', status: 'ACTIVE', config: '{"delay_ms":0}' })
   const [providerEdit, setProviderEdit] = useState(null)
-  const [providerConfigs, setProviderConfigs] = useState({})
+  const [tenantDetails, setTenantDetails] = useState(null)
 
   const load = async () => {
     try {
@@ -284,7 +284,7 @@ function AdminView(props) {
       phone_number: form.phoneNumber,
       webhook_url: form.webhookUrl || undefined,
       admin: { name: form.adminName, email: form.adminEmail, password: form.adminPassword },
-      providers: form.providerIds.map((provider_id) => ({ provider_id, active: true, config: providerConfigs[provider_id] || undefined })),
+      providers: form.providerIds.map((provider_id) => ({ provider_id, active: true })),
     }
     try {
       const created = await apiFetch(baseUrl, '/api/v1/admin/tenants', session.access_token, { method: 'POST', body: JSON.stringify(payload) })
@@ -296,15 +296,45 @@ function AdminView(props) {
     }
   }
 
-  const issueProductionToken = async (tenant) => {
-    if (!window.confirm(`Emitir um novo token de produção para ${tenant.name}? O token de produção ativo será revogado.`)) return
-    setError('')
-    try {
-      const issued = await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenant.id}/tokens/production`, session.access_token, { method: 'POST' })
-      setNotice(`Token de produção de ${tenant.name} (exibido uma única vez): ${issued.data.token}`)
-    } catch (err) {
-      setError(`${err.code || err.status}: ${err.message}`)
-    }
+  const rotateTenantToken = async (tenant, environment) => {
+	const label = environment === 'PRODUCTION' ? 'produção' : 'homologação'
+	if (!window.confirm(`Recriar o token de ${label} para ${tenant.name}? O token atual desse ambiente será revogado imediatamente.`)) return null
+	setError('')
+	try {
+	  const issued = await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenant.id}/tokens/${environment.toLowerCase()}`, session.access_token, { method: 'POST' })
+	  setNotice(`Token de ${label} de ${tenant.name} recriado. O token anterior foi revogado.`)
+	  return issued.data
+	} catch (err) {
+	  setError(`${err.code || err.status}: ${err.message}`)
+	  return null
+	}
+  }
+
+  const issueProductionToken = (tenant) => rotateTenantToken(tenant, 'PRODUCTION')
+
+  const openTenant = async (tenant) => {
+	setError('')
+	try { const result = await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenant.id}`, session.access_token); setTenantDetails(result.data) }
+	catch (err) { setError(`${err.code || err.status}: ${err.message}`) }
+  }
+
+  const saveTenant = async (tenant) => {
+	setError('')
+	try { await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenant.id}`, session.access_token, { method: 'PUT', body: JSON.stringify(tenant) }); setNotice('Dados do tenant atualizados.'); setTenantDetails(null); await load() }
+	catch (err) { setError(`${err.code || err.status}: ${err.message}`) }
+  }
+
+  const revealTenantToken = async (tenantId, environment) => {
+	try { const result = await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenantId}/tokens/${environment.toLowerCase()}`, session.access_token); setTenantDetails((current) => ({ ...current, tokens: current.tokens.map((token) => token.environment === environment ? result.data : token) })) }
+	catch (err) { setError(err.message) }
+  }
+
+  const rotateTokenFromDetails = async (tenant, environment) => {
+	const issued = await rotateTenantToken(tenant, environment)
+	const token = issued ? { ...issued, masked_token: `${issued.token_prefix}••••••••••••` } : null
+	if (!token) return null
+	setTenantDetails((current) => ({ ...current, tokens: [...current.tokens.filter((item) => item.environment !== environment), token] }))
+	return token
   }
 
   const createProvider = async (event) => {
@@ -350,7 +380,7 @@ function AdminView(props) {
       {active === 'Transações' && <AdminTransactions rows={transactions.items || []} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={() => { setTxOffset(0); load() }} total={transactions.total} limit={transactions.limit || 50} offset={transactions.offset || txOffset} setOffset={setTxOffset} />}
       {active === 'Tenants' && (
         <div className="split">
-          <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em', 'Token produção']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at), <button key={t.id} type="button" onClick={() => issueProductionToken(t)}>Emitir token</button>])} /></section>
+          <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em', 'Ações']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at), <div className="rowActions" key={t.id}><button type="button" onClick={() => openTenant(t)}>Visualizar</button><button type="button" onClick={() => issueProductionToken(t)}>Emitir token prod</button></div>])} /></section>
           <FormPanel title="Novo Tenant" onSubmit={createTenant}>
             <label>Nome do Tenant<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
             <label>CNPJ<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} /></label>
@@ -364,15 +394,30 @@ function AdminView(props) {
             <label>Nome do Administrador<input value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} /></label>
             <label>E-mail do Administrador<input value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} /></label>
             <label>Senha inicial<input type="password" value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} /></label>
-            <fieldset><legend>Providers habilitados</legend>{providers.map((p) => <div key={p.id} className="providerChoice"><label className="checkRow"><input type="checkbox" checked={form.providerIds.includes(p.id)} onChange={(e) => setForm({ ...form, providerIds: e.target.checked ? [...form.providerIds, p.id] : form.providerIds.filter((id) => id !== p.id) })} />{p.name}</label>{form.providerIds.includes(p.id) && <label>Configuração do tenant<input type="password" value={providerConfigs[p.id] || ''} onChange={(e) => setProviderConfigs({ ...providerConfigs, [p.id]: e.target.value })} placeholder="JSON ou segredo específico do tenant" /></label>}</div>)}</fieldset>
+            <fieldset><legend>Providers habilitados</legend>{providers.map((p) => <div key={p.id} className="providerChoice"><label className="checkRow"><input type="checkbox" checked={form.providerIds.includes(p.id)} onChange={(e) => setForm({ ...form, providerIds: e.target.checked ? [...form.providerIds, p.id] : form.providerIds.filter((id) => id !== p.id) })} />{p.name}</label>{form.providerIds.includes(p.id) && <small>A configuração e as credenciais serão herdadas do provider da plataforma.</small>}</div>)}</fieldset>
             <button>Criar tenant e admin</button>
           </FormPanel>
         </div>
       )}
       {active === 'Providers' && <ProvidersAdmin rows={providers} form={providerForm} setForm={setProviderForm} save={createProvider} edit={providerEdit} setEdit={setProviderEdit} update={updateProvider} setStatus={setProviderStatus} />}
       {active === 'Usuários Administrativos' && <section className="panel"><p>Usuários `PLATFORM_ADMIN` são gerenciados por bootstrap seguro nesta etapa.</p></section>}
+	  {tenantDetails && <TenantDetails details={tenantDetails} onClose={() => setTenantDetails(null)} onSave={saveTenant} onReveal={revealTenantToken} onRotate={rotateTokenFromDetails} />}
     </Shell>
   )
+}
+
+function TenantDetails({ details, onClose, onSave, onReveal, onRotate }) {
+  const [tenant, setTenant] = useState(details.tenant)
+  const [shownTokens, setShownTokens] = useState({})
+  const field = (key, label, props: any = {}) => <label>{label}<input {...props} value={tenant[key] || ''} onChange={(e) => setTenant({ ...tenant, [key]: e.target.value })} /></label>
+  return <div className="modalBackdrop"><form className="detailsModal formStack" onSubmit={(e) => { e.preventDefault(); onSave(tenant) }}>
+    <header><div><h2>{tenant.name}</h2><p>Dados, integrações e tokens do tenant</p></div><button type="button" className="closeButton" onClick={onClose}>×</button></header>
+    <div className="twoCols">{field('name','Nome')}{field('document','CNPJ')}{field('address','Endereço')}{field('district','Bairro')}{field('city','Cidade')}{field('postal_code','CEP')}{field('state','UF',{maxLength:2})}{field('webhook_url','URL de webhooks',{type:'url'})}</div>
+    <div className="phoneCols">{field('country_code','DDI',{inputMode:'numeric'})}{field('area_code','DDD',{inputMode:'numeric'})}{field('phone_number','Celular',{inputMode:'numeric'})}</div>
+    <fieldset><legend>Providers</legend>{(details.providers || []).map((provider) => <div key={provider.id}><strong>{provider.name}</strong><small> Configuração herdada da plataforma</small></div>)}</fieldset>
+	<fieldset><legend>Tokens da API</legend>{['HML', 'PRODUCTION'].map((environment) => { const token = (details.tokens || []).find((item) => item.environment === environment); return <div className="tokenRow" key={environment}><strong>{environment}</strong><code>{token ? (shownTokens[environment] && token.token ? token.token : token.masked_token) : 'Não emitido'}</code>{token ? <button type="button" className="eyeButton" title={shownTokens[environment] ? 'Ocultar token' : 'Visualizar token'} aria-label={`Visualizar token ${environment}`} onClick={async () => { if (!token.token) await onReveal(tenant.id, environment); setShownTokens((shown) => ({ ...shown, [environment]: !shown[environment] })) }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button> : <span />}<button type="button" className="rotateTokenButton" onClick={async () => { const created = await onRotate(tenant, environment); if (created) setShownTokens((shown) => ({ ...shown, [environment]: true })) }}>{token ? 'Recriar token' : 'Criar token'}</button></div> })}</fieldset>
+    <div className="rowActions"><button type="submit">Salvar alterações</button><button type="button" onClick={onClose}>Cancelar</button></div>
+  </form></div>
 }
 
 function AdminDashboard({ dashboard, filters, setFilters, tenants, providers, reload }) {

@@ -23,14 +23,16 @@ type Tenant struct {
 }
 
 type TenantAPIToken struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenant_id"`
-	Environment string     `json:"environment"`
-	TokenPrefix string     `json:"token_prefix"`
-	Status      string     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
-	Token       string     `json:"token,omitempty"`
+	ID             string     `json:"id"`
+	TenantID       string     `json:"tenant_id"`
+	Environment    string     `json:"environment"`
+	TokenPrefix    string     `json:"token_prefix"`
+	Status         string     `json:"status"`
+	CreatedAt      time.Time  `json:"created_at"`
+	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
+	Token          string     `json:"token,omitempty"`
+	MaskedToken    string     `json:"masked_token,omitempty"`
+	EncryptedToken string     `json:"-"`
 }
 
 // User represents a system user

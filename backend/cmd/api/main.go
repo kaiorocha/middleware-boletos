@@ -97,7 +97,7 @@ func main() {
 	customerSvc := service.NewCustomerService(custRepo)
 	providerSvc := service.NewProviderService(providerRepo)
 	onboardingSvc := service.NewOnboardingService(onboardingRepo)
-	apiTokenSvc := service.NewTenantAPITokenService(apiTokenRepo)
+	apiTokenSvc := service.NewTenantAPITokenService(apiTokenRepo, cfg.JWTSecret)
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
 	moncalieriWebhookSvc := service.NewMoncalieriWebhookService(db, boletoRepo, tenantRepo, providerRepo, providerFactory)
