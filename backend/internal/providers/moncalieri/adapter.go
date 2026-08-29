@@ -59,6 +59,9 @@ func (p *Provider) GetBoleto(ctx context.Context, req types.GetRequest) (types.B
 		return types.BoletoSummary{}, err
 	}
 	if err := responseError(resp.ResultCode, resp.Message, resp.ValidationData); err != nil {
+		if perr, ok := err.(*providererrors.ProviderError); ok {
+			perr.ResponseBody = sanitizeProviderResponse(resp.rawBody)
+		}
 		return types.BoletoSummary{}, err
 	}
 	return mapBoletoSummary(resp.Data), nil

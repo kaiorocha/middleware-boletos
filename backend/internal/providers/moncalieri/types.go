@@ -1,5 +1,13 @@
 package moncalieri
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 type Config struct {
 	BaseURL        string `json:"base_url"`
 	APIKey         string `json:"api_key"`
@@ -82,6 +90,42 @@ type consultarBoletoResponse struct {
 	ResultCode     int                         `json:"ResultCode"`
 	Message        string                      `json:"Message"`
 	ValidationData validationData              `json:"ValidationData"`
+	rawBody        []byte
+}
+
+func (r *consultarBoletoResponse) captureResponseBody(body []byte) {
+	r.rawBody = append(r.rawBody[:0], body...)
+}
+
+func (r *consultarBoletoResponse) UnmarshalJSON(body []byte) error {
+	body = bytes.TrimSpace(body)
+	if len(body) > 0 && body[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(body, &encoded); err != nil {
+			return err
+		}
+		return r.UnmarshalJSON([]byte(encoded))
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return err
+	}
+	data := rawField(raw, "Data")
+	if len(data) > 0 && string(data) != "null" {
+		if err := json.Unmarshal(data, &r.Data); err != nil {
+			var list []consultarBoletoResponseData
+			if listErr := json.Unmarshal(data, &list); listErr != nil || len(list) == 0 {
+				return err
+			}
+			r.Data = list[0]
+		}
+	}
+	r.ResultCode = parseRawInt(rawField(raw, "ResultCode"))
+	r.Message = parseRawString(rawField(raw, "Message"))
+	if validation := rawField(raw, "ValidationData"); len(validation) > 0 && string(validation) != "null" {
+		_ = json.Unmarshal(validation, &r.ValidationData)
+	}
+	return nil
 }
 
 type consultarBoletoLoteData struct {
@@ -113,6 +157,61 @@ type consultarBoletoResponseData struct {
 	BoletoBase64         string `json:"BoletoBase64"`
 	ArquivoBase64        string `json:"ArquivoBase64"`
 	PdfBase64            string `json:"PdfBase64"`
+}
+
+func (d *consultarBoletoResponseData) UnmarshalJSON(body []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return err
+	}
+	d.Status = parseRawString(rawField(raw, "Status"))
+	d.Valor = parseRawInt64(rawField(raw, "Valor"))
+	d.ValorPago = parseRawInt64(rawField(raw, "ValorPago"))
+	d.DataVencimento = parseRawString(rawField(raw, "DataVencimento"))
+	d.NossoNumero = parseRawString(rawField(raw, "NossoNumero"))
+	d.LinhaDigitavel = parseRawString(rawField(raw, "LinhaDigitavel"))
+	d.CodigoBarras = parseRawString(rawField(raw, "CodigoBarras"))
+	d.IdentificadorCliente = parseRawString(rawField(raw, "IdentificadorCliente"))
+	d.Base64 = parseRawString(rawField(raw, "Base64"))
+	d.BoletoBase64 = parseRawString(rawField(raw, "BoletoBase64"))
+	d.ArquivoBase64 = parseRawString(rawField(raw, "ArquivoBase64"))
+	d.PdfBase64 = parseRawString(rawField(raw, "PdfBase64"))
+	return nil
+}
+
+func rawField(raw map[string]json.RawMessage, name string) json.RawMessage {
+	for key, value := range raw {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return nil
+}
+func parseRawString(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var value string
+	if json.Unmarshal(raw, &value) == nil {
+		return value
+	}
+	var generic any
+	if json.Unmarshal(raw, &generic) == nil {
+		return strings.TrimSpace(fmt.Sprint(generic))
+	}
+	return ""
+}
+func parseRawInt(raw json.RawMessage) int { return int(parseRawInt64(raw)) }
+func parseRawInt64(raw json.RawMessage) int64 {
+	value := strings.TrimSpace(parseRawString(raw))
+	if value == "" {
+		value = strings.Trim(string(raw), `"`)
+	}
+	if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return parsed
+	}
+	parsed, _ := strconv.ParseFloat(strings.ReplaceAll(value, ",", "."), 64)
+	return int64(parsed)
 }
 
 func (d consultarBoletoResponseData) boletoBase64() string {

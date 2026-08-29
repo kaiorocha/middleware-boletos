@@ -188,6 +188,32 @@ func TestGetBoletoSuccess(t *testing.T) {
 	}
 }
 
+func TestGetBoletoAcceptsArrayAndStringValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"Data":[{"Status":"Registrado","Valor":"12345","ValorPago":null,"DataVencimento":20260730,"NossoNumero":123,"LinhaDigitavel":"linha","CodigoBarras":"barra"}],"ResultCode":"0","Message":null}`))
+	}))
+	defer server.Close()
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	got, err := provider.GetBoleto(context.Background(), types.GetRequest{OurNumber: "123"})
+	if err != nil {
+		t.Fatalf("expected tolerant response, got %v", err)
+	}
+	if got.Status != types.StatusIssued || got.OurNumber != "123" || got.AmountCents != 12345 || got.DigitableLine != "linha" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestGetBoletoAcceptsDoubleEncodedJSON(t *testing.T) {
+	encoded, _ := json.Marshal(`{"Data":{"Status":"Registrado","NossoNumero":"123","LinhaDigitavel":"linha"},"ResultCode":0}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(encoded) }))
+	defer server.Close()
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	got, err := provider.GetBoleto(context.Background(), types.GetRequest{OurNumber: "123"})
+	if err != nil || got.OurNumber != "123" {
+		t.Fatalf("unexpected response: %+v %v", got, err)
+	}
+}
+
 func TestCancelBoletoSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/CashIn/SolicitarBaixaBoleto" {

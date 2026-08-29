@@ -185,6 +185,12 @@ func (a *App) handleAdminTransactionByID(w http.ResponseWriter, r *http.Request)
 	}
 	result, err := a.ProviderSync.Sync(r.Context(), parts[0])
 	if err != nil {
+		attributes := []any{"boleto_id", parts[0], "request_id", requestID(r), "error", err}
+		var providerErr *providererrors.ProviderError
+		if errors.As(err, &providerErr) {
+			attributes = append(attributes, "provider_error_code", providerErr.Code, "provider_http_status", providerErr.HTTPStatus, "provider_response", providerErr.ResponseBody)
+		}
+		slog.Error("manual provider sync failed", attributes...)
 		writeServiceError(w, err)
 		return
 	}
