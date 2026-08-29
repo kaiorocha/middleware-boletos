@@ -52,6 +52,9 @@ type App struct {
 	MoncalieriWebhook interface {
 		Receive(context.Context, string, []byte) error
 	}
+	ProviderSync interface {
+		Sync(context.Context, string) (*service.ProviderSyncResult, error)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -132,6 +135,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/me/tenants", a.handleMyTenants)
 	mux.HandleFunc("/api/v1/admin/dashboard", a.handleAdminDashboard)
 	mux.HandleFunc("/api/v1/admin/transactions", a.handleAdminTransactions)
+	mux.HandleFunc("/api/v1/admin/transactions/", a.handleAdminTransactionByID)
 	mux.HandleFunc("/api/v1/admin/providers", a.handleAdminProviders)
 	mux.HandleFunc("/api/v1/admin/providers/", a.handleAdminProviderByID)
 	mux.HandleFunc("/api/v1/admin/tenants", a.handleAdminTenants)
@@ -166,6 +170,27 @@ func (a *App) routes() http.Handler {
 	return h
 }
 
+func (a *App) handleAdminTransactionByID(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePlatformAdmin(w, r) {
+		return
+	}
+	parts := splitPath(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/transactions/"))
+	if len(parts) != 2 || parts[1] != "sync" || r.Method != http.MethodPost {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
+		return
+	}
+	if a.ProviderSync == nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "provider sync not configured")
+		return
+	}
+	result, err := a.ProviderSync.Sync(r.Context(), parts[0])
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (a *App) handleMoncalieriWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
@@ -182,6 +207,7 @@ func (a *App) handleMoncalieriWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.MoncalieriWebhook.Receive(r.Context(), providerID, body); err != nil {
+		slog.Error("moncalieri webhook processing failed", "provider_id", providerID, "request_id", requestID(r), "error", err)
 		if errors.Is(err, service.ErrValidation) {
 			writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid Moncalieri webhook")
 			return
@@ -190,6 +216,7 @@ func (a *App) handleMoncalieriWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "WEBHOOK_PROCESSING_FAILED", "webhook could not be processed")
 		return
 	}
+	slog.Info("moncalieri webhook processed", "provider_id", providerID, "request_id", requestID(r))
 	w.WriteHeader(http.StatusNoContent)
 }
 

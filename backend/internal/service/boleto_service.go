@@ -199,7 +199,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return nil, ErrValidation
 	}
 
-	if boleto.Status == string(types.StatusIssued) && boleto.ExternalID != nil && boleto.OurNumber != nil {
+	if (boleto.Status == string(types.StatusIssued) || boleto.Status == string(types.StatusProcessing)) && boleto.OurNumber != nil && strings.TrimSpace(*boleto.OurNumber) != "" {
 		s.logger.Info("boleto emission idempotent hit",
 			"tenant", tenantID,
 			"provider", *boleto.ProviderID,

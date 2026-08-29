@@ -91,6 +91,42 @@ func (r *BoletoRepo) FindByProviderReference(providerID, customerReference, ourN
 	return r.FindByID(id)
 }
 
+func (r *BoletoRepo) ListForProviderSync(limit int) ([]domain.Boleto, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := r.db.Query(`SELECT id FROM boletos WHERE deleted_at IS NULL AND our_number IS NOT NULL AND our_number <> '' AND status IN ('PROCESSING','ISSUED','PARTIAL') ORDER BY COALESCE(last_provider_sync_at,updated_at) ASC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]domain.Boleto, 0, len(ids))
+	for _, id := range ids {
+		item, err := r.FindByID(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *item)
+	}
+	return out, nil
+}
+
+func (r *BoletoRepo) MarkProviderSynced(id string) error {
+	_, err := r.db.Exec(`UPDATE boletos SET last_provider_sync_at=now() WHERE id=$1 AND deleted_at IS NULL`, id)
+	return err
+}
+
 func (r *BoletoRepo) ListByTenant(tenantID string) ([]domain.Boleto, error) {
 	rows, err := r.db.Query(`SELECT id,tenant_id,customer_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,barcode,digitable_line,our_number,base64,issued_at,created_at,updated_at,deleted_at FROM boletos WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
 	if err != nil {

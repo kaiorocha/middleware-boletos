@@ -101,9 +101,9 @@ func (s *MoncalieriWebhookService) processItem(ctx context.Context, providerID s
 		return err
 	}
 	if !failed && (strings.TrimSpace(item.DigitableLine) == "" || item.boletoBase64() == "") {
-		if err := s.completeFromProvider(ctx, providerID, boleto, &item); err != nil {
-			return err
-		}
+		// The provider consultation is best effort. A registered boleto must not
+		// remain PROCESSING only because its PDF is not available yet.
+		_ = s.completeFromProvider(ctx, providerID, boleto, &item)
 	}
 	inserted, delivered, err := s.reserveEvent(providerID, event.EventID, item.Sequence, boleto.TenantID, event.EventType, raw)
 	if err != nil {
@@ -200,9 +200,8 @@ func (s *MoncalieriWebhookService) completeFromProvider(ctx context.Context, pro
 	if item.boletoBase64() == "" {
 		item.Base64 = summary.Base64
 	}
-	if strings.TrimSpace(item.DigitableLine) == "" || item.boletoBase64() == "" {
-		return fmt.Errorf("registered boleto consultation did not return digitable line and base64")
-	}
+	// Registration is authoritative. Persist every field that is available;
+	// Base64 may legitimately remain absent and can be completed by polling.
 	return nil
 }
 func setWebhookValue(target **string, value string) {

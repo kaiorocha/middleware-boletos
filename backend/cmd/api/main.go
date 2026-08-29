@@ -101,6 +101,7 @@ func main() {
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
 	moncalieriWebhookSvc := service.NewMoncalieriWebhookService(db, boletoRepo, tenantRepo, providerRepo, providerFactory)
+	providerSyncSvc := service.NewProviderSyncService(db, boletoRepo, tenantRepo, providerRepo, providerFactory)
 	boletoSvc := service.NewBoletoService(boletoRepo).
 		WithTenantRepository(tenantRepo).
 		WithCustomerRepository(custRepo).
@@ -130,9 +131,36 @@ func main() {
 		CORSOrigins:       cfg.CORSAllowedOrigins,
 		Environment:       cfg.Env,
 		MoncalieriWebhook: moncalieriWebhookSvc,
+		ProviderSync:      providerSyncSvc,
 	}
 
 	h := app.routes()
+	syncContext, stopSync := context.WithCancel(context.Background())
+	defer stopSync()
+	syncInterval := time.Duration(cfg.ProviderSyncIntervalSeconds) * time.Second
+	if syncInterval < 30*time.Second {
+		syncInterval = 30 * time.Second
+	}
+	go func() {
+		run := func() {
+			if updated, err := providerSyncSvc.SyncPending(syncContext, 100); err != nil {
+				logger.Error("periodic_provider_sync_failed", "error", err)
+			} else if updated > 0 {
+				logger.Info("periodic_provider_sync_completed", "updated", updated)
+			}
+		}
+		run()
+		ticker := time.NewTicker(syncInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-syncContext.Done():
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
 
 	// configured HTTP server with timeouts
 	srv := &http.Server{
@@ -161,6 +189,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
+	stopSync()
 	logger.Info("application_shutdown_started", "signal", sig.String())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

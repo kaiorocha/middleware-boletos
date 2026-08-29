@@ -373,11 +373,17 @@ function AdminView(props) {
     }
   }
 
+  const syncTransaction = async (boleto) => {
+	setError('')
+	try { const result = await apiFetch(baseUrl, `/api/v1/admin/transactions/${boleto.id}/sync`, session.access_token, { method: 'POST' }); setNotice(result.data.updated ? 'Transação atualizada com o provider e webhook enviado ao tenant.' : 'Transação consultada; o provider não retornou alterações.'); await load() }
+	catch (err) { setError(`${err.code || err.status}: ${err.message}`) }
+  }
+
   return (
     <Shell {...props} title="Painel da Plataforma" nav={adminNav} active={active} setActive={setActive}>
       {notice && <div className="notice">{notice}</div>}
       {active === 'Dashboard da Plataforma' && <AdminDashboard dashboard={dashboard} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={load} />}
-      {active === 'Transações' && <AdminTransactions rows={transactions.items || []} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={() => { setTxOffset(0); load() }} total={transactions.total} limit={transactions.limit || 50} offset={transactions.offset || txOffset} setOffset={setTxOffset} />}
+	  {active === 'Transações' && <AdminTransactions rows={transactions.items || []} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={() => { setTxOffset(0); load() }} total={transactions.total} limit={transactions.limit || 50} offset={transactions.offset || txOffset} setOffset={setTxOffset} onSync={syncTransaction} />}
       {active === 'Tenants' && (
         <div className="split">
           <section><DataTable columns={['ID', 'Nome', 'Owner', 'Criado em', 'Ações']} rows={tenants.map((t) => [shortId(t.id), t.name, t.owner_id || '-', fmtDate(t.created_at), <div className="rowActions" key={t.id}><button type="button" onClick={() => openTenant(t)}>Visualizar</button><button type="button" onClick={() => issueProductionToken(t)}>Emitir token prod</button></div>])} /></section>
@@ -446,12 +452,12 @@ function AdminDashboard({ dashboard, filters, setFilters, tenants, providers, re
   </>
 }
 
-function AdminTransactions({ rows, filters, setFilters, tenants, providers, reload, total, limit, offset, setOffset }) {
+function AdminTransactions({ rows, filters, setFilters, tenants, providers, reload, total, limit, offset, setOffset, onSync }) {
   const [selected, setSelected] = useState(null)
   return <>
     <GlobalFilters filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={reload} />
     <section className="panel"><strong>{total || 0}</strong> transações encontradas</section>
-    <DataTable columns={['Data', 'Tenant', 'Cliente/Email', 'Valor', 'Status', 'Provider', 'External ID', 'Nosso Número', 'Detalhes']} rows={rows.map((b) => [fmtDate(b.created_at), b.tenant_name || shortId(b.tenant_id), b.customer_name || b.recipient_email || shortId(b.customer_id), fmtCurrency(b.amount_cents), statusLabels[b.status] || b.status, b.provider_name || '-', b.external_id || '-', b.our_number || '-', <InfoButton key={b.id} onClick={() => setSelected(b)} />])} />
+    <DataTable columns={['Data', 'Tenant', 'Cliente/Email', 'Valor', 'Status', 'Provider', 'External ID', 'Nosso Número', 'Ações']} rows={rows.map((b) => [fmtDate(b.created_at), b.tenant_name || shortId(b.tenant_id), b.customer_name || b.recipient_email || shortId(b.customer_id), fmtCurrency(b.amount_cents), statusLabels[b.status] || b.status, b.provider_name || '-', b.external_id || '-', b.our_number || '-', <div className="rowActions" key={b.id}><InfoButton onClick={() => setSelected(b)} /><button type="button" className="syncButton" title="Atualizar com provider" onClick={() => onSync(b)}>↻</button></div>])} />
     <Pagination limit={limit} offset={offset} total={total} shown={rows.length} setOffset={setOffset} />
     {selected && <TransactionDetails boleto={selected} onClose={() => setSelected(null)} />}
   </>
