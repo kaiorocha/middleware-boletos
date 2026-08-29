@@ -407,20 +407,21 @@ function AdminView(props) {
       )}
       {active === 'Providers' && <ProvidersAdmin rows={providers} form={providerForm} setForm={setProviderForm} save={createProvider} edit={providerEdit} setEdit={setProviderEdit} update={updateProvider} setStatus={setProviderStatus} />}
       {active === 'Usuários Administrativos' && <section className="panel"><p>Usuários `PLATFORM_ADMIN` são gerenciados por bootstrap seguro nesta etapa.</p></section>}
-	  {tenantDetails && <TenantDetails details={tenantDetails} onClose={() => setTenantDetails(null)} onSave={saveTenant} onReveal={revealTenantToken} onRotate={rotateTokenFromDetails} />}
+	  {tenantDetails && <TenantDetails details={tenantDetails} catalogProviders={providers} onClose={() => setTenantDetails(null)} onSave={saveTenant} onReveal={revealTenantToken} onRotate={rotateTokenFromDetails} />}
     </Shell>
   )
 }
 
-function TenantDetails({ details, onClose, onSave, onReveal, onRotate }) {
+function TenantDetails({ details, catalogProviders, onClose, onSave, onReveal, onRotate }) {
   const [tenant, setTenant] = useState(details.tenant)
+  const [providerIds, setProviderIds] = useState((details.providers || []).filter((provider) => provider.status === 'ACTIVE').map((provider) => provider.id))
   const [shownTokens, setShownTokens] = useState({})
   const field = (key, label, props: any = {}) => <label>{label}<input {...props} value={tenant[key] || ''} onChange={(e) => setTenant({ ...tenant, [key]: e.target.value })} /></label>
-  return <div className="modalBackdrop"><form className="detailsModal formStack" onSubmit={(e) => { e.preventDefault(); onSave(tenant) }}>
+  return <div className="modalBackdrop"><form className="detailsModal formStack" onSubmit={(e) => { e.preventDefault(); onSave({ ...tenant, providers: providerIds.map((provider_id) => ({ provider_id, active: true })) }) }}>
     <header><div><h2>{tenant.name}</h2><p>Dados, integrações e tokens do tenant</p></div><button type="button" className="closeButton" onClick={onClose}>×</button></header>
     <div className="twoCols">{field('name','Nome')}{field('document','CNPJ')}{field('address','Endereço')}{field('district','Bairro')}{field('city','Cidade')}{field('postal_code','CEP')}{field('state','UF',{maxLength:2})}{field('webhook_url','URL de webhooks',{type:'url'})}</div>
     <div className="phoneCols">{field('country_code','DDI',{inputMode:'numeric'})}{field('area_code','DDD',{inputMode:'numeric'})}{field('phone_number','Celular',{inputMode:'numeric'})}</div>
-    <fieldset><legend>Providers</legend>{(details.providers || []).map((provider) => <div key={provider.id}><strong>{provider.name}</strong><small> Configuração herdada da plataforma</small></div>)}</fieldset>
+    <fieldset><legend>Providers</legend>{(catalogProviders || []).map((provider) => <div key={provider.id} className="providerChoice"><label className="checkRow"><input type="checkbox" disabled={provider.status !== 'ACTIVE'} checked={providerIds.includes(provider.id)} onChange={(e) => setProviderIds(e.target.checked ? [...providerIds, provider.id] : providerIds.filter((id) => id !== provider.id))} />{provider.name} <small>({provider.status})</small></label>{providerIds.includes(provider.id) && <small>Configuração e credenciais herdadas do provider da plataforma.</small>}</div>)}</fieldset>
 	<fieldset><legend>Tokens da API</legend>{['HML', 'PRODUCTION'].map((environment) => { const token = (details.tokens || []).find((item) => item.environment === environment); return <div className="tokenRow" key={environment}><strong>{environment}</strong><code>{token ? (shownTokens[environment] && token.token ? token.token : token.masked_token) : 'Não emitido'}</code>{token ? <button type="button" className="eyeButton" title={shownTokens[environment] ? 'Ocultar token' : 'Visualizar token'} aria-label={`Visualizar token ${environment}`} onClick={async () => { if (!token.token) await onReveal(tenant.id, environment); setShownTokens((shown) => ({ ...shown, [environment]: !shown[environment] })) }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button> : <span />}<button type="button" className="rotateTokenButton" onClick={async () => { const created = await onRotate(tenant, environment); if (created) setShownTokens((shown) => ({ ...shown, [environment]: true })) }}>{token ? 'Recriar token' : 'Criar token'}</button></div> })}</fieldset>
     <div className="rowActions"><button type="submit">Salvar alterações</button><button type="button" onClick={onClose}>Cancelar</button></div>
   </form></div>

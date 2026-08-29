@@ -129,7 +129,10 @@ func (s *ProviderService) AssignToTenant(tenantID, providerID string, active boo
 	if err != nil {
 		return nil, err
 	}
-	if provider.Status != "ACTIVE" || provider.TenantID != "" {
+	// An inactive catalog provider cannot be enabled for a tenant, but an
+	// existing assignment must still be allowed to be disabled when an admin
+	// replaces the tenant's provider.
+	if provider.TenantID != "" || (active && provider.Status != "ACTIVE") {
 		return nil, ErrProviderNotAllowed
 	}
 	return s.repo.AssignToTenant(tenantID, providerID, active, NormalizeOptionalString(config))

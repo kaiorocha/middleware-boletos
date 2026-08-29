@@ -614,16 +614,58 @@ func (a *App) handleAdminTenantByID(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, "NOT_FOUND", "tenant not found")
 				return
 			}
-			if err = json.NewDecoder(r.Body).Decode(tenant); err != nil {
+			type updateTenantRequest struct {
+				domain.Tenant
+				Providers []struct {
+					ProviderID string `json:"provider_id"`
+					Active     bool   `json:"active"`
+				} `json:"providers"`
+			}
+			var in updateTenantRequest
+			if err = json.NewDecoder(r.Body).Decode(&in); err != nil {
 				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
 				return
 			}
-			tenant.ID = parts[0]
+			updated := in.Tenant
+			updated.ID = parts[0]
+			updated.CreatedAt = tenant.CreatedAt
+			updated.UpdatedAt = tenant.UpdatedAt
+			tenant = &updated
 			if err = a.TenantSvc.Update(tenant); err != nil {
 				writeServiceError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, tenant)
+			if in.Providers != nil {
+				selected := make(map[string]bool, len(in.Providers))
+				for _, provider := range in.Providers {
+					selected[provider.ProviderID] = provider.Active
+				}
+				existing, listErr := a.ProviderSvc.ListByTenant(parts[0])
+				if listErr != nil {
+					writeServiceError(w, listErr)
+					return
+				}
+				for _, provider := range existing {
+					if !selected[provider.ID] {
+						if _, err = a.ProviderSvc.AssignToTenant(parts[0], provider.ID, false, nil); err != nil {
+							writeServiceError(w, err)
+							return
+						}
+					}
+				}
+				for providerID, active := range selected {
+					if _, err = a.ProviderSvc.AssignToTenant(parts[0], providerID, active, nil); err != nil {
+						writeServiceError(w, err)
+						return
+					}
+				}
+			}
+			providers, err := a.ProviderSvc.ListByTenant(parts[0])
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "providers": providers})
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 		}
