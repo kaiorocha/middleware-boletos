@@ -1,32 +1,48 @@
 {
   "openapi": "3.0.3",
   "info": {"title": "Giga Pagamentos — API de Boletos", "version": "1.0.0", "description": "API de boletos da plataforma Giga Pagamentos para a jornada pública do estabelecimento. O tenant é identificado exclusivamente pelo Bearer token; não informe tenant_id nem provider_id."},
-  "servers": [{"url": "https://api.hml.giga.app.br", "description": "Homologação"}, {"url": "https://api.giga.app.br", "description": "Produção"}],
+  "servers": [
+    {"url": "https://api.hml.giga.app.br", "description": "Homologação"},
+    {"url": "https://api.giga.app.br", "description": "Produção"}
+  ],
   "security": [{"tenantToken": []}],
   "tags": [{"name": "Boletos"}, {"name": "Transações"}, {"name": "Bloqueios"}],
   "paths": {
     "/api/v1/boletos": {
-      "post": {"tags": ["Boletos"], "summary": "Criar boleto", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBoleto"}}}}, "responses": {"201": {"description": "Criado"}, "401": {"$ref": "#/components/responses/Unauthorized"}}},
+      "post": {"tags": ["Boletos"], "summary": "Criar um ou vários boletos", "description": "Aceita um objeto para criação unitária ou uma lista com até 100 boletos. Identifique o pagador com um e-mail válido ou com payer_name e payer_document (CPF/CNPJ); os dois formatos também podem ser combinados.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/CreateBoleto"}, {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/components/schemas/CreateBoleto"}}]}, "examples": {"emailOnly": {"summary": "Body — somente e-mail", "value": {"email": "financeiro@cliente.com.br", "amount_cents": 15990, "due_date": "2026-09-30", "external_id": "pedido-12345"}}, "companyPayer": {"summary": "Body — pagador pessoa jurídica", "value": {"payer_name": "Empresa Cliente Ltda.", "payer_document": "12.345.678/0001-90", "amount_cents": 15990, "due_date": "2026-09-30", "external_id": "pedido-12346"}}, "batch": {"summary": "Body — criação em lote", "value": [{"email": "financeiro@cliente.com.br", "amount_cents": 15990, "due_date": "2026-09-30", "external_id": "pedido-12345"}, {"payer_name": "Empresa Cliente Ltda.", "payer_document": "12.345.678/0001-90", "amount_cents": 24990, "due_date": "2026-10-05", "external_id": "pedido-12346"}]}}}}}, "responses": {"201": {"description": "Criado; data será um boleto ou uma lista, conforme o corpo enviado."}, "400": {"description": "Payload inválido ou identificação do pagador incompleta."}, "401": {"$ref": "#/components/responses/Unauthorized"}}},
       "get": {"tags": ["Boletos"], "summary": "Listar boletos", "responses": {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
     },
-    "/api/v1/boletos/{boletoId}": {"get": {"tags": ["Boletos"], "summary": "Consultar boleto", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "Não encontrado"}}}},
-    "/api/v1/boletos/{boletoId}/emit": {"post": {"tags": ["Boletos"], "summary": "Emitir boleto", "description": "Retorna nosso número, linha digitável, código de barras e PDF Base64 quando disponibilizados pelo provider.", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "Emitido", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "502": {"description": "Falha no provider"}}}},
-    "/api/v1/transactions": {"get": {"tags": ["Transações"], "summary": "Consultar transações", "parameters": [{"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}}, {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0}}, {"name": "status", "in": "query", "schema": {"type": "string"}}, {"name": "email", "in": "query", "schema": {"type": "string", "format": "email"}}], "responses": {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}},
+    "/api/v1/boletos/{boletoId}": {
+      "get": {"tags": ["Boletos"], "summary": "Consultar boleto", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "Não encontrado"}}}
+    },
+    "/api/v1/boletos/{boletoId}/emit": {
+      "post": {"tags": ["Boletos"], "summary": "Emitir boleto", "description": "Confirma a solicitação e retorna o Nosso Número. Linha digitável, código de barras e PDF Base64 ficam disponíveis após o registro assíncrono pelo provider.", "parameters": [{"$ref": "#/components/parameters/BoletoId"}], "responses": {"200": {"description": "Solicitação aceita", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BoletoEnvelope"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "502": {"description": "Falha no provider"}}}
+    },
+    "/api/v1/transactions": {
+      "get": {"tags": ["Transações"], "summary": "Consultar transações", "parameters": [{"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50, "maximum": 200}}, {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0}}, {"name": "status", "in": "query", "schema": {"type": "string"}}, {"name": "email", "in": "query", "schema": {"type": "string", "format": "email"}}], "responses": {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
+    },
     "/api/v1/blocked-emails": {
       "get": {"tags": ["Bloqueios"], "summary": "Listar e-mails bloqueados", "responses": {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}},
       "post": {"tags": ["Bloqueios"], "summary": "Solicitar bloqueio de emissão para e-mail", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlockEmail"}}}}, "responses": {"201": {"description": "Bloqueado"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
     },
-    "/api/v1/blocked-emails/{blockId}/block": {"post": {"tags": ["Bloqueios"], "summary": "Bloquear novamente", "parameters": [{"$ref": "#/components/parameters/BlockId"}], "responses": {"200": {"description": "Bloqueado"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}},
-    "/api/v1/blocked-emails/{blockId}/unblock": {"post": {"tags": ["Bloqueios"], "summary": "Solicitar desbloqueio", "parameters": [{"$ref": "#/components/parameters/BlockId"}], "responses": {"200": {"description": "Desbloqueado"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}}
+    "/api/v1/blocked-emails/{blockId}/block": {
+      "post": {"tags": ["Bloqueios"], "summary": "Bloquear novamente", "parameters": [{"$ref": "#/components/parameters/BlockId"}], "responses": {"200": {"description": "Bloqueado"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
+    },
+    "/api/v1/blocked-emails/{blockId}/unblock": {
+      "post": {"tags": ["Bloqueios"], "summary": "Solicitar desbloqueio", "parameters": [{"$ref": "#/components/parameters/BlockId"}], "responses": {"200": {"description": "Desbloqueado"}, "401": {"$ref": "#/components/responses/Unauthorized"}}}
+    }
   },
   "components": {
     "securitySchemes": {"tenantToken": {"type": "http", "scheme": "bearer", "bearerFormat": "giga_hml_… ou giga_prod_…", "description": "Token fornecido pelo administrador; não existe login para a integração."}},
-    "parameters": {"BoletoId": {"name": "boletoId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}, "BlockId": {"name": "blockId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}},
+    "parameters": {
+      "BoletoId": {"name": "boletoId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "BlockId": {"name": "blockId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+    },
     "responses": {"Unauthorized": {"description": "Token ausente, inválido ou pertencente a outro ambiente"}},
     "schemas": {
-      "CreateBoleto": {"type": "object", "required": ["email", "amount_cents", "due_date"], "properties": {"email": {"type": "string", "format": "email"}, "amount_cents": {"type": "integer", "format": "int64", "minimum": 1}, "due_date": {"type": "string", "format": "date"}, "external_id": {"type": "string"}}},
+      "CreateBoleto": {"type": "object", "required": ["amount_cents", "due_date"], "anyOf": [{"required": ["email"]}, {"required": ["payer_name", "payer_document"]}], "properties": {"email": {"type": "string", "format": "email", "description": "E-mail do pagador. Opcional quando payer_name e payer_document forem informados."}, "payer_name": {"type": "string", "description": "Nome ou razão social do pagador. Deve ser enviado junto com payer_document."}, "payer_document": {"type": "string", "description": "CPF ou CNPJ do pagador, com ou sem formatação. Deve ser enviado junto com payer_name.", "example": "12.345.678/0001-90"}, "amount_cents": {"type": "integer", "format": "int64", "minimum": 1, "example": 15990}, "due_date": {"type": "string", "format": "date", "example": "2026-09-30"}, "external_id": {"type": "string", "example": "pedido-12345"}}},
       "BlockEmail": {"type": "object", "required": ["value", "reason"], "properties": {"value": {"type": "string", "format": "email"}, "name": {"type": "string"}, "reason": {"type": "string"}}},
-      "Boleto": {"type": "object", "properties": {"id": {"type": "string", "format": "uuid"}, "email": {"type": "string", "format": "email"}, "amount_cents": {"type": "integer", "format": "int64"}, "due_date": {"type": "string", "format": "date-time"}, "status": {"type": "string"}, "external_id": {"type": "string", "nullable": true}, "our_number": {"type": "string", "nullable": true}, "digitable_line": {"type": "string", "nullable": true}, "barcode": {"type": "string", "nullable": true}, "base64": {"type": "string", "format": "byte", "nullable": true}}},
+      "Boleto": {"type": "object", "properties": {"id": {"type": "string", "format": "uuid"}, "recipient_email": {"type": "string", "format": "email"}, "payer_name": {"type": "string"}, "payer_document": {"type": "string"}, "amount_cents": {"type": "integer", "format": "int64"}, "due_date": {"type": "string", "format": "date-time"}, "status": {"type": "string"}, "external_id": {"type": "string", "nullable": true}, "our_number": {"type": "string", "nullable": true}, "digitable_line": {"type": "string", "nullable": true}, "barcode": {"type": "string", "nullable": true}, "base64": {"type": "string", "format": "byte", "nullable": true}}},
       "BoletoEnvelope": {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/Boleto"}}}
     }
   }

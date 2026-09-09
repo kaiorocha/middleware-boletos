@@ -13,6 +13,8 @@ function schemaExample(spec: any, original: any, depth = 0): any {
   if (!original || depth > 5) return {}
   const schema = resolveRef(spec, original)
   if (schema.example !== undefined) return schema.example
+  if (schema.oneOf?.length) return schemaExample(spec, schema.oneOf[0], depth + 1)
+  if (schema.anyOf?.length) return schemaExample(spec, schema.anyOf[0], depth + 1)
   if (schema.type === 'array') return [schemaExample(spec, schema.items, depth + 1)]
   if (schema.type === 'object' || schema.properties) {
     return Object.fromEntries(Object.entries(schema.properties || {}).map(([key, value]) => [key, schemaExample(spec, value, depth + 1)]))
@@ -105,8 +107,12 @@ export default function DocsPage() {
               <div className="mb-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-xs font-black uppercase tracking-[.16em] text-brand-700">Referência da API</p><h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Endpoints</h2></div><label>Ambiente<select className="!min-w-52" value={environment} onChange={(e) => setEnvironment(Number(e.target.value))}>{spec.servers?.map((item, index) => <option key={item.url} value={index}>{item.description}</option>)}</select></label></div>
               {!filtered.length && <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Nenhum endpoint encontrado para “{query}”.</div>}
               <div className="grid gap-8">{filtered.map((operation) => {
-                const requestSchema = operation.requestBody?.content?.['application/json']?.schema
-                const request = requestSchema ? JSON.stringify(schemaExample(spec, requestSchema), null, 2) : ''
+                const requestMedia = operation.requestBody?.content?.['application/json']
+                const requestSchema = requestMedia?.schema
+                const requestExamples = requestMedia?.examples
+                  ? Object.entries(requestMedia.examples).map(([name, raw]: [string, any]) => ({ name: raw.summary || name, value: JSON.stringify(raw.value, null, 2) }))
+                  : requestSchema ? [{ name: 'Body', value: JSON.stringify(schemaExample(spec, requestSchema), null, 2) }] : []
+                const request = requestExamples[0]?.value || ''
                 const endpoint = operation.path.replace('{boletoId}', '00000000-0000-4000-8000-000000000001').replace('{blockId}', '00000000-0000-4000-8000-000000000001')
                 const curl = [
                   `curl --request ${operation.method.toUpperCase()} \\`,
@@ -117,7 +123,7 @@ export default function DocsPage() {
                 return <article id={`${operation.method}-${operation.path.replace(/[^a-z0-9]/gi, '-')}`} key={`${operation.method}-${operation.path}`} className="scroll-mt-24 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_65px_-45px_rgba(15,23,42,.35)]">
                   <div className="grid xl:grid-cols-[1fr_1.05fr]">
                     <div className="p-6 sm:p-8"><div className="mb-4 flex flex-wrap items-center gap-3"><span className={`rounded-lg px-2.5 py-1 text-[11px] font-black uppercase ring-1 ${methodTone[operation.method]}`}>{operation.method}</span><span className="text-xs font-bold uppercase tracking-wider text-slate-400">{operation.tag}</span></div><h3 className="text-2xl font-black tracking-tight text-slate-950">{operation.summary}</h3><p className="mt-3 leading-7">{operation.description || 'Execute esta operação usando o token Bearer do tenant.'}</p><div className="mt-6 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-sm"><span className="mr-3 font-black text-brand-700">{operation.method.toUpperCase()}</span>{operation.path}</div>{operation.parameters?.length ? <div className="mt-6"><p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">Parâmetros</p>{operation.parameters.map((raw, index) => { const param = resolveRef(spec, raw); return <div key={`${param.name}-${index}`} className="flex items-center justify-between border-t border-slate-100 py-3 text-sm"><code className="font-bold text-slate-800">{param.name}</code><span className="text-slate-400">{param.in} · {param.schema?.format || param.schema?.type}</span></div>})}</div> : null}</div>
-                    <div className="bg-slate-950 p-5 sm:p-7"><Code dark title="cURL" value={curl} />{request && <Code dark title="Body" value={request} />}</div>
+                    <div className="bg-slate-950 p-5 sm:p-7"><Code dark title="cURL" value={curl} />{requestExamples.map((example) => <Code key={example.name} dark title={example.name} value={example.value} />)}</div>
                   </div>
                 </article>
               })}</div>

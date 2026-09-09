@@ -719,10 +719,12 @@ func (a *App) handlePublicTenantBoletos(w http.ResponseWriter, r *http.Request) 
 	if len(tail) == 0 && r.Method == http.MethodPost {
 		// The provider is an administrative concern. Select the tenant's active assignment.
 		type createBoletoRequest struct {
-			Email       string  `json:"email"`
-			AmountCents int64   `json:"amount_cents"`
-			DueDate     string  `json:"due_date"`
-			ExternalID  *string `json:"external_id"`
+			Email         string  `json:"email"`
+			PayerName     string  `json:"payer_name"`
+			PayerDocument string  `json:"payer_document"`
+			AmountCents   int64   `json:"amount_cents"`
+			DueDate       string  `json:"due_date"`
+			ExternalID    *string `json:"external_id"`
 		}
 		var raw json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
@@ -762,11 +764,11 @@ func (a *App) handlePublicTenantBoletos(w http.ResponseWriter, r *http.Request) 
 		items := make([]domain.Boleto, 0, len(bodies))
 		for _, body := range bodies {
 			dueDate, err := service.NormalizeDueDate(body.DueDate)
-			if err != nil || !service.IsValidEmail(service.NormalizeEmail(body.Email)) || body.AmountCents <= 0 {
-				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "each boleto requires a valid email, positive amount_cents and due_date in YYYY-MM-DD")
+			if err != nil || body.AmountCents <= 0 {
+				writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "each boleto requires positive amount_cents and due_date in YYYY-MM-DD")
 				return
 			}
-			items = append(items, domain.Boleto{TenantID: tenantID, RecipientEmail: body.Email, ProviderID: &providerID, AmountCents: body.AmountCents, DueDate: dueDate, ExternalID: body.ExternalID})
+			items = append(items, domain.Boleto{TenantID: tenantID, RecipientEmail: body.Email, PayerName: body.PayerName, PayerDocument: body.PayerDocument, ProviderID: &providerID, AmountCents: body.AmountCents, DueDate: dueDate, ExternalID: body.ExternalID})
 		}
 		for i := range items {
 			if err := a.BoletoSvc.Create(&items[i]); err != nil {
@@ -1785,6 +1787,8 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 		case http.MethodPost:
 			var in struct {
 				Email         string  `json:"email"`
+				PayerName     string  `json:"payer_name"`
+				PayerDocument string  `json:"payer_document"`
 				CustomerID    *string `json:"customer_id"`
 				ProviderID    *string `json:"provider_id"`
 				AmountCents   int64   `json:"amount_cents"`
@@ -1808,6 +1812,8 @@ func (a *App) handleTenantBoletos(w http.ResponseWriter, r *http.Request, tenant
 				TenantID:       tenantID,
 				CustomerID:     in.CustomerID,
 				RecipientEmail: in.Email,
+				PayerName:      in.PayerName,
+				PayerDocument:  in.PayerDocument,
 				ProviderID:     in.ProviderID,
 				AmountCents:    in.AmountCents,
 				DueDate:        dueDate,

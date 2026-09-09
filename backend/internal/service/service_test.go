@@ -739,6 +739,38 @@ func TestBoletoServiceRejectInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestBoletoServiceCreatesProposalWithPayerIdentityWithoutEmail(t *testing.T) {
+	repo := &boletoRepoMock{}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:      "550e8400-e29b-41d4-a716-446655440000",
+		PayerName:     "  Empresa Cliente Ltda.  ",
+		PayerDocument: "12.345.678/0001-90",
+		AmountCents:   15990,
+		DueDate:       time.Now().AddDate(0, 0, 7),
+	})
+	if err != nil {
+		t.Fatalf("expected payer identity to be accepted without email, got %v", err)
+	}
+	if repo.last.PayerName != "Empresa Cliente Ltda." || repo.last.PayerDocument != "12345678000190" {
+		t.Fatalf("payer identity was not normalized: %+v", repo.last)
+	}
+}
+
+func TestBoletoServiceRejectsIncompletePayerIdentityWithoutEmail(t *testing.T) {
+	repo := &boletoRepoMock{}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:    "550e8400-e29b-41d4-a716-446655440000",
+		PayerName:   "Empresa Cliente Ltda.",
+		AmountCents: 15990,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+	})
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("expected validation error for incomplete payer identity, got %v", err)
+	}
+}
+
 func TestBoletoServiceCreateValidWithCREATED(t *testing.T) {
 	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"

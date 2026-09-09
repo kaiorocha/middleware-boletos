@@ -99,29 +99,33 @@ func (s *BoletoService) WithLogger(logger *slog.Logger) *BoletoService {
 func (s *BoletoService) Create(b *domain.Boleto) error {
 	b.ExternalID = NormalizeOptionalString(b.ExternalID)
 	b.OurNumber = NormalizeOptionalString(b.OurNumber)
+	b.PayerName = strings.TrimSpace(b.PayerName)
+	b.PayerDocument = normalizeDocumentValue(b.PayerDocument)
 
 	if !IsValidUUID(b.TenantID) {
 		return ErrValidation
 	}
 
 	// CustomerID is now optional (for proposal boletos)
-	// Either CustomerID or RecipientEmail must be provided
+	// A boleto can reference a registered customer, an email-only recipient, or
+	// an identified payer (name + CPF/CNPJ).
 	if b.CustomerID != nil && !IsValidUUID(*b.CustomerID) {
 		return ErrValidation
 	}
 
 	// Normalize and validate RecipientEmail
 	b.RecipientEmail = NormalizeEmail(b.RecipientEmail)
-	if b.RecipientEmail == "" && b.CustomerID == nil {
+	hasPayerIdentity := b.PayerName != "" && b.PayerDocument != ""
+	if (b.PayerName == "") != (b.PayerDocument == "") {
 		return ErrValidation
 	}
 	if b.RecipientEmail != "" && !IsValidEmail(b.RecipientEmail) {
 		return ErrValidation
 	}
-
-	// If only RecipientEmail is provided (no CustomerID), it must be valid
-	// If both are provided, validate both
-	if b.CustomerID == nil && b.RecipientEmail == "" {
+	if b.PayerDocument != "" && len(b.PayerDocument) != 11 && len(b.PayerDocument) != 14 {
+		return ErrValidation
+	}
+	if b.CustomerID == nil && b.RecipientEmail == "" && !hasPayerIdentity {
 		return ErrValidation
 	}
 
@@ -265,31 +269,34 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			return nil, err
 		}
 
-	} else if boleto.RecipientEmail != "" {
-		// Case B: Proposal boleto with recipient email only
+	} else if boleto.RecipientEmail != "" || (boleto.PayerName != "" && boleto.PayerDocument != "") {
+		// Case B: Proposal boleto with email and/or an identified payer.
 		email := NormalizeEmail(boleto.RecipientEmail)
-		if !IsValidEmail(email) {
+		if email != "" && !IsValidEmail(email) {
 			return nil, ErrValidation
 		}
 
-		// Check compliance - blocked by email
-		entry, blocked, err := s.blacklist.IsBlockedByEmail(tenantID, email)
-		if err != nil {
-			return nil, err
+		if email != "" {
+			entry, blocked, err := s.blacklist.IsBlockedByEmail(tenantID, email)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+				return nil, NewRecipientBlocked("Este destinatário está bloqueado para novas emissões.")
+			}
 		}
-		if blocked {
-			s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
-			s.logger.Info("boleto emission blocked by compliance (recipient)",
-				"tenant", tenantID,
-				"request_id", requestID(ctx),
-				"boleto_id", boleto.ID,
-				"recipient_email", email,
-				"latency_ms", time.Since(start).Milliseconds(),
-				"result", "blocked",
-			)
-			return nil, NewRecipientBlocked("Este destinatário está bloqueado para novas emissões.")
+		if boleto.PayerDocument != "" {
+			entry, blocked, err := s.blacklist.IsBlockedByDocument(tenantID, boleto.PayerDocument)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+				return nil, NewCustomerBlocked("Este pagador está bloqueado para novas emissões.")
+			}
 		}
-		fallbackPayer = &types.Payer{Email: email}
+		fallbackPayer = &types.Payer{Email: email, Name: boleto.PayerName, Document: boleto.PayerDocument}
 
 	} else {
 		// Neither CustomerID nor RecipientEmail provided
@@ -307,6 +314,12 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			District: tenant.District, City: tenant.City, PostalCode: tenant.PostalCode,
 			State: tenant.State, CountryCode: tenant.CountryCode, AreaCode: tenant.AreaCode,
 			PhoneNumber: tenant.PhoneNumber, Email: NormalizeEmail(boleto.RecipientEmail),
+		}
+		if boleto.PayerName != "" {
+			payer.Name = boleto.PayerName
+		}
+		if boleto.PayerDocument != "" {
+			payer.Document = boleto.PayerDocument
 		}
 	}
 

@@ -104,6 +104,8 @@ type Boleto struct {
 	TenantID       string     `json:"tenant_id"`
 	CustomerID     *string    `json:"customer_id,omitempty"`
 	RecipientEmail string     `json:"recipient_email"`
+	PayerName      string     `json:"payer_name,omitempty"`
+	PayerDocument  string     `json:"payer_document,omitempty"`
 	ProviderID     *string    `json:"provider_id,omitempty"`
 	AmountCents    int64      `json:"amount_cents"`
 	DueDate        time.Time  `json:"due_date"`
