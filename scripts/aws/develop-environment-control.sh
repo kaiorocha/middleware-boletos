@@ -53,8 +53,11 @@ wait_rds_stable() {
     printf 'Waiting for RDS transition: status=%s attempt=%s/60\n' "$state" "$attempt" >&2
     case "$state" in
       available|stopped) printf '%s\n' "$state"; return 0 ;;
-      starting|stopping|backing-up|modifying) sleep 20 ;;
-      *) echo "RDS is in unsupported state: $state" >&2; return 1 ;;
+      failed|inaccessible-encryption-credentials|inaccessible-encryption-credentials-recoverable|incompatible-network|incompatible-option-group|incompatible-parameters|incompatible-restore|storage-full)
+        echo "RDS entered a terminal state: $state" >&2
+        return 1
+        ;;
+      *) sleep 20 ;;
     esac
   done
   echo "Timed out waiting for RDS transition" >&2
@@ -70,8 +73,13 @@ wait_rds_available() {
     printf 'Waiting for RDS availability: status=%s attempt=%s/160\n' "$state" "$attempt" >&2
     case "$state" in
       available) return 0 ;;
-      starting|backing-up|modifying) sleep 15 ;;
-      *) echo "RDS entered an unsupported state while starting: $state" >&2; return 1 ;;
+      stopped|stopping|failed|inaccessible-encryption-credentials|inaccessible-encryption-credentials-recoverable|incompatible-network|incompatible-option-group|incompatible-parameters|incompatible-restore|storage-full)
+        echo "RDS entered a terminal state while starting: $state" >&2
+        return 1
+        ;;
+      # AWS can pass through states such as configuring-enhanced-monitoring,
+      # configuring-log-exports and storage-optimization before availability.
+      *) sleep 15 ;;
     esac
   done
   echo "Timed out waiting 40 minutes for RDS to become available" >&2
