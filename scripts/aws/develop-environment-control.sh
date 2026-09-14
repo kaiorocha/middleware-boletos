@@ -47,9 +47,10 @@ show_status() {
 }
 
 wait_rds_stable() {
-  local state
-  for _ in {1..60}; do
+  local state attempt
+  for attempt in {1..60}; do
     state="$(rds_status)"
+    printf 'Waiting for RDS transition: status=%s attempt=%s/60\n' "$state" "$attempt" >&2
     case "$state" in
       available|stopped) printf '%s\n' "$state"; return 0 ;;
       starting|stopping|backing-up|modifying) sleep 20 ;;
@@ -60,6 +61,23 @@ wait_rds_stable() {
   return 1
 }
 
+wait_rds_available() {
+  local state attempt
+  # RDS can take longer than the default AWS CLI waiter window after being
+  # stopped for several days. Keep this wait bounded and observable.
+  for attempt in {1..160}; do
+    state="$(rds_status)"
+    printf 'Waiting for RDS availability: status=%s attempt=%s/160\n' "$state" "$attempt" >&2
+    case "$state" in
+      available) return 0 ;;
+      starting|backing-up|modifying) sleep 15 ;;
+      *) echo "RDS entered an unsupported state while starting: $state" >&2; return 1 ;;
+    esac
+  done
+  echo "Timed out waiting 40 minutes for RDS to become available" >&2
+  return 1
+}
+
 if [[ "$action" == "status" ]]; then
   show_status
   exit 0
@@ -67,7 +85,7 @@ fi
 
 if [[ "$action" == "stop" ]]; then
   for service in "${services[@]}"; do
-    read -r min_capacity max_capacity <<<"$(scaling_values "$service")"
+    read -r _ max_capacity <<<"$(scaling_values "$service")"
     aws application-autoscaling register-scalable-target --service-namespace ecs \
       --resource-id "service/${CLUSTER}/${service}" --scalable-dimension ecs:service:DesiredCount \
       --min-capacity 0 --max-capacity "$max_capacity" >/dev/null
@@ -82,10 +100,10 @@ else
   state="$(wait_rds_stable)"
   if [[ "$state" == "stopped" ]]; then
     aws rds start-db-instance --db-instance-identifier "$RDS_INSTANCE_ID" >/dev/null
-    aws rds wait db-instance-available --db-instance-identifier "$RDS_INSTANCE_ID"
+    wait_rds_available
   fi
   for service in "${services[@]}"; do
-    read -r min_capacity max_capacity <<<"$(scaling_values "$service")"
+    read -r _ max_capacity <<<"$(scaling_values "$service")"
     aws application-autoscaling register-scalable-target --service-namespace ecs \
       --resource-id "service/${CLUSTER}/${service}" --scalable-dimension ecs:service:DesiredCount \
       --min-capacity 1 --max-capacity "$max_capacity" >/dev/null

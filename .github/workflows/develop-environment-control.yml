@@ -14,7 +14,7 @@ jobs:
   control:
     runs-on: ubuntu-latest
     environment: develop
-    timeout-minutes: 25
+    timeout-minutes: 60
     env:
       AWS_REGION: us-east-1
       TF_DIR: infra/environments/develop
@@ -35,9 +35,11 @@ jobs:
             echo "API_URL=$(terraform -chdir="$TF_DIR" output -raw api_url)"
           } >> "$GITHUB_ENV"
       - name: Control develop environment
+        timeout-minutes: 45
         run: bash scripts/aws/develop-environment-control.sh '${{ inputs.action }}' develop
       - name: Wait for ECS and verify endpoints
         if: inputs.action == 'start'
+        timeout-minutes: 15
         run: |
           aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE" "$WEB_SERVICE"
           curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$API_URL/health"
