@@ -40,6 +40,9 @@ type BoletoService struct {
 	factory      contracts.ProviderFactory
 	payerBuilder base.PayerBuilder
 	logger       *slog.Logger
+	webhooks     interface {
+		NotifyBoletoUpdated(context.Context, *domain.Boleto) (bool, error)
+	}
 }
 
 type adminBoletoReader interface {
@@ -94,6 +97,22 @@ func (s *BoletoService) WithLogger(logger *slog.Logger) *BoletoService {
 		s.logger = logger
 	}
 	return s
+}
+
+func (s *BoletoService) WithWebhookNotifier(notifier interface {
+	NotifyBoletoUpdated(context.Context, *domain.Boleto) (bool, error)
+}) *BoletoService {
+	s.webhooks = notifier
+	return s
+}
+
+func (s *BoletoService) notifyBoletoUpdated(ctx context.Context, boleto *domain.Boleto) {
+	if s.webhooks == nil {
+		return
+	}
+	if _, err := s.webhooks.NotifyBoletoUpdated(ctx, boleto); err != nil {
+		s.logger.Error("failed to enqueue tenant boleto webhook", "boleto_id", boleto.ID, "error", err)
+	}
 }
 
 func (s *BoletoService) Create(b *domain.Boleto) error {
@@ -336,6 +355,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if err := s.repo.Update(boleto); err != nil {
 		return nil, err
 	}
+	s.notifyBoletoUpdated(ctx, boleto)
 
 	response, err := adapter.IssueBoleto(ctx, types.IssueRequest{
 		TenantID:       boleto.TenantID,
@@ -349,7 +369,9 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	})
 	if err != nil {
 		boleto.Status = string(types.StatusFailed)
-		_ = s.repo.Update(boleto)
+		if updateErr := s.repo.Update(boleto); updateErr == nil {
+			s.notifyBoletoUpdated(ctx, boleto)
+		}
 		logAttributes := []any{
 			"tenant", tenantID,
 			"provider", providerConfig.Name,
@@ -389,6 +411,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if err := s.repo.Update(boleto); err != nil {
 		return nil, err
 	}
+	s.notifyBoletoUpdated(ctx, boleto)
 
 	s.logger.Info("boleto emission completed",
 		"tenant", tenantID,

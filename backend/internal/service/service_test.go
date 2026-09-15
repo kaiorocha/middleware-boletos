@@ -275,6 +275,15 @@ type providerAdapterSpy struct {
 	issues int
 }
 
+type boletoWebhookNotifierSpy struct {
+	statuses []string
+}
+
+func (s *boletoWebhookNotifierSpy) NotifyBoletoUpdated(_ context.Context, boleto *domain.Boleto) (bool, error) {
+	s.statuses = append(s.statuses, boleto.Status)
+	return true, nil
+}
+
 func (a *providerAdapterSpy) IssueBoleto(context.Context, types.IssueRequest) (types.IssueResponse, error) {
 	a.issues++
 	return types.IssueResponse{
@@ -835,12 +844,14 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 		Name:     providerName,
 		Status:   "ACTIVE",
 	}}
+	notifier := &boletoWebhookNotifierSpy{}
 
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(providerRepo).
 		WithBlacklistService(&blacklistComplianceMock{}).
-		WithProviderFactory(factory.NewProviderFactory())
+		WithProviderFactory(factory.NewProviderFactory()).
+		WithWebhookNotifier(notifier)
 
 	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
 	if err != nil {
@@ -854,6 +865,9 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 	}
 	if boletoRepo.updates != 2 {
 		t.Fatalf("expected processing and issued updates, got %d", boletoRepo.updates)
+	}
+	if len(notifier.statuses) != 2 || notifier.statuses[0] != "PROCESSING" || notifier.statuses[1] != "ISSUED" {
+		t.Fatalf("expected webhook notifications for processing and issued updates, got %v", notifier.statuses)
 	}
 }
 

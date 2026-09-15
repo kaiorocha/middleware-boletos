@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,8 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
 	providertypes "github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
+
+var errTenantWebhookNotConfigured = errors.New("tenant webhook is not configured")
 
 type providerSyncBoletoRepo interface {
 	FindByID(string) (*domain.Boleto, error)
@@ -72,7 +75,7 @@ func (s *ProviderSyncService) Sync(ctx context.Context, boletoID string) (*Provi
 	if err := s.boletos.Update(boleto); err != nil {
 		return nil, err
 	}
-	notified, err := s.enqueueAndDeliver(ctx, boleto)
+	notified, err := s.NotifyBoletoUpdated(ctx, boleto)
 	if err != nil {
 		s.logger.Error("tenant webhook delivery failed after provider sync", "boleto_id", boleto.ID, "error", err)
 	}
@@ -151,7 +154,7 @@ func applyProviderSummary(b *domain.Boleto, summary providertypes.BoletoSummary)
 	return changed
 }
 
-func (s *ProviderSyncService) enqueueAndDeliver(ctx context.Context, b *domain.Boleto) (bool, error) {
+func (s *ProviderSyncService) NotifyBoletoUpdated(ctx context.Context, b *domain.Boleto) (bool, error) {
 	eventID := uuid.NewString()
 	payload, _ := json.Marshal(map[string]any{"event_id": eventID, "event_type": "BOLETO_UPDATED", "occurred_at": time.Now().UTC(), "provider": "Moncalieri", "boleto": b})
 	_, err := s.db.Exec(`INSERT INTO webhook_events(id,tenant_id,type,payload,provider_id,external_event_id,item_sequence) VALUES($1,$2,'BOLETO_PROVIDER_SYNC',$3,$4,$1,0)`, eventID, b.TenantID, string(payload), b.ProviderID)
@@ -159,6 +162,9 @@ func (s *ProviderSyncService) enqueueAndDeliver(ctx context.Context, b *domain.B
 		return false, err
 	}
 	if err = s.deliver(ctx, eventID, b.TenantID, payload); err != nil {
+		if errors.Is(err, errTenantWebhookNotConfigured) {
+			return false, s.markDelivered(eventID)
+		}
 		s.markFailure(eventID, err)
 		return false, err
 	}
@@ -170,7 +176,7 @@ func (s *ProviderSyncService) deliver(ctx context.Context, eventID, tenantID str
 		return err
 	}
 	if strings.TrimSpace(tenant.WebhookURL) == "" {
-		return nil
+		return errTenantWebhookNotConfigured
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tenant.WebhookURL, bytes.NewReader(payload))
 	if err != nil {
@@ -190,7 +196,7 @@ func (s *ProviderSyncService) deliver(ctx context.Context, eventID, tenantID str
 	return nil
 }
 func (s *ProviderSyncService) RetryPendingDeliveries(ctx context.Context, limit int) error {
-	rows, err := s.db.Query(`SELECT external_event_id,tenant_id,payload FROM webhook_events WHERE type='BOLETO_PROVIDER_SYNC' AND delivered_at IS NULL ORDER BY created_at LIMIT $1`, limit)
+	rows, err := s.db.Query(`SELECT id,tenant_id,payload FROM webhook_events WHERE type IN ('BOLETO_PROVIDER_SYNC','BOLETO_TENANT_WEBHOOK') AND delivered_at IS NULL ORDER BY COALESCE(last_delivery_attempt_at,created_at),created_at LIMIT $1`, limit)
 	if err != nil {
 		return err
 	}
@@ -206,6 +212,10 @@ func (s *ProviderSyncService) RetryPendingDeliveries(ctx context.Context, limit 
 	}
 	for _, p := range items {
 		if err := s.deliver(ctx, p.id, p.tenant, []byte(p.payload)); err != nil {
+			if errors.Is(err, errTenantWebhookNotConfigured) {
+				_ = s.markDelivered(p.id)
+				continue
+			}
 			s.markFailure(p.id, err)
 			continue
 		}
@@ -214,9 +224,9 @@ func (s *ProviderSyncService) RetryPendingDeliveries(ctx context.Context, limit 
 	return rows.Err()
 }
 func (s *ProviderSyncService) markDelivered(id string) error {
-	_, err := s.db.Exec(`UPDATE webhook_events SET delivered_at=now(),delivery_attempts=delivery_attempts+1,last_delivery_error=NULL WHERE external_event_id=$1 AND type='BOLETO_PROVIDER_SYNC'`, id)
+	_, err := s.db.Exec(`UPDATE webhook_events SET delivered_at=now(),delivery_attempts=delivery_attempts+1,last_delivery_attempt_at=now(),last_delivery_error=NULL WHERE id=$1`, id)
 	return err
 }
 func (s *ProviderSyncService) markFailure(id string, cause error) {
-	_, _ = s.db.Exec(`UPDATE webhook_events SET delivery_attempts=delivery_attempts+1,last_delivery_error=$1 WHERE external_event_id=$2 AND type='BOLETO_PROVIDER_SYNC'`, cause.Error(), id)
+	_, _ = s.db.Exec(`UPDATE webhook_events SET delivery_attempts=delivery_attempts+1,last_delivery_attempt_at=now(),last_delivery_error=$1 WHERE id=$2`, cause.Error(), id)
 }

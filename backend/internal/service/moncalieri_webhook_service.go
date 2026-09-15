@@ -148,6 +148,9 @@ func (s *MoncalieriWebhookService) processItem(ctx context.Context, providerID s
 		payload["error"] = item.Error
 	}
 	encoded, _ := json.Marshal(payload)
+	if err := s.setTenantDeliveryPayload(providerID, event.EventID, item.Sequence, encoded); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tenant.WebhookURL, bytes.NewReader(encoded))
 	if err != nil {
 		return err
@@ -167,6 +170,11 @@ func (s *MoncalieriWebhookService) processItem(ctx context.Context, providerID s
 		return err
 	}
 	return s.markDelivered(providerID, event.EventID, item.Sequence)
+}
+
+func (s *MoncalieriWebhookService) setTenantDeliveryPayload(providerID, eventID string, sequence int, payload []byte) error {
+	_, err := s.db.Exec(`UPDATE webhook_events SET type='BOLETO_TENANT_WEBHOOK',payload=$1 WHERE provider_id=$2 AND external_event_id=$3 AND item_sequence=$4`, string(payload), providerID, eventID, sequence)
+	return err
 }
 
 func (s *MoncalieriWebhookService) completeFromProvider(ctx context.Context, providerID string, boleto *domain.Boleto, item *moncalieriRegistrationItem) error {
@@ -210,7 +218,7 @@ func setWebhookValue(target **string, value string) {
 	}
 }
 func (s *MoncalieriWebhookService) reserveEvent(providerID, eventID string, sequence int, tenantID, eventType string, raw []byte) (bool, bool, error) {
-	result, err := s.db.Exec(`INSERT INTO webhook_events(id,tenant_id,type,payload,provider_id,external_event_id,item_sequence) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(provider_id,external_event_id,item_sequence) WHERE provider_id IS NOT NULL AND external_event_id IS NOT NULL DO NOTHING`, uuid.NewString(), tenantID, eventType, string(raw), providerID, eventID, sequence)
+	result, err := s.db.Exec(`INSERT INTO webhook_events(id,tenant_id,type,payload,provider_payload,provider_id,external_event_id,item_sequence) VALUES($1,$2,$3,$4,$4,$5,$6,$7) ON CONFLICT(provider_id,external_event_id,item_sequence) WHERE provider_id IS NOT NULL AND external_event_id IS NOT NULL DO NOTHING`, uuid.NewString(), tenantID, eventType, string(raw), providerID, eventID, sequence)
 	if err != nil {
 		return false, false, err
 	}
@@ -220,11 +228,11 @@ func (s *MoncalieriWebhookService) reserveEvent(providerID, eventID string, sequ
 	return affected == 1, delivered.Valid, err
 }
 func (s *MoncalieriWebhookService) markDelivered(providerID, eventID string, sequence int) error {
-	_, err := s.db.Exec(`UPDATE webhook_events SET delivered_at=now(),delivery_attempts=delivery_attempts+1,last_delivery_error=NULL WHERE provider_id=$1 AND external_event_id=$2 AND item_sequence=$3`, providerID, eventID, sequence)
+	_, err := s.db.Exec(`UPDATE webhook_events SET delivered_at=now(),delivery_attempts=delivery_attempts+1,last_delivery_attempt_at=now(),last_delivery_error=NULL WHERE provider_id=$1 AND external_event_id=$2 AND item_sequence=$3`, providerID, eventID, sequence)
 	return err
 }
 func (s *MoncalieriWebhookService) markDeliveryFailure(providerID, eventID string, sequence int, cause error) {
-	_, _ = s.db.Exec(`UPDATE webhook_events SET delivery_attempts=delivery_attempts+1,last_delivery_error=$1 WHERE provider_id=$2 AND external_event_id=$3 AND item_sequence=$4`, cause.Error(), providerID, eventID, sequence)
+	_, _ = s.db.Exec(`UPDATE webhook_events SET delivery_attempts=delivery_attempts+1,last_delivery_attempt_at=now(),last_delivery_error=$1 WHERE provider_id=$2 AND external_event_id=$3 AND item_sequence=$4`, cause.Error(), providerID, eventID, sequence)
 }
 
 func (s *MoncalieriWebhookService) releaseEvent(providerID, eventID string, sequence int) {

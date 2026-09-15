@@ -107,7 +107,8 @@ func main() {
 		WithCustomerRepository(custRepo).
 		WithProviderRepository(providerRepo).
 		WithBlacklistService(blacklistSvc).
-		WithProviderFactory(providerFactory)
+		WithProviderFactory(providerFactory).
+		WithWebhookNotifier(providerSyncSvc)
 
 	if err := bootstrapPlatformAdmin(cfg, userSvc); err != nil {
 		logger.Error("bootstrap_platform_admin_failed", "error", err)
