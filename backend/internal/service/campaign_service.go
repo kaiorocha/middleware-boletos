@@ -159,6 +159,34 @@ func parseMoneyCents(raw string) (int64, error) {
 	return v, nil
 }
 
+func isValidCPFCNPJ(raw string) bool {
+	document := normalizeDocumentValue(raw)
+	if len(document) != 11 && len(document) != 14 {
+		return false
+	}
+	allSame := true
+	for i := 1; i < len(document); i++ {
+		if document[i] != document[0] { allSame = false; break }
+	}
+	if allSame { return false }
+	digit := func(start, end int, weights []int) int {
+		sum := 0
+		for i := start; i < end; i++ { sum += int(document[i]-'0') * weights[i-start] }
+		result := 11 - sum%11
+		if result >= 10 { return 0 }
+		return result
+	}
+	for _, c := range document { if c < '0' || c > '9' { return false } }
+	if len(document) == 11 {
+		first := digit(0, 9, []int{10,9,8,7,6,5,4,3,2})
+		second := digit(0, 10, []int{11,10,9,8,7,6,5,4,3,2})
+		return first == int(document[9]-'0') && second == int(document[10]-'0')
+	}
+	first := digit(0, 12, []int{5,4,3,2,9,8,7,6,5,4,3,2})
+	second := digit(0, 13, []int{6,5,4,3,2,9,8,7,6,5,4,3,2})
+	return first == int(document[12]-'0') && second == int(document[13]-'0')
+}
+
 func (s *CampaignService) PreviewCSV(reader io.Reader, c *domain.Campaign, userID, requestID string) (*domain.CampaignImportPreview, error) {
 	if c.Status != domain.CampaignDraft {
 		return nil, ErrValidation
@@ -173,7 +201,7 @@ func (s *CampaignService) PreviewCSV(reader io.Reader, c *domain.Campaign, userI
 	if err != nil {
 		return nil, ErrValidation
 	}
-	expected := []string{"email", "valor", "vencimento", "external_id"}
+	expected := []string{"email", "cpf_cnpj", "valor", "vencimento", "external_id"}
 	if len(head) != len(expected) {
 		return nil, NewValidation("Cabeçalhos inválidos.")
 	}
@@ -208,22 +236,26 @@ func (s *CampaignService) PreviewCSV(reader io.Reader, c *domain.Campaign, userI
 			}
 			valid = false
 		}
-		if len(record) != 4 {
-			fail("row", "INVALID_COLUMNS", "A linha deve conter quatro colunas.")
+		if len(record) != 5 {
+			fail("row", "INVALID_COLUMNS", "A linha deve conter cinco colunas.")
 		} else {
 			row.Email = NormalizeEmail(record[0])
 			if !IsValidEmail(row.Email) {
 				fail("email", "INVALID_EMAIL", "Email inválido.")
 			}
-			row.Amount, e = parseMoneyCents(record[1])
+			row.Document = normalizeDocumentValue(record[1])
+			if !isValidCPFCNPJ(row.Document) {
+				fail("cpf_cnpj", "INVALID_DOCUMENT", "CPF/CNPJ inválido.")
+			}
+			row.Amount, e = parseMoneyCents(record[2])
 			if e != nil {
 				fail("valor", "INVALID_AMOUNT", "Valor inválido.")
 			}
-			row.DueDate, e = NormalizeDueDate(strings.TrimSpace(record[2]))
+			row.DueDate, e = NormalizeDueDate(strings.TrimSpace(record[3]))
 			if e != nil || row.DueDate.Before(time.Now().UTC().Truncate(24*time.Hour)) {
 				fail("vencimento", "INVALID_DUE_DATE", "Vencimento inválido.")
 			}
-			ext := strings.TrimSpace(record[3])
+			ext := strings.TrimSpace(record[4])
 			if ext != "" {
 				row.ExternalID = &ext
 				if first, ok := seen[ext]; ok {

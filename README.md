@@ -120,6 +120,7 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 - `PUT /api/v1/admin/providers/:id`
 - `POST /api/v1/admin/providers/:id/activate`
 - `POST /api/v1/admin/providers/:id/deactivate`
+- `POST /api/v1/admin/providers/:id/webhook-token`
 - `GET /api/v1/admin/transactions`
 
 ### Users

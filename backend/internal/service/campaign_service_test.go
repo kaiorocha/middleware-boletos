@@ -56,10 +56,10 @@ func TestCampaignPreviewCSVValidAndInvalidRows(t *testing.T) {
 	repo := &campaignRepoFake{existing: map[string]bool{"used": true}}
 	svc := NewCampaignService(repo)
 	campaign := &domain.Campaign{ID: "550e8400-e29b-41d4-a716-446655440001", TenantID: "550e8400-e29b-41d4-a716-446655440002", Status: domain.CampaignDraft}
-	csv := `email,valor,vencimento,external_id
- OK@Example.com ,1499.00,2099-09-30,new
-bad,10.00,2099-09-30,x
-other@example.com,2.50,2099-09-30,used
+	csv := `email,cpf_cnpj,valor,vencimento,external_id
+ OK@Example.com ,529.982.247-25,1499.00,2099-09-30,new
+bad,04.252.011/0001-10,10.00,2099-09-30,x
+other@example.com,52998224725,2.50,2099-09-30,used
 `
 	p, err := svc.PreviewCSV(bytes.NewBufferString(csv), campaign, "user", "request")
 	if err != nil {
@@ -71,6 +71,9 @@ other@example.com,2.50,2099-09-30,used
 	if repo.rows[0].Email != "ok@example.com" {
 		t.Fatalf("email was not normalized: %q", repo.rows[0].Email)
 	}
+	if repo.rows[0].Document != "52998224725" {
+		t.Fatalf("document was not normalized: %q", repo.rows[0].Document)
+	}
 	if p.ImportID == "" || p.Checksum == "" {
 		t.Fatal("preview must be bound to persisted import and checksum")
 	}
@@ -79,9 +82,18 @@ other@example.com,2.50,2099-09-30,used
 func TestCampaignPreviewCSVRejectsHeadersAndEmpty(t *testing.T) {
 	svc := NewCampaignService(&campaignRepoFake{})
 	c := &domain.Campaign{ID: "550e8400-e29b-41d4-a716-446655440001", TenantID: "550e8400-e29b-41d4-a716-446655440002", Status: domain.CampaignDraft}
-	for _, csv := range []string{"foo,valor,vencimento,external_id\n", "email,valor,vencimento,external_id\n"} {
+	for _, csv := range []string{"foo,cpf_cnpj,valor,vencimento,external_id\n", "email,cpf_cnpj,valor,vencimento,external_id\n"} {
 		if _, err := svc.PreviewCSV(bytes.NewBufferString(csv), c, "", ""); err == nil {
 			t.Fatalf("expected invalid CSV %q", csv)
 		}
 	}
+}
+
+func TestCampaignPreviewCSVRejectsInvalidDocument(t *testing.T) {
+	repo := &campaignRepoFake{}
+	svc := NewCampaignService(repo)
+	c := &domain.Campaign{ID: "550e8400-e29b-41d4-a716-446655440001", TenantID: "550e8400-e29b-41d4-a716-446655440002", Status: domain.CampaignDraft}
+	p, err := svc.PreviewCSV(bytes.NewBufferString("email,cpf_cnpj,valor,vencimento,external_id\nuser@example.com,111.111.111-11,10.00,2099-09-30,row-1\n"), c, "", "")
+	if err != nil { t.Fatal(err) }
+	if p.ValidRows != 0 || p.InvalidRows != 1 || p.Errors[0].Code != "INVALID_DOCUMENT" { t.Fatalf("unexpected preview: %#v", p) }
 }

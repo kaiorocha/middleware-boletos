@@ -112,7 +112,7 @@ func (r *CampaignRepo) SavePreview(campaignID, tenantID, checksum string, rows [
 		return "", err
 	}
 	if actual == id {
-		stmt, err := tx.Prepare(`INSERT INTO campaign_import_rows(import_id,row_number,recipient_email,amount_cents,due_date,external_id,field,error_code,error_message) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`)
+		stmt, err := tx.Prepare(`INSERT INTO campaign_import_rows(import_id,row_number,recipient_email,payer_document,amount_cents,due_date,external_id,field,error_code,error_message) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`)
 		if err != nil {
 			return "", err
 		}
@@ -122,7 +122,7 @@ func (r *CampaignRepo) SavePreview(campaignID, tenantID, checksum string, rows [
 			if !row.DueDate.IsZero() {
 				due = row.DueDate
 			}
-			if _, err = stmt.Exec(actual, row.Row, nullableString(row.Email), nullableInt64(row.Amount), due, row.ExternalID, nullableString(row.Field), nullableString(row.Code), nullableString(row.Message)); err != nil {
+			if _, err = stmt.Exec(actual, row.Row, nullableString(row.Email), nullableString(row.Document), nullableInt64(row.Amount), due, row.ExternalID, nullableString(row.Field), nullableString(row.Code), nullableString(row.Message)); err != nil {
 				return "", err
 			}
 		}
@@ -171,7 +171,7 @@ func (r *CampaignRepo) ConfirmImport(tenantID, campaignID, importID, providerID 
 	if status != "PREVIEWED" || validRows == 0 {
 		return 0, fmt.Errorf("import is not previewed")
 	}
-	res, err := tx.Exec(`INSERT INTO boletos(id,tenant_id,campaign_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,created_at,updated_at) SELECT gen_random_uuid(),$1,$2,recipient_email,$3,amount_cents,due_date,'CREATED',external_id,now(),now() FROM campaign_import_rows WHERE import_id=$4 AND error_code IS NULL ORDER BY row_number`, tenantID, campaignID, providerID, importID)
+	res, err := tx.Exec(`INSERT INTO boletos(id,tenant_id,campaign_id,recipient_email,payer_document,provider_id,amount_cents,due_date,status,external_id,created_at,updated_at) SELECT gen_random_uuid(),$1,$2,recipient_email,payer_document,$3,amount_cents,due_date,'CREATED',external_id,now(),now() FROM campaign_import_rows WHERE import_id=$4 AND error_code IS NULL ORDER BY row_number`, tenantID, campaignID, providerID, importID)
 	if err != nil {
 		return 0, translatePostgresError(err)
 	}

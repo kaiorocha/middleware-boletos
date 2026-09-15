@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS campaign_import_rows (
     import_id UUID NOT NULL REFERENCES campaign_imports(id) ON DELETE CASCADE,
     row_number INTEGER NOT NULL,
     recipient_email TEXT,
+    payer_document TEXT,
     amount_cents BIGINT,
     due_date DATE,
     external_id TEXT,

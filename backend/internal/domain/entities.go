@@ -73,17 +73,19 @@ type Customer struct {
 
 // Provider represents a banking provider/integration partner
 type Provider struct {
-	ID         string     `json:"id"`
-	TenantID   string     `json:"tenant_id,omitempty"`
-	Name       string     `json:"name"`
-	Type       string     `json:"type,omitempty"`
-	Status     string     `json:"status"`
-	ExternalID *string    `json:"external_id,omitempty"`
-	Config     *string    `json:"config,omitempty"`
-	Metadata   *string    `json:"metadata,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id,omitempty"`
+	Name             string     `json:"name"`
+	Type             string     `json:"type,omitempty"`
+	Status           string     `json:"status"`
+	ExternalID       *string    `json:"external_id,omitempty"`
+	Config           *string    `json:"config,omitempty"`
+	Metadata         *string    `json:"metadata,omitempty"`
+	WebhookToken     string     `json:"webhook_token,omitempty"`
+	WebhookTokenHash string     `json:"-"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
 
 // TenantProvider enables a provider catalog entry for a tenant.
@@ -175,6 +177,7 @@ type CampaignImportPreview struct {
 type StagedCampaignRow struct {
 	Row        int
 	Email      string
+	Document   string
 	Amount     int64
 	DueDate    time.Time
 	ExternalID *string

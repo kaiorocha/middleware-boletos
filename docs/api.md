@@ -148,6 +148,7 @@ Rotas globais:
 | `PUT /api/v1/admin/providers/:id` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/providers/:id/activate` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/providers/:id/deactivate` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers/:id/webhook-token` | `PLATFORM_ADMIN` |
 | `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
 | `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
 | `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |

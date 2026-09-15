@@ -51,7 +51,7 @@ type App struct {
 	CORSOrigins       []string
 	Environment       string
 	MoncalieriWebhook interface {
-		Receive(context.Context, string, []byte) error
+		Receive(context.Context, string, string, []byte) error
 	}
 	ProviderSync interface {
 		Sync(context.Context, string) (*service.ProviderSyncResult, error)
@@ -214,8 +214,12 @@ func (a *App) handleMoncalieriWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid webhook payload")
 		return
 	}
-	if err := a.MoncalieriWebhook.Receive(r.Context(), providerID, body); err != nil {
+	if err := a.MoncalieriWebhook.Receive(r.Context(), providerID, r.Header.Get("X-Webhook-Token"), body); err != nil {
 		slog.Error("moncalieri webhook processing failed", "provider_id", providerID, "request_id", requestID(r), "error", err)
+		if errors.Is(err, service.ErrInvalidWebhookToken) {
+			writeError(w, http.StatusUnauthorized, "INVALID_WEBHOOK_TOKEN", "invalid webhook token")
+			return
+		}
 		if errors.Is(err, service.ErrValidation) {
 			writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid Moncalieri webhook")
 			return
@@ -971,6 +975,13 @@ func (a *App) handleAdminProviderByID(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 2 && r.Method == http.MethodPost {
 		switch parts[1] {
+		case "webhook-token":
+			token, err := a.ProviderSvc.RotateWebhookToken(id)
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusCreated, map[string]string{"webhook_token": token})
 		case "activate":
 			if err := a.ProviderSvc.ActivateCatalog(id); err != nil {
 				writeServiceError(w, err)
