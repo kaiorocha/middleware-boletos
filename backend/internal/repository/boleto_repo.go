@@ -292,7 +292,7 @@ func (r *BoletoRepo) ListTransactions(filters domain.BoletoFilters) (*domain.Pag
 	}
 	args = append(args, filters.Limit, filters.Offset)
 	query := fmt.Sprintf(`
-		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(c.name,''), COALESCE(c.document,''), b.recipient_email, b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line, b.barcode, COALESCE(length(b.base64), 0)
+		SELECT b.id, b.tenant_id, COALESCE(t.name,''), b.customer_id, COALESCE(NULLIF(c.name,''), b.payer_name, ''), COALESCE(NULLIF(c.document,''), b.payer_document, ''), b.recipient_email, b.provider_id, p.name, b.amount_cents, b.due_date, b.status, b.external_id, b.our_number, b.created_at, b.issued_at, b.digitable_line, b.barcode, COALESCE(length(b.base64), 0)
 		FROM boletos b
 		LEFT JOIN tenants t ON t.id = b.tenant_id
 		LEFT JOIN customers c ON c.id = b.customer_id
