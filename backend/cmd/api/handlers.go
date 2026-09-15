@@ -40,6 +40,7 @@ type App struct {
 	CustomerSvc       *service.CustomerService
 	ProviderSvc       *service.ProviderService
 	BoletoSvc         *service.BoletoService
+	CampaignSvc       *service.CampaignService
 	BlacklistSvc      *service.BlacklistService
 	OnboardingSvc     *service.OnboardingService
 	APITokenSvc       *service.TenantAPITokenService
@@ -134,6 +135,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/tenants", a.handleTenants)
 	mux.HandleFunc("/api/v1/me/tenants", a.handleMyTenants)
 	mux.HandleFunc("/api/v1/admin/dashboard", a.handleAdminDashboard)
+	mux.HandleFunc("/api/v1/admin/campaigns/dashboard", a.handleAdminCampaignDashboard)
 	mux.HandleFunc("/api/v1/admin/transactions", a.handleAdminTransactions)
 	mux.HandleFunc("/api/v1/admin/transactions/", a.handleAdminTransactionByID)
 	mux.HandleFunc("/api/v1/admin/providers", a.handleAdminProviders)
@@ -377,8 +379,11 @@ func (a *App) securityHeadersMiddleware(next http.Handler) http.Handler {
 
 func (a *App) requestBodyLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// limit to 1MB
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		limit := int64(1 << 20)
+		if strings.HasSuffix(r.URL.Path, "/imports/preview") {
+			limit = service.CampaignCSVMaxBytes + 1
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1190,6 +1195,8 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 		a.handleTenantBoletos(w, r, tenantID, parts[2:])
 	case "blacklist":
 		a.handleTenantBlacklist(w, r, tenantID, parts[2:])
+	case "campaigns":
+		a.handleTenantCampaigns(w, r, tenantID, parts[2:])
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
 	}
