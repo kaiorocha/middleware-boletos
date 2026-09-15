@@ -234,7 +234,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return boleto, nil
 	}
 
-	if !base.CanTransition(types.BoletoStatus(boleto.Status), types.StatusProcessing) {
+	if boleto.Status != string(types.StatusProcessing) && !base.CanTransition(types.BoletoStatus(boleto.Status), types.StatusProcessing) {
 		return nil, ErrValidation
 	}
 
