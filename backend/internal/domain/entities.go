@@ -202,6 +202,15 @@ type CampaignMetrics struct {
 	ByAmount           []MetricRow `json:"by_amount"`
 }
 
+func (m CampaignMetrics) ByStatusAmount(status string) int64 {
+	for _, row := range m.ByStatus {
+		if row.ID == status {
+			return row.AmountCents
+		}
+	}
+	return 0
+}
+
 type CampaignPerformance struct {
 	CampaignID         string  `json:"campaign_id"`
 	CampaignName       string  `json:"campaign_name"`

@@ -290,10 +290,14 @@ func (s *CampaignService) Start(c *domain.Campaign, userID, requestID string) er
 	if c.Status != domain.CampaignReady {
 		return ErrValidation
 	}
+	metrics, err := s.repo.Metrics(c.TenantID, c.ID)
+	if err != nil {
+		return err
+	}
 	if err := s.repo.Start(c.TenantID, c.ID); err != nil {
 		return err
 	}
-	s.auditEvent(c, userID, "CampaignIssuanceStarted", requestID, map[string]any{})
+	s.auditEvent(c, userID, "CampaignIssuanceStarted", requestID, map[string]any{"quantity": metrics.Waiting, "total_amount_cents": metrics.ByStatusAmount("CREATED")})
 	return nil
 }
 func (s *CampaignService) Metrics(t, id string) (*domain.CampaignMetrics, error) {
