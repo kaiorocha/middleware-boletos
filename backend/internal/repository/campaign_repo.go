@@ -164,10 +164,11 @@ func (r *CampaignRepo) ConfirmImport(tenantID, campaignID, importID, providerID 
 	}
 	defer tx.Rollback()
 	var status string
-	if err = tx.QueryRow(`SELECT status FROM campaign_imports WHERE id=$1 AND campaign_id=$2 AND tenant_id=$3 AND expires_at>now() FOR UPDATE`, importID, campaignID, tenantID).Scan(&status); err != nil {
+	var validRows int
+	if err = tx.QueryRow(`SELECT status,valid_rows FROM campaign_imports WHERE id=$1 AND campaign_id=$2 AND tenant_id=$3 AND expires_at>now() FOR UPDATE`, importID, campaignID, tenantID).Scan(&status, &validRows); err != nil {
 		return 0, err
 	}
-	if status != "PREVIEWED" {
+	if status != "PREVIEWED" || validRows == 0 {
 		return 0, fmt.Errorf("import is not previewed")
 	}
 	res, err := tx.Exec(`INSERT INTO boletos(id,tenant_id,campaign_id,recipient_email,provider_id,amount_cents,due_date,status,external_id,created_at,updated_at) SELECT gen_random_uuid(),$1,$2,recipient_email,$3,amount_cents,due_date,'CREATED',external_id,now(),now() FROM campaign_import_rows WHERE import_id=$4 AND error_code IS NULL ORDER BY row_number`, tenantID, campaignID, providerID, importID)
@@ -234,7 +235,7 @@ func (r *CampaignRepo) ClaimPendingBoletoIDs(campaignID string, limit int) ([]st
 	return out, rows.Err()
 }
 func (r *CampaignRepo) FinishIfDone(campaignID string) error {
-	_, err := r.db.Exec(`UPDATE campaigns c SET status=CASE WHEN EXISTS(SELECT 1 FROM boletos b WHERE b.campaign_id=c.id AND b.status='FAILED') THEN 'PARTIAL' ELSE 'COMPLETED' END,completed_at=now(),updated_at=now() WHERE c.id=$1 AND c.status='PROCESSING' AND NOT EXISTS(SELECT 1 FROM boletos b WHERE b.campaign_id=c.id AND b.status IN('CREATED','PROCESSING'))`, campaignID)
+	_, err := r.db.Exec(`UPDATE campaigns c SET status=CASE WHEN EXISTS(SELECT 1 FROM boletos b WHERE b.campaign_id=c.id AND b.status IN('FAILED','BLOCKED')) THEN 'PARTIAL' ELSE 'COMPLETED' END,completed_at=now(),updated_at=now() WHERE c.id=$1 AND c.status='PROCESSING' AND NOT EXISTS(SELECT 1 FROM boletos b WHERE b.campaign_id=c.id AND b.status IN('CREATED','PROCESSING'))`, campaignID)
 	return err
 }
 
