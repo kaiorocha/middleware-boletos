@@ -21,14 +21,14 @@ Todas as rotas abaixo exigem autenticação e são isoladas pelo tenant. `TENANT
 O upload usa `Content-Type: text/csv` e este cabeçalho exato:
 
 ```csv
-email,valor,vencimento,external_id
-cliente1@email.com,1499.00,2026-09-30,CAMP-00001
-cliente2@email.com,750.50,2026-09-30,
+email,cpf_cnpj,valor,vencimento,external_id
+cliente1@email.com,52998224725,1499.00,2026-09-30,CAMP-00001
+cliente2@email.com,04252011000110,750.50,2026-09-30,
 ```
 
-`email` é normalizado para minúsculas. `valor` usa ponto decimal, no máximo duas casas e é convertido para centavos sem `float`. `vencimento` usa `YYYY-MM-DD` e não pode estar no passado. `external_id` vazio vira `null` e é validado contra duplicatas do arquivo e do tenant.
+`email` é normalizado para minúsculas. `cpf_cnpj` é obrigatório, aceita pontuação, é normalizado para dígitos e tem seus verificadores validados. O documento é persistido como `payer_document`, sem criar Customer ou fabricar nome/endereço. `valor` usa ponto decimal, no máximo duas casas e é convertido para centavos sem `float`. `vencimento` usa `YYYY-MM-DD` e não pode estar no passado. `external_id` vazio vira `null` e é validado contra duplicatas do arquivo e do tenant.
 
-Limites: 16 MiB, 100.000 registros e até 200 erros detalhados na resposta. Códigos atuais: `INVALID_EMAIL`, `INVALID_AMOUNT`, `INVALID_DUE_DATE`, `DUPLICATE_EXTERNAL_ID`, `INVALID_COLUMNS` e `INVALID_FILE_TYPE`.
+Limites: 16 MiB, 100.000 registros e até 200 erros detalhados na resposta. Códigos atuais: `INVALID_EMAIL`, `INVALID_DOCUMENT`, `INVALID_AMOUNT`, `INVALID_DUE_DATE`, `DUPLICATE_EXTERNAL_ID`, `INVALID_COLUMNS` e `INVALID_FILE_TYPE`.
 
 ## Segurança e processamento
 

@@ -41,6 +41,7 @@ paths:
       - {$ref: '#/components/parameters/CampaignID'}
     post:
       summary: Valida e cria preview imutável do CSV
+      description: O cabeçalho obrigatório é email,cpf_cnpj,valor,vencimento,external_id. CPF/CNPJ aceita pontuação e é validado pelos dígitos verificadores.
       requestBody:
         required: true
         content:
