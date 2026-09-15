@@ -111,6 +111,8 @@ Bootstrap automático do `PLATFORM_ADMIN` só roda livremente em `APP_ENV=develo
 
 ### Admin
 - `GET /api/v1/admin/dashboard`
+- `GET /api/v1/admin/campaigns/dashboard`
+- campanhas e emissão CSV: consulte [`docs/campaigns.md`](docs/campaigns.md)
 - `GET /api/v1/admin/transactions`
 - `GET /api/v1/admin/providers`
 - `POST /api/v1/admin/providers`
