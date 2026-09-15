@@ -1,0 +1,87 @@
+openapi: 3.0.3
+info:
+  title: Middleware Boletos — Campaign API
+  version: 1.0.0
+paths:
+  /api/v1/tenants/{tenant_id}/campaigns:
+    get:
+      summary: Lista campanhas com paginação e filtros
+      parameters:
+        - {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: status, in: query, schema: {type: string}}
+        - {name: from, in: query, schema: {type: string, format: date}}
+        - {name: to, in: query, schema: {type: string, format: date}}
+        - {name: q, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
+      responses: {'200': {description: Campanhas paginadas}}
+    post:
+      summary: Cria uma campanha
+      parameters:
+        - {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CampaignInput'}
+      responses: {'201': {description: Campanha criada}}
+  /api/v1/tenants/{tenant_id}/campaigns/{campaign_id}:
+    parameters:
+      - {$ref: '#/components/parameters/TenantID'}
+      - {$ref: '#/components/parameters/CampaignID'}
+    get:
+      summary: Obtém a campanha
+      responses: {'200': {description: Campanha}}
+    put:
+      summary: Atualiza uma campanha DRAFT
+      responses: {'200': {description: Campanha atualizada}}
+  /api/v1/tenants/{tenant_id}/campaigns/{campaign_id}/imports/preview:
+    parameters:
+      - {$ref: '#/components/parameters/TenantID'}
+      - {$ref: '#/components/parameters/CampaignID'}
+    post:
+      summary: Valida e cria preview imutável do CSV
+      requestBody:
+        required: true
+        content:
+          text/csv: {schema: {type: string, format: binary}}
+      responses:
+        '200': {description: Preview e erros limitados}
+        '413': {description: Arquivo acima de 16 MiB}
+  /api/v1/tenants/{tenant_id}/campaigns/{campaign_id}/imports/{import_id}/confirm:
+    parameters:
+      - {$ref: '#/components/parameters/TenantID'}
+      - {$ref: '#/components/parameters/CampaignID'}
+      - {name: import_id, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      summary: Persiste os boletos válidos do preview
+      responses: {'201': {description: Importação confirmada}}
+  /api/v1/tenants/{tenant_id}/campaigns/{campaign_id}/issuance:
+    parameters:
+      - {$ref: '#/components/parameters/TenantID'}
+      - {$ref: '#/components/parameters/CampaignID'}
+    post:
+      summary: Agenda emissão em lotes
+      responses: {'202': {description: Processamento iniciado}}
+  /api/v1/tenants/{tenant_id}/campaigns/{campaign_id}/analytics:
+    parameters:
+      - {$ref: '#/components/parameters/TenantID'}
+      - {$ref: '#/components/parameters/CampaignID'}
+    get:
+      summary: Retorna KPIs e agregações SQL da campanha
+      responses: {'200': {description: Analytics da campanha}}
+  /api/v1/admin/campaigns/dashboard:
+    get:
+      summary: Dashboard consolidado de campanhas
+      responses: {'200': {description: KPIs e performance por campanha}}
+components:
+  parameters:
+    TenantID: {name: tenant_id, in: path, required: true, schema: {type: string, format: uuid}}
+    CampaignID: {name: campaign_id, in: path, required: true, schema: {type: string, format: uuid}}
+  schemas:
+    CampaignInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 160}
+        description: {type: string, nullable: true, maxLength: 2000}
