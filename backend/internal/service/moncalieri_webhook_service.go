@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ type moncalieriTenantRepo interface {
 }
 type moncalieriProviderRepo interface {
 	FindTenantProvider(string, string) (*domain.TenantProviderConfig, error)
+	FindByID(string) (*domain.Provider, error)
 }
 
 type MoncalieriWebhookService struct {
@@ -71,9 +73,18 @@ func (i moncalieriRegistrationItem) boletoBase64() string {
 	return ""
 }
 
-func (s *MoncalieriWebhookService) Receive(ctx context.Context, providerID string, body []byte) error {
+func (s *MoncalieriWebhookService) Receive(ctx context.Context, providerID, token string, body []byte) error {
 	if _, err := uuid.Parse(providerID); err != nil {
 		return ErrValidation
+	}
+	provider, err := s.providers.FindByID(providerID)
+	if err != nil || provider == nil || provider.WebhookTokenHash == "" {
+		return ErrInvalidWebhookToken
+	}
+	want := []byte(provider.WebhookTokenHash)
+	got := []byte(HashWebhookToken(token))
+	if strings.TrimSpace(token) == "" || len(want) != len(got) || subtle.ConstantTimeCompare(want, got) != 1 {
+		return ErrInvalidWebhookToken
 	}
 	var event moncalieriRegistration
 	if json.Unmarshal(body, &event) != nil {

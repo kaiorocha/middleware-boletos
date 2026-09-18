@@ -30,6 +30,9 @@ func (a *IdentityTenantAuthorizer) AuthorizeTenant(r *http.Request, tenantID str
 	if !ok || identity.UserID == "" {
 		return AuthDecision{Authenticated: false, Allowed: false}
 	}
+	if identity.HasRole(authn.RolePlatformAdmin) {
+		return AuthDecision{Authenticated: true, Allowed: true}
+	}
 	return AuthDecision{Authenticated: true, Allowed: identity.HasTenant(tenantID)}
 }
 

@@ -40,6 +40,7 @@ type App struct {
 	CustomerSvc       *service.CustomerService
 	ProviderSvc       *service.ProviderService
 	BoletoSvc         *service.BoletoService
+	CampaignSvc       *service.CampaignService
 	BlacklistSvc      *service.BlacklistService
 	OnboardingSvc     *service.OnboardingService
 	APITokenSvc       *service.TenantAPITokenService
@@ -50,7 +51,7 @@ type App struct {
 	CORSOrigins       []string
 	Environment       string
 	MoncalieriWebhook interface {
-		Receive(context.Context, string, []byte) error
+		Receive(context.Context, string, string, []byte) error
 	}
 	ProviderSync interface {
 		Sync(context.Context, string) (*service.ProviderSyncResult, error)
@@ -134,6 +135,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("/api/v1/tenants", a.handleTenants)
 	mux.HandleFunc("/api/v1/me/tenants", a.handleMyTenants)
 	mux.HandleFunc("/api/v1/admin/dashboard", a.handleAdminDashboard)
+	mux.HandleFunc("/api/v1/admin/campaigns/dashboard", a.handleAdminCampaignDashboard)
 	mux.HandleFunc("/api/v1/admin/transactions", a.handleAdminTransactions)
 	mux.HandleFunc("/api/v1/admin/transactions/", a.handleAdminTransactionByID)
 	mux.HandleFunc("/api/v1/admin/providers", a.handleAdminProviders)
@@ -212,8 +214,12 @@ func (a *App) handleMoncalieriWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid webhook payload")
 		return
 	}
-	if err := a.MoncalieriWebhook.Receive(r.Context(), providerID, body); err != nil {
+	if err := a.MoncalieriWebhook.Receive(r.Context(), providerID, r.Header.Get("X-Webhook-Token"), body); err != nil {
 		slog.Error("moncalieri webhook processing failed", "provider_id", providerID, "request_id", requestID(r), "error", err)
+		if errors.Is(err, service.ErrInvalidWebhookToken) {
+			writeError(w, http.StatusUnauthorized, "INVALID_WEBHOOK_TOKEN", "invalid webhook token")
+			return
+		}
 		if errors.Is(err, service.ErrValidation) {
 			writeError(w, http.StatusBadRequest, "INVALID_WEBHOOK", "invalid Moncalieri webhook")
 			return
@@ -377,8 +383,11 @@ func (a *App) securityHeadersMiddleware(next http.Handler) http.Handler {
 
 func (a *App) requestBodyLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// limit to 1MB
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		limit := int64(1 << 20)
+		if strings.HasSuffix(r.URL.Path, "/imports/preview") {
+			limit = service.CampaignCSVMaxBytes + 1
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -966,6 +975,13 @@ func (a *App) handleAdminProviderByID(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(parts) == 2 && r.Method == http.MethodPost {
 		switch parts[1] {
+		case "webhook-token":
+			token, err := a.ProviderSvc.RotateWebhookToken(id)
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusCreated, map[string]string{"webhook_token": token})
 		case "activate":
 			if err := a.ProviderSvc.ActivateCatalog(id); err != nil {
 				writeServiceError(w, err)
@@ -1190,6 +1206,8 @@ func (a *App) handleTenantsScoped(w http.ResponseWriter, r *http.Request) {
 		a.handleTenantBoletos(w, r, tenantID, parts[2:])
 	case "blacklist":
 		a.handleTenantBlacklist(w, r, tenantID, parts[2:])
+	case "campaigns":
+		a.handleTenantCampaigns(w, r, tenantID, parts[2:])
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "route not found")
 	}

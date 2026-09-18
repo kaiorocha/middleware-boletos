@@ -152,7 +152,7 @@ func scanBlacklistEntry(scanner blacklistScanner) (*domain.BlacklistEntry, error
 	var entryType sql.NullString
 	var value sql.NullString
 	var valueNormalized sql.NullString
-	
+
 	if err := scanner.Scan(
 		&entry.ID,
 		&entry.TenantID,

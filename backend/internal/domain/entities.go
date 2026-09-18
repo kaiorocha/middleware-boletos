@@ -73,17 +73,19 @@ type Customer struct {
 
 // Provider represents a banking provider/integration partner
 type Provider struct {
-	ID         string     `json:"id"`
-	TenantID   string     `json:"tenant_id,omitempty"`
-	Name       string     `json:"name"`
-	Type       string     `json:"type,omitempty"`
-	Status     string     `json:"status"`
-	ExternalID *string    `json:"external_id,omitempty"`
-	Config     *string    `json:"config,omitempty"`
-	Metadata   *string    `json:"metadata,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id,omitempty"`
+	Name             string     `json:"name"`
+	Type             string     `json:"type,omitempty"`
+	Status           string     `json:"status"`
+	ExternalID       *string    `json:"external_id,omitempty"`
+	Config           *string    `json:"config,omitempty"`
+	Metadata         *string    `json:"metadata,omitempty"`
+	WebhookToken     string     `json:"webhook_token,omitempty"`
+	WebhookTokenHash string     `json:"-"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
 
 // TenantProvider enables a provider catalog entry for a tenant.
@@ -102,6 +104,7 @@ type TenantProvider struct {
 type Boleto struct {
 	ID             string     `json:"id"`
 	TenantID       string     `json:"tenant_id"`
+	CampaignID     *string    `json:"campaign_id,omitempty"`
 	CustomerID     *string    `json:"customer_id,omitempty"`
 	RecipientEmail string     `json:"recipient_email"`
 	PayerName      string     `json:"payer_name,omitempty"`
@@ -119,6 +122,118 @@ type Boleto struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+}
+
+const (
+	CampaignDraft      = "DRAFT"
+	CampaignReady      = "READY"
+	CampaignProcessing = "PROCESSING"
+	CampaignCompleted  = "COMPLETED"
+	CampaignPartial    = "PARTIAL"
+	CampaignFailed     = "FAILED"
+	CampaignCancelled  = "CANCELLED"
+)
+
+type Campaign struct {
+	ID          string     `json:"id"`
+	TenantID    string     `json:"tenant_id"`
+	Name        string     `json:"name"`
+	Description *string    `json:"description,omitempty"`
+	Status      string     `json:"status"`
+	CreatedBy   *string    `json:"created_by,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type CampaignFilters struct {
+	TenantID string
+	Status   string
+	Search   string
+	From     *time.Time
+	To       *time.Time
+	Limit    int
+	Offset   int
+}
+
+type CampaignImportError struct {
+	Row     int    `json:"row"`
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+type CampaignImportPreview struct {
+	ImportID         string                `json:"import_id"`
+	Checksum         string                `json:"checksum"`
+	TotalRows        int                   `json:"total_rows"`
+	ValidRows        int                   `json:"valid_rows"`
+	InvalidRows      int                   `json:"invalid_rows"`
+	TotalAmountCents int64                 `json:"total_amount_cents"`
+	Errors           []CampaignImportError `json:"errors"`
+	ErrorLimit       int                   `json:"error_limit"`
+}
+
+type StagedCampaignRow struct {
+	Row        int
+	Email      string
+	Document   string
+	Amount     int64
+	DueDate    time.Time
+	ExternalID *string
+	Field      string
+	Code       string
+	Message    string
+}
+
+type CampaignMetrics struct {
+	TotalImported      int         `json:"total_imported"`
+	Waiting            int         `json:"waiting"`
+	Processing         int         `json:"processing"`
+	Issued             int         `json:"issued"`
+	Paid               int         `json:"paid"`
+	Failed             int         `json:"failed"`
+	Blocked            int         `json:"blocked"`
+	Cancelled          int         `json:"cancelled"`
+	IssuedAmountCents  int64       `json:"issued_amount_cents"`
+	PaidAmountCents    int64       `json:"paid_amount_cents"`
+	ProcessedPercent   float64     `json:"processed_percent"`
+	Conversion         float64     `json:"conversion"`
+	AverageTicketCents int64       `json:"average_ticket_cents"`
+	ByStatus           []MetricRow `json:"by_status"`
+	ByDueDate          []MetricRow `json:"by_due_date"`
+	ByAmount           []MetricRow `json:"by_amount"`
+}
+
+func (m CampaignMetrics) ByStatusAmount(status string) int64 {
+	for _, row := range m.ByStatus {
+		if row.ID == status {
+			return row.AmountCents
+		}
+	}
+	return 0
+}
+
+type CampaignPerformance struct {
+	CampaignID         string  `json:"campaign_id"`
+	CampaignName       string  `json:"campaign_name"`
+	TenantID           string  `json:"tenant_id"`
+	Issued             int     `json:"issued"`
+	Paid               int     `json:"paid"`
+	Conversion         float64 `json:"conversion"`
+	RevenueCents       int64   `json:"revenue_cents"`
+	AverageTicketCents int64   `json:"average_ticket_cents"`
+}
+
+type CampaignDashboard struct {
+	Campaigns          int                   `json:"campaigns"`
+	Issued             int                   `json:"issued"`
+	Paid               int                   `json:"paid"`
+	IssuedAmountCents  int64                 `json:"issued_amount_cents"`
+	RevenueCents       int64                 `json:"revenue_cents"`
+	Conversion         float64               `json:"conversion"`
+	AverageTicketCents int64                 `json:"average_ticket_cents"`
+	Performance        []CampaignPerformance `json:"performance"`
 }
 
 // BoletoFilters scopes dashboard and transaction queries.

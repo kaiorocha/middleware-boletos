@@ -1,6 +1,10 @@
 package service
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"strings"
 
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
@@ -15,6 +19,7 @@ type providerRepo interface {
 	Update(*domain.Provider) error
 	Delete(string, string) error
 	SetStatus(string, string) error
+	SetWebhookTokenHash(string, string) error
 	AssignToTenant(string, string, bool, *string) (*domain.TenantProvider, error)
 	IsAllowedForTenant(string, string) (bool, error)
 }
@@ -51,7 +56,44 @@ func (s *ProviderService) CreateCatalog(p *domain.Provider) error {
 	if p.Status == "" {
 		p.Status = "ACTIVE"
 	}
+	token, hash, err := newWebhookToken()
+	if err != nil {
+		return err
+	}
+	p.WebhookToken = token
+	p.WebhookTokenHash = hash
 	return s.repo.Create(p)
+}
+
+func (s *ProviderService) RotateWebhookToken(id string) (string, error) {
+	if !IsValidUUID(id) {
+		return "", ErrValidation
+	}
+	if _, err := s.repo.FindByID(id); err != nil {
+		return "", err
+	}
+	token, hash, err := newWebhookToken()
+	if err != nil {
+		return "", err
+	}
+	if err := s.repo.SetWebhookTokenHash(id, hash); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func HashWebhookToken(token string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	return hex.EncodeToString(sum[:])
+}
+
+func newWebhookToken() (string, string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", err
+	}
+	token := "giga_wh_" + base64.RawURLEncoding.EncodeToString(raw)
+	return token, HashWebhookToken(token), nil
 }
 
 func (s *ProviderService) UpdateCatalog(p *domain.Provider) error {

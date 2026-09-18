@@ -86,6 +86,7 @@ func main() {
 	custRepo := repository.NewCustomerRepo(db)
 	providerRepo := repository.NewProviderRepo(db)
 	boletoRepo := repository.NewBoletoRepo(db)
+	campaignRepo := repository.NewCampaignRepo(db)
 	blacklistRepo := repository.NewBlacklistRepo(db)
 	auditRepo := repository.NewAuditLogRepo(db)
 	onboardingRepo := repository.NewOnboardingRepo(db)
@@ -109,6 +110,8 @@ func main() {
 		WithBlacklistService(blacklistSvc).
 		WithProviderFactory(providerFactory).
 		WithWebhookNotifier(providerSyncSvc)
+	campaignSvc := service.NewCampaignService(campaignRepo).WithAuditRepository(auditRepo)
+	campaignIssuer := service.NewCampaignIssuer(campaignRepo, boletoSvc)
 
 	if err := bootstrapPlatformAdmin(cfg, userSvc); err != nil {
 		logger.Error("bootstrap_platform_admin_failed", "error", err)
@@ -122,6 +125,7 @@ func main() {
 		CustomerSvc:       customerSvc,
 		ProviderSvc:       providerSvc,
 		BoletoSvc:         boletoSvc,
+		CampaignSvc:       campaignSvc,
 		BlacklistSvc:      blacklistSvc,
 		OnboardingSvc:     onboardingSvc,
 		APITokenSvc:       apiTokenSvc,
@@ -149,6 +153,11 @@ func main() {
 			} else if updated > 0 {
 				logger.Info("periodic_provider_sync_completed", "updated", updated)
 			}
+		}
+		if processed, err := campaignIssuer.ProcessPending(syncContext, 100); err != nil {
+			logger.Error("campaign_issuance_failed", "error", err)
+		} else if processed > 0 {
+			logger.Info("campaign_issuance_batch_completed", "processed", processed)
 		}
 		run()
 		ticker := time.NewTicker(syncInterval)
