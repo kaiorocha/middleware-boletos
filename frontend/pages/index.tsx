@@ -31,6 +31,12 @@ const fmtDate = (value) => {
   return Number.isNaN(date.getTime()) ? '-' : new Intl.DateTimeFormat('pt-BR').format(date)
 }
 
+const fmtChartDate = (value) => {
+  if (!value) return '-'
+  const [year, month, day] = String(value).slice(0, 10).split('-')
+  return year && month && day ? `${day}/${month}` : fmtDate(value)
+}
+
 async function apiFetch(baseUrl, path, token, options: any = {}) {
   let response
   try {
@@ -440,7 +446,7 @@ function TenantDetails({ details, catalogProviders, onClose, onSave, onReveal, o
     <div className="phoneCols">{field('country_code','DDI',{inputMode:'numeric'})}{field('area_code','DDD',{inputMode:'numeric'})}{field('phone_number','Celular',{inputMode:'numeric'})}</div>
     <fieldset><legend>Providers</legend>{(catalogProviders || []).map((provider) => <div key={provider.id} className="providerChoice"><label className="checkRow"><input type="checkbox" disabled={provider.status !== 'ACTIVE'} checked={providerIds.includes(provider.id)} onChange={(e) => setProviderIds(e.target.checked ? [...providerIds, provider.id] : providerIds.filter((id) => id !== provider.id))} />{provider.name} <small>({provider.status})</small></label>{providerIds.includes(provider.id) && <small>Configuração e credenciais herdadas do provider da plataforma.</small>}</div>)}</fieldset>
 	<fieldset><legend>Tokens da API</legend>{['HML', 'PRODUCTION'].map((environment) => { const token = (details.tokens || []).find((item) => item.environment === environment); return <div className="tokenRow" key={environment}><strong>{environment}</strong><code>{token ? (shownTokens[environment] && token.token ? token.token : token.masked_token) : 'Não emitido'}</code>{token ? <button type="button" className="eyeButton" title={shownTokens[environment] ? 'Ocultar token' : 'Visualizar token'} aria-label={`Visualizar token ${environment}`} onClick={async () => { if (!token.token) await onReveal(tenant.id, environment); setShownTokens((shown) => ({ ...shown, [environment]: !shown[environment] })) }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button> : <span />}<button type="button" className="rotateTokenButton" onClick={async () => { const created = await onRotate(tenant, environment); if (created) setShownTokens((shown) => ({ ...shown, [environment]: true })) }}>{token ? 'Recriar token' : 'Criar token'}</button></div> })}</fieldset>
-	<fieldset><legend>Redefinir senha</legend>{(details.users || []).map((user) => <div className="tokenRow" key={user.id}><span><strong>{user.name}</strong><br/><small>{user.email}</small></span><input type="password" minLength={8} placeholder="Nova senha" value={passwords[user.id] || ''} onChange={(e) => setPasswords({ ...passwords, [user.id]: e.target.value })}/><span/><button type="button" disabled={(passwords[user.id] || '').trim().length < 8} onClick={async () => { if (!window.confirm(`Redefinir a senha de ${user.name || user.email}?`)) return; if (await onResetPassword(tenant.id, user.id, passwords[user.id])) setPasswords({ ...passwords, [user.id]: '' }) }}>Redefinir senha</button></div>)}</fieldset>
+	<fieldset className="passwordReset"><legend>Redefinir senha</legend><p>Defina uma nova senha de acesso para um usuário deste tenant.</p>{(details.users || []).map((user) => <div className="passwordResetRow" key={user.id}><div className="userIdentity"><strong>{user.name}</strong><small>{user.email}</small></div><label>Nova senha<input type="password" autoComplete="new-password" minLength={8} placeholder="Mínimo de 8 caracteres" value={passwords[user.id] || ''} onChange={(e) => setPasswords({ ...passwords, [user.id]: e.target.value })}/></label><button type="button" disabled={(passwords[user.id] || '').trim().length < 8} onClick={async () => { if (!window.confirm(`Redefinir a senha de ${user.name || user.email}?`)) return; if (await onResetPassword(tenant.id, user.id, passwords[user.id])) setPasswords({ ...passwords, [user.id]: '' }) }}>Redefinir senha</button></div>)}</fieldset>
     <div className="rowActions"><button type="submit">Salvar alterações</button><button type="button" onClick={onClose}>Cancelar</button></div>
   </form></div>
 }
@@ -463,10 +469,13 @@ function AdminDashboard({ dashboard, filters, setFilters, tenants, providers, re
       ['Ticket médio', fmtCurrency(totals.average_ticket_cents)],
       ['Cancelados', totals.cancelled],
     ]} />
-    <div className="threeCols">
+    <div className="dashboardCharts">
+      <TimelineChart title="Volume de transações" rows={dashboard?.timeline || []} />
+      <DonutChart title="Distribuição por status" rows={dashboard?.by_status || []} />
+    </div>
+    <div className="twoCols dashboardSecondary">
       <SimpleBars title="Top tenants por emissão" rows={dashboard?.by_tenant || []} />
       <SimpleBars title="Emissões por provider" rows={dashboard?.by_provider || []} />
-      <SimpleBars title="Status das emissões" rows={dashboard?.by_status || []} />
     </div>
   </>
 }
@@ -504,6 +513,33 @@ function Pagination({ limit, offset, total, shown, setOffset }) {
 function SimpleBars({ title, rows }) {
   const max = Math.max(1, ...rows.map((r) => r.count || 0))
   return <section className="panel"><h2>{title}</h2><div className="bars">{rows.map((r) => <div key={`${r.id}-${r.label}`}><span>{r.label}</span><div><i style={{ width: `${Math.max(4, ((r.count || 0) / max) * 100)}%` }} /></div><strong>{r.count}</strong></div>)}</div></section>
+}
+
+function EmptyChart() {
+  return <div className="emptyChart"><span>Sem dados no período</span></div>
+}
+
+function TimelineChart({ title, rows }) {
+  const values = (rows || []).map((row) => Number(row.count || 0))
+  const width = 720
+  const height = 220
+  const pad = 18
+  const max = Math.max(1, ...values)
+  const points = values.map((value, index) => {
+    const x = values.length <= 1 ? width / 2 : pad + (index / (values.length - 1)) * (width - pad * 2)
+    const y = height - pad - (value / max) * (height - pad * 2)
+    return `${x},${y}`
+  }).join(' ')
+  const area = points ? `${pad},${height - pad} ${points} ${width - pad},${height - pad}` : ''
+  return <section className="panel chartPanel"><div className="chartHeader"><div><span>Visão temporal</span><h2>{title}</h2></div><strong>{values.reduce((sum, value) => sum + value, 0).toLocaleString('pt-BR')}</strong></div>{rows?.length ? <><svg className="timelineChart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title} ao longo do tempo`}><defs><linearGradient id="timeline-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#15a37d" stopOpacity=".28"/><stop offset="100%" stopColor="#15a37d" stopOpacity="0"/></linearGradient></defs><polygon points={area} fill="url(#timeline-fill)"/><polyline points={points} fill="none" stroke="#0d8969" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/>{values.map((value, index) => { const [x, y] = points.split(' ')[index].split(','); return <circle key={`${x}-${y}`} cx={x} cy={y} r="5" fill="white" stroke="#0d8969" strokeWidth="4"><title>{`${fmtChartDate(rows[index].date)}: ${value}`}</title></circle> })}</svg><div className="chartAxis"><span>{fmtChartDate(rows[0]?.date)}</span><span>{fmtChartDate(rows[rows.length - 1]?.date)}</span></div></> : <EmptyChart />}</section>
+}
+
+function DonutChart({ title, rows }) {
+  const palette = ['#0d8969', '#38bdf8', '#6366f1', '#f59e0b', '#ef4444', '#94a3b8']
+  const total = (rows || []).reduce((sum, row) => sum + Number(row.count || 0), 0)
+  let cursor = 0
+  const gradient = total ? rows.map((row, index) => { const start = cursor; cursor += (Number(row.count || 0) / total) * 100; return `${palette[index % palette.length]} ${start}% ${cursor}%` }).join(', ') : '#e2e8f0 0 100%'
+  return <section className="panel chartPanel"><div className="chartHeader"><div><span>Composição</span><h2>{title}</h2></div></div>{total ? <div className="donutLayout"><div className="donut" style={{ background: `conic-gradient(${gradient})` }}><div><strong>{total.toLocaleString('pt-BR')}</strong><span>boletos</span></div></div><div className="chartLegend">{rows.map((row, index) => <div key={`${row.id}-${row.label}`}><i style={{ background: palette[index % palette.length] }}/><span>{statusLabels[row.id] || row.label}</span><strong>{row.count}</strong></div>)}</div></div> : <EmptyChart />}</section>
 }
 
 function ProvidersAdmin({ rows, form, setForm, save, edit, setEdit, update, setStatus }) {
@@ -611,21 +647,26 @@ function Campaigns({ tenantId, rows, call, reload, canManage }) {
   const [selected, setSelected] = useState(null)
   const [preview, setPreview] = useState(null)
   const [analytics, setAnalytics] = useState(null)
+  const [csvFile, setCsvFile] = useState(null)
+  const [busy, setBusy] = useState('')
+  const [feedback, setFeedback] = useState('')
   const create = async (event) => { event.preventDefault(); const response = await call(`/api/v1/tenants/${tenantId}/campaigns`, { method: 'POST', body: JSON.stringify(form) }); setForm({ name: '', description: '' }); setSelected(response.data); await reload() }
-  const open = async (campaign) => { setSelected(campaign); setPreview(null); const response = await call(`/api/v1/tenants/${tenantId}/campaigns/${campaign.id}/analytics`); setAnalytics(response.data) }
-  const upload = async (event) => { const file = event.target.files?.[0]; if (!file) return; const response = await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/imports/preview`, { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: file }); setPreview(response.data) }
-  const confirmImport = async () => { if (!window.confirm(`Confirmar a importação de ${preview.valid_rows.toLocaleString('pt-BR')} boletos no valor total de ${fmtCurrency(preview.total_amount_cents)}?`)) return; await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/imports/${preview.import_id}/confirm`, { method: 'POST' }); setPreview(null); await reload(); setSelected({ ...selected, status: 'READY' }) }
-  const issue = async () => { const count = analytics?.waiting || 0; const amount = analytics?.by_status?.find((row) => row.id === 'CREATED')?.amount_cents || 0; if (!window.confirm(`Você está prestes a emitir ${count.toLocaleString('pt-BR')} boletos no valor total de ${fmtCurrency(amount)}. Confirmar emissão?`)) return; await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/issuance`, { method: 'POST' }); await reload(); setSelected({ ...selected, status: 'PROCESSING' }) }
-  return <>
+  const loadAnalytics = async (campaignId) => { const response = await call(`/api/v1/tenants/${tenantId}/campaigns/${campaignId}/analytics`); setAnalytics(response.data); return response.data }
+  const open = async (campaign) => { setSelected(campaign); setPreview(null); setCsvFile(null); setFeedback(''); await loadAnalytics(campaign.id) }
+  const upload = async () => { if (!csvFile) return; setBusy('upload'); setFeedback(''); try { const response = await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/imports/preview`, { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: csvFile }); setPreview(response.data); setFeedback('Arquivo validado. Revise o resumo antes de importar.') } catch (error) { setFeedback(error.message || 'Não foi possível validar o CSV.') } finally { setBusy('') } }
+  const confirmImport = async () => { if (!window.confirm(`Confirmar a importação de ${preview.valid_rows.toLocaleString('pt-BR')} boletos no valor total de ${fmtCurrency(preview.total_amount_cents)}?`)) return; setBusy('import'); setFeedback(''); try { await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/imports/${preview.import_id}/confirm`, { method: 'POST' }); setPreview(null); setCsvFile(null); setSelected({ ...selected, status: 'READY' }); await Promise.all([reload(), loadAnalytics(selected.id)]); setFeedback('Boletos importados. A campanha está pronta para emissão.') } catch (error) { setFeedback(error.message || 'Não foi possível importar os boletos.') } finally { setBusy('') } }
+  const issue = async () => { setFeedback(''); try { const current = await loadAnalytics(selected.id); const count = current?.waiting || 0; const amount = current?.by_status?.find((row) => row.id === 'CREATED')?.amount_cents || 0; if (!window.confirm(`Você está prestes a emitir ${count.toLocaleString('pt-BR')} boletos no valor total de ${fmtCurrency(amount)}. Confirmar emissão?`)) return; setBusy('issue'); await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/issuance`, { method: 'POST' }); await reload(); setSelected({ ...selected, status: 'PROCESSING' }); setFeedback('Emissão iniciada. O processamento continuará em segundo plano.') } catch (error) { setFeedback(error.message || 'Não foi possível iniciar a emissão.') } finally { setBusy('') } }
+  return <div className="campaignsPage">
     {canManage && <FormPanel title="Nova campanha" onSubmit={create}><label>Nome<input required maxLength={160} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label>Descrição<textarea maxLength={2000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label><button>Salvar</button></FormPanel>}
     <DataTable columns={['Campanha', 'Status', 'Criada em', 'Ações']} rows={rows.map((campaign) => [campaign.name, campaign.status, fmtDate(campaign.created_at), <button key={campaign.id} type="button" onClick={() => open(campaign)}>Detalhes</button>])} />
-    {selected && <section className="panel campaignDetail"><div className="topbar"><div><h2>{selected.name}</h2><p>{selected.description || 'Sem descrição'} · {selected.status}</p></div><button type="button" onClick={() => setSelected(null)}>Fechar</button></div>
-      {canManage && selected.status === 'DRAFT' && <label>Importar CSV <small>Cabeçalho: email,cpf_cnpj,valor,vencimento,external_id</small><input type="file" accept=".csv,text/csv" onChange={upload} /></label>}
-      {preview && <div><Metrics items={[["Registros", preview.total_rows], ["Válidos", preview.valid_rows], ["Inválidos", preview.invalid_rows], ["Valor válido", fmtCurrency(preview.total_amount_cents)]]} /><DataTable columns={['Linha','Campo','Código','Mensagem']} rows={(preview.errors || []).map((error) => [error.row,error.field,error.code,error.message])} />{preview.invalid_rows > preview.errors.length && <p>Exibindo os primeiros {preview.error_limit} erros.</p>}<button disabled={!preview.valid_rows} type="button" onClick={confirmImport}>Confirmar importação</button></div>}
-      {canManage && selected.status === 'READY' && <button className="riskButton" type="button" onClick={issue}>Emitir boletos</button>}
+    {selected && <section className="panel campaignDetail"><div className="campaignHeader"><div><span className="eyebrow">Campanha</span><h2>{selected.name}</h2><p>{selected.description || 'Sem descrição'}</p></div><div><span className="statusBadge">{selected.status}</span><button className="secondaryButton" type="button" onClick={() => setSelected(null)}>Fechar</button></div></div>
+      {feedback && <div className="inlineNotice">{feedback}</div>}
+      {canManage && selected.status === 'DRAFT' && <div className="csvUploader"><div><span className="eyebrow">Importação em lote</span><h3>Importar boletos via CSV</h3><p>Use o cabeçalho <code>email,cpf_cnpj,valor,vencimento,external_id</code>.</p></div><label className="filePicker"><span>{csvFile ? csvFile.name : 'Selecionar arquivo CSV'}</span><input type="file" accept=".csv,text/csv" onChange={(event) => { setCsvFile(event.target.files?.[0] || null); setPreview(null); setFeedback('') }} /></label><button type="button" disabled={!csvFile || !!busy} onClick={upload}>{busy === 'upload' ? 'Validando...' : 'Validar arquivo'}</button></div>}
+      {preview && <div className="importPreview"><div className="sectionHeading"><div><span className="eyebrow">Prévia da importação</span><h3>Revise antes de efetivar</h3></div><button disabled={!preview.valid_rows || !!busy} type="button" onClick={confirmImport}>{busy === 'import' ? 'Importando...' : `Importar ${preview.valid_rows} boletos`}</button></div><Metrics items={[["Registros", preview.total_rows], ["Válidos", preview.valid_rows], ["Inválidos", preview.invalid_rows], ["Valor válido", fmtCurrency(preview.total_amount_cents)]]} />{preview.errors?.length > 0 && <DataTable columns={['Linha','Campo','Código','Mensagem']} rows={preview.errors.map((error) => [error.row,error.field,error.code,error.message])} />}{preview.invalid_rows > preview.errors.length && <p>Exibindo os primeiros {preview.error_limit} erros.</p>}</div>}
+      {canManage && selected.status === 'READY' && <div className="issuanceCallout"><div><span className="eyebrow">Pronto para emitir</span><h3>{analytics?.waiting || 0} boletos aguardando processamento</h3><p>Confira os valores abaixo e confirme para iniciar a emissão.</p></div><button className="riskButton" disabled={!!busy} type="button" onClick={issue}>{busy === 'issue' ? 'Iniciando...' : 'Emitir boletos agora'}</button></div>}
       {analytics && <CampaignAnalytics data={analytics} />}
     </section>}
-  </>
+  </div>
 }
 
 function CampaignDashboard({ data, filters, setFilters, tenants, providers, reload }) {
@@ -640,6 +681,7 @@ function Dashboard({ dashboard, filters, setFilters }) {
   return <>
     <div className="toolbar"><label>De<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>Até<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label></div>
     <Metrics items={[['Total de boletos', dashboard?.total_boletos], ['Emitidos', dashboard?.boletos_emitidos], ['Processando', dashboard?.boletos_em_processamento], ['Pagos', dashboard?.boletos_pagos], ['Vencidos', dashboard?.boletos_vencidos], ['Cancelados', dashboard?.boletos_cancelados], ['Falhas', dashboard?.boletos_com_falha], ['Valor emitido', fmtCurrency(dashboard?.valor_total_emitido)], ['Taxa de sucesso', `${Math.round((dashboard?.taxa_sucesso || 0) * 100)}%`], ['Taxa de falha', `${Math.round((dashboard?.taxa_falha || 0) * 100)}%`], ['Ticket médio', fmtCurrency(dashboard?.ticket_medio)]]} />
+    <div className="dashboardCharts"><TimelineChart title="Boletos criados" rows={dashboard?.timeline || []} /><DonutChart title="Distribuição por status" rows={dashboard?.by_status || []} /></div>
   </>
 }
 

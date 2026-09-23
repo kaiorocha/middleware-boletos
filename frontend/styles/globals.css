@@ -14,7 +14,7 @@
 @layer base {
   * { @apply box-border; }
   html { @apply scroll-smooth; }
-  body { @apply m-0 bg-slate-50 font-sans text-slate-800 antialiased; }
+  body { @apply m-0 bg-[#f6f8fb] font-sans text-slate-800 antialiased; }
   h1, h2, h3, p { @apply m-0; }
   p { @apply text-slate-500; }
   button, a, input, select, textarea { @apply transition duration-150; }
@@ -40,7 +40,7 @@
   .sidebar nav button { @apply min-h-10 shrink-0 rounded-xl border-0 bg-transparent px-3.5 py-2.5 text-left text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-ink-950; }
   .sidebar nav button.navActive { @apply bg-brand-50 text-brand-700 ring-1 ring-brand-100; }
 
-  .workspace { @apply min-w-0 p-5 sm:p-7 xl:p-10; }
+  .workspace { @apply min-w-0 w-full max-w-[1680px] justify-self-center p-5 sm:p-7 xl:p-10; }
   .topbar { @apply mb-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-center; }
   .topbar h1 { @apply text-2xl font-extrabold tracking-tight text-ink-950 sm:text-3xl; }
   .topbar p { @apply mt-1.5 text-sm; }
@@ -57,7 +57,7 @@
   .notice { @apply border-emerald-200 bg-emerald-50 text-emerald-800; }
   .errorBox { @apply border-rose-200 bg-rose-50 text-rose-800; }
   .metricGrid { @apply my-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4; }
-  .metric, .panel, .formPanel { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_-22px_rgba(15,23,42,.28)]; }
+  .metric, .panel, .formPanel { @apply rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_14px_36px_-28px_rgba(15,23,42,.35)]; }
   .metric { @apply relative overflow-hidden; }
   .metric::after { content:""; @apply absolute -right-5 -top-5 size-20 rounded-full bg-brand-50; }
   .metric span { @apply relative z-10 mb-2 block text-xs font-semibold text-slate-500; }
@@ -107,6 +107,58 @@
   .bars > div { @apply grid grid-cols-[1fr_2fr_36px] items-center gap-2 text-xs; }
   .bars div div { @apply h-2 overflow-hidden rounded-full bg-slate-100; }
   .bars i { @apply block h-full rounded-full bg-brand-500; }
+
+  .passwordReset { @apply gap-4; }
+  .passwordReset > p { @apply -mt-1 text-sm; }
+  .passwordResetRow { @apply grid min-w-0 items-end gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[minmax(150px,1fr)_minmax(220px,1.4fr)_auto]; }
+  .passwordResetRow label, .passwordResetRow input { @apply min-w-0 w-full; }
+  .passwordResetRow button { @apply whitespace-nowrap; }
+  .userIdentity { @apply grid min-w-0 gap-1 self-center; }
+  .userIdentity strong, .userIdentity small { @apply overflow-hidden text-ellipsis whitespace-nowrap; }
+  .userIdentity small { @apply text-slate-500; }
+
+  .dashboardCharts { @apply my-6 grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,.8fr)]; }
+  .dashboardSecondary { @apply mt-5; }
+  .chartPanel { @apply min-h-[330px]; }
+  .chartHeader { @apply mb-5 flex items-end justify-between gap-4; }
+  .chartHeader span, .eyebrow { @apply mb-1 block text-[10px] font-extrabold uppercase tracking-[.16em] text-brand-600; }
+  .chartHeader strong { @apply text-2xl font-extrabold text-ink-950; }
+  .timelineChart { @apply h-[220px] w-full overflow-visible; }
+  .chartAxis { @apply mt-2 flex justify-between text-[11px] font-semibold text-slate-400; }
+  .emptyChart { @apply grid min-h-[220px] place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-400; }
+  .donutLayout { @apply grid items-center gap-6 sm:grid-cols-[180px_minmax(0,1fr)] xl:grid-cols-1 2xl:grid-cols-[180px_minmax(0,1fr)]; }
+  .donut { @apply relative mx-auto grid size-44 place-items-center rounded-full; }
+  .donut::after { content:""; @apply absolute size-28 rounded-full bg-white shadow-inner; }
+  .donut > div { @apply relative z-10 grid text-center; }
+  .donut strong { @apply text-2xl font-extrabold text-ink-950; }
+  .donut span { @apply text-xs font-semibold text-slate-400; }
+  .chartLegend { @apply grid gap-2.5; }
+  .chartLegend > div { @apply grid grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2 text-xs; }
+  .chartLegend i { @apply size-2.5 rounded-full; }
+  .chartLegend span { @apply truncate text-slate-500; }
+  .chartLegend strong { @apply text-ink-950; }
+
+  .campaignsPage { @apply grid gap-6; }
+  .campaignsPage .formPanel { @apply gap-5; }
+  .campaignDetail { @apply grid gap-7 p-6 sm:p-7; }
+  .campaignHeader { @apply flex flex-col justify-between gap-5 border-b border-slate-100 pb-6 sm:flex-row sm:items-start; }
+  .campaignHeader h2 { @apply text-2xl; }
+  .campaignHeader p { @apply mt-1.5; }
+  .campaignHeader > div:last-child { @apply flex items-center gap-3; }
+  .statusBadge { @apply rounded-full bg-brand-50 px-3 py-1.5 text-[11px] font-extrabold tracking-wide text-brand-700 ring-1 ring-brand-100; }
+  .secondaryButton { @apply border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700; }
+  .inlineNotice { @apply rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-700; }
+  .csvUploader { @apply grid items-end gap-5 rounded-2xl border border-dashed border-brand-200 bg-brand-50/40 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.8fr)_auto]; }
+  .csvUploader h3, .importPreview h3, .issuanceCallout h3 { @apply text-base font-extrabold text-ink-950; }
+  .csvUploader p, .issuanceCallout p { @apply mt-1 text-sm; }
+  .csvUploader code { @apply rounded bg-white px-1.5 py-1 text-[11px] text-slate-600 ring-1 ring-slate-200; }
+  .filePicker { @apply relative min-w-0 cursor-pointer; }
+  .filePicker > span { @apply flex min-h-11 items-center truncate rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 shadow-sm; }
+  .filePicker input { @apply absolute inset-0 min-h-0 w-full cursor-pointer opacity-0; }
+  .importPreview { @apply grid gap-5 rounded-2xl border border-slate-200 bg-slate-50/50 p-5; }
+  .sectionHeading { @apply flex flex-col justify-between gap-4 sm:flex-row sm:items-end; }
+  .issuanceCallout { @apply flex flex-col justify-between gap-5 rounded-2xl border border-amber-200 bg-amber-50/70 p-5 sm:flex-row sm:items-center; }
+  .riskButton { @apply border-amber-600 bg-amber-600 hover:border-amber-700 hover:bg-amber-700; }
 }
 
 @media (max-width: 640px) {
@@ -116,4 +168,7 @@
   .phoneCols label:last-child { @apply col-span-2; }
   .tokenRow { @apply grid-cols-[75px_minmax(0,1fr)_40px]; }
   .rotateTokenButton { @apply col-span-3; }
+  .passwordResetRow { @apply grid-cols-1; }
+  .passwordResetRow button { @apply w-full; }
+  .campaignHeader > div:last-child { @apply items-stretch justify-between; }
 }
