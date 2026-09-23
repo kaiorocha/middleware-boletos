@@ -607,7 +607,16 @@ func (a *App) handleAdminTenantByID(w http.ResponseWriter, r *http.Request) {
 				writeServiceError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "providers": providers, "tokens": tokens})
+			users, err := a.UserSvc.ListByTenant(parts[0])
+			if err != nil {
+				writeServiceError(w, err)
+				return
+			}
+			publicUsers := make([]map[string]any, 0, len(users))
+			for i := range users {
+				publicUsers = append(publicUsers, publicUser(&users[i], tenantIDsForUser(&users[i])))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "providers": providers, "tokens": tokens, "users": publicUsers})
 		case http.MethodPut:
 			tenant, err := a.TenantSvc.Get(parts[0])
 			if err != nil {
@@ -669,6 +678,30 @@ func (a *App) handleAdminTenantByID(w http.ResponseWriter, r *http.Request) {
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 		}
+		return
+	}
+	if len(parts) == 4 && parts[1] == "users" && parts[3] == "password" && r.Method == http.MethodPost {
+		var in struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid payload")
+			return
+		}
+		if len(strings.TrimSpace(in.Password)) < 8 {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "password must have at least 8 characters")
+			return
+		}
+		hash, err := authn.HashPassword(in.Password)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid password")
+			return
+		}
+		if err := a.UserSvc.SetPasswordHash(parts[2], parts[0], hash); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if len(parts) == 3 && parts[1] == "tokens" && r.Method == http.MethodGet {

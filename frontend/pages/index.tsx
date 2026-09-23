@@ -337,6 +337,18 @@ function AdminView(props) {
 	return token
   }
 
+  const resetTenantUserPassword = async (tenantId, userId, password) => {
+	setError('')
+	try {
+	  await apiFetch(baseUrl, `/api/v1/admin/tenants/${tenantId}/users/${userId}/password`, session.access_token, { method: 'POST', body: JSON.stringify({ password }) })
+	  setNotice('Senha do usuário do tenant redefinida com sucesso.')
+	  return true
+	} catch (err) {
+	  setError(`${err.code || err.status}: ${err.message}`)
+	  return false
+	}
+  }
+
   const createProvider = async (event) => {
     event.preventDefault()
     setError('')
@@ -407,15 +419,16 @@ function AdminView(props) {
       )}
       {active === 'Providers' && <ProvidersAdmin rows={providers} form={providerForm} setForm={setProviderForm} save={createProvider} edit={providerEdit} setEdit={setProviderEdit} update={updateProvider} setStatus={setProviderStatus} />}
       {active === 'Usuários Administrativos' && <section className="panel"><p>Usuários `PLATFORM_ADMIN` são gerenciados por bootstrap seguro nesta etapa.</p></section>}
-	  {tenantDetails && <TenantDetails details={tenantDetails} catalogProviders={providers} onClose={() => setTenantDetails(null)} onSave={saveTenant} onReveal={revealTenantToken} onRotate={rotateTokenFromDetails} />}
+	  {tenantDetails && <TenantDetails details={tenantDetails} catalogProviders={providers} onClose={() => setTenantDetails(null)} onSave={saveTenant} onReveal={revealTenantToken} onRotate={rotateTokenFromDetails} onResetPassword={resetTenantUserPassword} />}
     </Shell>
   )
 }
 
-function TenantDetails({ details, catalogProviders, onClose, onSave, onReveal, onRotate }) {
+function TenantDetails({ details, catalogProviders, onClose, onSave, onReveal, onRotate, onResetPassword }) {
   const [tenant, setTenant] = useState(details.tenant)
   const [providerIds, setProviderIds] = useState((details.providers || []).filter((provider) => provider.status === 'ACTIVE').map((provider) => provider.id))
   const [shownTokens, setShownTokens] = useState({})
+  const [passwords, setPasswords] = useState({})
   const field = (key, label, props: any = {}) => <label>{label}<input {...props} value={tenant[key] || ''} onChange={(e) => setTenant({ ...tenant, [key]: e.target.value })} /></label>
   return <div className="modalBackdrop"><form className="detailsModal formStack" onSubmit={(e) => { e.preventDefault(); onSave({ ...tenant, providers: providerIds.map((provider_id) => ({ provider_id, active: true })) }) }}>
     <header><div><h2>{tenant.name}</h2><p>Dados, integrações e tokens do tenant</p></div><button type="button" className="closeButton" onClick={onClose}>×</button></header>
@@ -423,6 +436,7 @@ function TenantDetails({ details, catalogProviders, onClose, onSave, onReveal, o
     <div className="phoneCols">{field('country_code','DDI',{inputMode:'numeric'})}{field('area_code','DDD',{inputMode:'numeric'})}{field('phone_number','Celular',{inputMode:'numeric'})}</div>
     <fieldset><legend>Providers</legend>{(catalogProviders || []).map((provider) => <div key={provider.id} className="providerChoice"><label className="checkRow"><input type="checkbox" disabled={provider.status !== 'ACTIVE'} checked={providerIds.includes(provider.id)} onChange={(e) => setProviderIds(e.target.checked ? [...providerIds, provider.id] : providerIds.filter((id) => id !== provider.id))} />{provider.name} <small>({provider.status})</small></label>{providerIds.includes(provider.id) && <small>Configuração e credenciais herdadas do provider da plataforma.</small>}</div>)}</fieldset>
 	<fieldset><legend>Tokens da API</legend>{['HML', 'PRODUCTION'].map((environment) => { const token = (details.tokens || []).find((item) => item.environment === environment); return <div className="tokenRow" key={environment}><strong>{environment}</strong><code>{token ? (shownTokens[environment] && token.token ? token.token : token.masked_token) : 'Não emitido'}</code>{token ? <button type="button" className="eyeButton" title={shownTokens[environment] ? 'Ocultar token' : 'Visualizar token'} aria-label={`Visualizar token ${environment}`} onClick={async () => { if (!token.token) await onReveal(tenant.id, environment); setShownTokens((shown) => ({ ...shown, [environment]: !shown[environment] })) }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg></button> : <span />}<button type="button" className="rotateTokenButton" onClick={async () => { const created = await onRotate(tenant, environment); if (created) setShownTokens((shown) => ({ ...shown, [environment]: true })) }}>{token ? 'Recriar token' : 'Criar token'}</button></div> })}</fieldset>
+	<fieldset><legend>Redefinir senha</legend>{(details.users || []).map((user) => <div className="tokenRow" key={user.id}><span><strong>{user.name}</strong><br/><small>{user.email}</small></span><input type="password" minLength={8} placeholder="Nova senha" value={passwords[user.id] || ''} onChange={(e) => setPasswords({ ...passwords, [user.id]: e.target.value })}/><span/><button type="button" disabled={(passwords[user.id] || '').trim().length < 8} onClick={async () => { if (!window.confirm(`Redefinir a senha de ${user.name || user.email}?`)) return; if (await onResetPassword(tenant.id, user.id, passwords[user.id])) setPasswords({ ...passwords, [user.id]: '' }) }}>Redefinir senha</button></div>)}</fieldset>
     <div className="rowActions"><button type="submit">Salvar alterações</button><button type="button" onClick={onClose}>Cancelar</button></div>
   </form></div>
 }

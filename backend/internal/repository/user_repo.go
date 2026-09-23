@@ -108,6 +108,21 @@ func (r *UserRepo) Update(u *domain.User) error {
 	return translatePostgresError(err)
 }
 
+func (r *UserRepo) UpdatePassword(id, tenantID, passwordHash string) error {
+	result, err := r.db.Exec(`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL`, passwordHash, id, tenantID)
+	if err != nil {
+		return translatePostgresError(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *UserRepo) Delete(id string, tenantID string) error {
 	_, err := r.db.Exec(`UPDATE users SET deleted_at = $1, updated_at = $1, status = 'INACTIVE' WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL`, time.Now().UTC(), id, tenantID)
 	return err

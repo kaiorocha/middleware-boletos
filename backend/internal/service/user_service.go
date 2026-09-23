@@ -12,6 +12,7 @@ type userRepo interface {
 	FindByEmail(string) (*domain.User, error)
 	HasRole(string) (bool, error)
 	ListByTenant(string) ([]domain.User, error)
+	UpdatePassword(string, string, string) error
 	Update(*domain.User) error
 	Delete(string, string) error
 }
@@ -62,4 +63,18 @@ func (s *UserService) ListByTenant(tenantID string) ([]domain.User, error) {
 		return nil, ErrValidation
 	}
 	return s.repo.ListByTenant(tenantID)
+}
+
+func (s *UserService) SetPasswordHash(userID, tenantID, passwordHash string) error {
+	if !IsValidUUID(userID) || !IsValidUUID(tenantID) || strings.TrimSpace(passwordHash) == "" {
+		return ErrValidation
+	}
+	user, err := s.repo.FindByID(userID)
+	if err != nil {
+		return err
+	}
+	if user.TenantID != tenantID {
+		return ErrNotFound
+	}
+	return s.repo.UpdatePassword(userID, tenantID, passwordHash)
 }

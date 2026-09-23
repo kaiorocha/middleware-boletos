@@ -55,18 +55,20 @@ type duplicateUserRepo struct{}
 func (r *duplicateUserRepo) Create(*domain.User) error {
 	return service.NewDuplicateResource("Já existe um usuário com este e-mail neste tenant.")
 }
-func (r *duplicateUserRepo) FindByID(string) (*domain.User, error)      { return &domain.User{}, nil }
-func (r *duplicateUserRepo) FindByEmail(string) (*domain.User, error)   { return &domain.User{}, nil }
-func (r *duplicateUserRepo) HasRole(string) (bool, error)               { return false, nil }
-func (r *duplicateUserRepo) ListByTenant(string) ([]domain.User, error) { return nil, nil }
-func (r *duplicateUserRepo) Update(*domain.User) error                  { return nil }
-func (r *duplicateUserRepo) Delete(string, string) error                { return nil }
+func (r *duplicateUserRepo) FindByID(string) (*domain.User, error)       { return &domain.User{}, nil }
+func (r *duplicateUserRepo) FindByEmail(string) (*domain.User, error)    { return &domain.User{}, nil }
+func (r *duplicateUserRepo) HasRole(string) (bool, error)                { return false, nil }
+func (r *duplicateUserRepo) ListByTenant(string) ([]domain.User, error)  { return nil, nil }
+func (r *duplicateUserRepo) UpdatePassword(string, string, string) error { return nil }
+func (r *duplicateUserRepo) Update(*domain.User) error                   { return nil }
+func (r *duplicateUserRepo) Delete(string, string) error                 { return nil }
 
 type apiUserRepo struct {
-	item    *domain.User
-	created []*domain.User
-	hasRole bool
-	err     error
+	item         *domain.User
+	created      []*domain.User
+	hasRole      bool
+	err          error
+	passwordHash string
 }
 
 func (r *apiUserRepo) Create(user *domain.User) error {
@@ -92,6 +94,10 @@ func (r *apiUserRepo) ListByTenant(string) ([]domain.User, error) {
 		return nil, r.err
 	}
 	return []domain.User{*r.item}, r.err
+}
+func (r *apiUserRepo) UpdatePassword(_, _ string, hash string) error {
+	r.passwordHash = hash
+	return r.err
 }
 func (r *apiUserRepo) Update(*domain.User) error   { return r.err }
 func (r *apiUserRepo) Delete(string, string) error { return r.err }
@@ -923,6 +929,41 @@ func TestAdminDashboardAndTransactionsRequirePlatformAdmin(t *testing.T) {
 
 			if rr.Code != tt.wantStatus {
 				t.Fatalf("expected %d, got %d: %s", tt.wantStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestResetTenantUserPasswordRequiresPlatformAdmin(t *testing.T) {
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	userID := "550e8400-e29b-41d4-a716-446655440001"
+	path := "/api/v1/admin/tenants/" + tenantID + "/users/" + userID + "/password"
+	tests := []struct {
+		name      string
+		authorize func(*http.Request)
+		want      int
+	}{
+		{name: "unauthenticated", want: http.StatusUnauthorized},
+		{name: "tenant admin forbidden", authorize: func(req *http.Request) { authorizeTenantAdmin(req, tenantID) }, want: http.StatusForbidden},
+		{name: "platform admin allowed", authorize: func(req *http.Request) { authorizePlatformAdmin(req) }, want: http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &apiUserRepo{item: &domain.User{ID: userID, TenantID: tenantID, Email: "tenant@example.com"}}
+			app := authenticatedTestApp(&App{UserSvc: service.NewUserService(repo)})
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"password":"NovaSenha123!"}`))
+			if tt.authorize != nil {
+				tt.authorize(req)
+			}
+			rr := httptest.NewRecorder()
+
+			app.routes().ServeHTTP(rr, req)
+
+			if rr.Code != tt.want {
+				t.Fatalf("expected %d, got %d: %s", tt.want, rr.Code, rr.Body.String())
+			}
+			if tt.want == http.StatusNoContent && !authn.ComparePassword(repo.passwordHash, "NovaSenha123!") {
+				t.Fatal("expected new password hash to be persisted")
 			}
 		})
 	}

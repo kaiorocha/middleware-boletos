@@ -57,18 +57,29 @@ func (m *onboardingRepoMock) CreateTenantOnboarding(input domain.OnboardingInput
 }
 
 type userRepoMock struct {
-	created bool
-	err     error
-	last    *domain.User
+	created      bool
+	err          error
+	last         *domain.User
+	found        *domain.User
+	passwordHash string
 }
 
-func (m *userRepoMock) Create(u *domain.User) error                { m.created = true; m.last = u; return m.err }
-func (m *userRepoMock) FindByID(string) (*domain.User, error)      { return &domain.User{}, nil }
+func (m *userRepoMock) Create(u *domain.User) error { m.created = true; m.last = u; return m.err }
+func (m *userRepoMock) FindByID(string) (*domain.User, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.User{}, m.err
+}
 func (m *userRepoMock) FindByEmail(string) (*domain.User, error)   { return &domain.User{}, nil }
 func (m *userRepoMock) HasRole(string) (bool, error)               { return false, nil }
 func (m *userRepoMock) ListByTenant(string) ([]domain.User, error) { return nil, nil }
-func (m *userRepoMock) Update(*domain.User) error                  { return nil }
-func (m *userRepoMock) Delete(string, string) error                { return nil }
+func (m *userRepoMock) UpdatePassword(_, _ string, hash string) error {
+	m.passwordHash = hash
+	return m.err
+}
+func (m *userRepoMock) Update(*domain.User) error   { return nil }
+func (m *userRepoMock) Delete(string, string) error { return nil }
 
 type customerRepoMock struct {
 	created bool
@@ -423,6 +434,30 @@ func TestUserServicePropagatesDuplicateError(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDuplicateResource) {
 		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestUserServiceSetPasswordHash(t *testing.T) {
+	userID := "550e8400-e29b-41d4-a716-446655440001"
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &userRepoMock{found: &domain.User{ID: userID, TenantID: tenantID}}
+	svc := NewUserService(repo)
+
+	if err := svc.SetPasswordHash(userID, tenantID, "generated-password-hash"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.passwordHash != "generated-password-hash" {
+		t.Fatalf("expected password hash to be persisted, got %q", repo.passwordHash)
+	}
+}
+
+func TestUserServiceSetPasswordHashRejectsDifferentTenant(t *testing.T) {
+	userID := "550e8400-e29b-41d4-a716-446655440001"
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &userRepoMock{found: &domain.User{ID: userID, TenantID: "550e8400-e29b-41d4-a716-446655440002"}}
+
+	if err := NewUserService(repo).SetPasswordHash(userID, tenantID, "generated-password-hash"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found error, got %v", err)
 	}
 }
 
