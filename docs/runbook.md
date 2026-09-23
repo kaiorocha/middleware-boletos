@@ -35,6 +35,7 @@ Logs
 
 Secrets
 - Do not store secrets in repo. Use environment or secret manager.
+- Store the provider webhook token in the provider-side secret configuration. The API returns it only at provider creation or rotation; callbacks without `X-Webhook-Token` return 401.
 
 Common errors
 - "auth_config_invalid": missing or invalid JWT config in production

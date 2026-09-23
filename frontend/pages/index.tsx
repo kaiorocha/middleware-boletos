@@ -19,8 +19,8 @@ const statusLabels = {
   FAILED: 'Falha',
 }
 
-const tenantNavBase = ['Dashboard', 'Transações', 'Boletos', 'Clientes', 'Compliance']
-const adminNav = ['Dashboard da Plataforma', 'Transações', 'Tenants', 'Providers', 'Usuários Administrativos']
+const tenantNavBase = ['Dashboard', 'Campanhas', 'Transações', 'Boletos', 'Clientes', 'Compliance']
+const adminNav = ['Dashboard da Plataforma', 'Campanhas', 'Transações', 'Tenants', 'Providers', 'Usuários Administrativos']
 
 const fmtCurrency = (cents) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cents || 0) / 100)
@@ -216,6 +216,7 @@ function AdminView(props) {
   const [tenants, setTenants] = useState([])
   const [providers, setProviders] = useState([])
   const [dashboard, setDashboard] = useState(null)
+  const [campaignDashboard, setCampaignDashboard] = useState(null)
   const [transactions, setTransactions] = useState({ items: [], limit: 50, offset: 0, total: 0 })
   const [filters, setFilters] = useState({ from: '', to: '', tenant_id: '', provider_id: '', status: '', document: '', external_id: '', our_number: '' })
   const [txOffset, setTxOffset] = useState(0)
@@ -252,16 +253,18 @@ function AdminView(props) {
       if (filters.document) q.set('document', filters.document)
       if (filters.external_id) q.set('external_id', filters.external_id)
       if (filters.our_number) q.set('our_number', filters.our_number)
-      const [tenantRes, providerRes, dashRes, txRes] = await Promise.all([
+      const [tenantRes, providerRes, dashRes, txRes, campaignDashRes] = await Promise.all([
         apiFetch(baseUrl, '/api/v1/tenants', session.access_token),
         apiFetch(baseUrl, '/api/v1/admin/providers', session.access_token),
         apiFetch(baseUrl, `/api/v1/admin/dashboard?${q.toString()}`, session.access_token),
         apiFetch(baseUrl, `/api/v1/admin/transactions?${q.toString()}&limit=50&offset=${txOffset}`, session.access_token),
+        apiFetch(baseUrl, `/api/v1/admin/campaigns/dashboard?${q.toString()}`, session.access_token),
       ])
       setTenants(tenantRes.data || [])
       setProviders(providerRes.data || [])
       setDashboard(dashRes.data)
       setTransactions(txRes.data || { items: [], limit: 50, offset: 0, total: 0 })
+      setCampaignDashboard(campaignDashRes.data)
     } catch (err) {
       setError(err.message)
     }
@@ -395,6 +398,7 @@ function AdminView(props) {
     <Shell {...props} title="Painel da Plataforma" nav={adminNav} active={active} setActive={setActive}>
       {notice && <div className="notice">{notice}</div>}
       {active === 'Dashboard da Plataforma' && <AdminDashboard dashboard={dashboard} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={load} />}
+      {active === 'Campanhas' && <CampaignDashboard data={campaignDashboard} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={load} />}
 	  {active === 'Transações' && <AdminTransactions rows={transactions.items || []} filters={filters} setFilters={setFilters} tenants={tenants} providers={providers} reload={() => { setTxOffset(0); load() }} total={transactions.total} limit={transactions.limit || 50} offset={transactions.offset || txOffset} setOffset={setTxOffset} onSync={syncTransaction} />}
       {active === 'Tenants' && (
         <div className="split">
@@ -537,6 +541,7 @@ function TenantView(props) {
   const [providers, setProviders] = useState([])
   const [blacklist, setBlacklist] = useState([])
   const [users, setUsers] = useState([])
+  const [campaigns, setCampaigns] = useState([])
   const [filters, setFilters] = useState({ status: '', provider_id: '', from: '', to: '', document: '', external_id: '', our_number: '' })
   const [tenantTxOffset, setTenantTxOffset] = useState(0)
   const [blacklistForm, setBlacklistForm] = useState({ document: '', name: '', reason: 'Solicitação do cliente', source: 'MANUAL' })
@@ -553,7 +558,7 @@ function TenantView(props) {
       if (filters.document) q.set('document', filters.document)
       if (filters.external_id) q.set('external_id', filters.external_id)
       if (filters.our_number) q.set('our_number', filters.our_number)
-      const [me, dash, tx, c, p, bl, u] = await Promise.all([
+      const [me, dash, tx, c, p, bl, u, campaignsResponse] = await Promise.all([
         call('/api/v1/me/tenants'),
         call(`/api/v1/tenants/${tenantId}/dashboard?${q.toString()}`),
         call(`/api/v1/tenants/${tenantId}/transactions?${q.toString()}&limit=50&offset=${tenantTxOffset}`),
@@ -561,6 +566,7 @@ function TenantView(props) {
         call(`/api/v1/tenants/${tenantId}/providers`),
         call(`/api/v1/tenants/${tenantId}/blacklist`),
         canManageTenant ? call(`/api/v1/tenants/${tenantId}/users`) : Promise.resolve({ data: [] }),
+        call(`/api/v1/tenants/${tenantId}/campaigns?limit=100`),
       ])
       setTenants(me.data || [])
       setDashboard(dash.data)
@@ -570,6 +576,7 @@ function TenantView(props) {
       setProviders(p.data || [])
       setBlacklist(bl.data || [])
       setUsers(u.data || [])
+      setCampaigns(campaignsResponse.data?.items || [])
     } catch (err) {
       setError(`${err.code || err.status}: ${err.message}`)
     }
@@ -589,6 +596,7 @@ function TenantView(props) {
     <Shell {...props} title={tenants.find((t) => t.id === tenantId)?.name || 'Painel do Tenant'} nav={tenantNav} active={active} setActive={setActive}>
       {tenants.length > 1 && <label className="tenantSelect">Tenant<select value={tenantId} onChange={(e) => setTenantId(e.target.value)}>{tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
       {active === 'Dashboard' && <Dashboard dashboard={dashboard} filters={filters} setFilters={setFilters} />}
+      {active === 'Campanhas' && <Campaigns tenantId={tenantId} rows={campaigns} call={call} reload={load} canManage={canManageTenant} />}
       {active === 'Transações' && <Transactions rows={transactions} providerById={providerById} filters={filters} setFilters={setFilters} providers={providers} reload={() => { setTenantTxOffset(0); load() }} pagination={tenantTransactions} setOffset={setTenantTxOffset} />}
       {active === 'Boletos' && <Boletos rows={boletos} providerById={providerById} />}
       {active === 'Clientes' && <Customers rows={customers} />}
@@ -596,6 +604,36 @@ function TenantView(props) {
       {active === 'Usuários' && canManageTenant && <DataTable columns={['Nome', 'Email', 'Roles', 'Status']} rows={users.map((u) => [u.name, u.email, (u.roles || []).join(', '), u.status])} />}
     </Shell>
   )
+}
+
+function Campaigns({ tenantId, rows, call, reload, canManage }) {
+  const [form, setForm] = useState({ name: '', description: '' })
+  const [selected, setSelected] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [analytics, setAnalytics] = useState(null)
+  const create = async (event) => { event.preventDefault(); const response = await call(`/api/v1/tenants/${tenantId}/campaigns`, { method: 'POST', body: JSON.stringify(form) }); setForm({ name: '', description: '' }); setSelected(response.data); await reload() }
+  const open = async (campaign) => { setSelected(campaign); setPreview(null); const response = await call(`/api/v1/tenants/${tenantId}/campaigns/${campaign.id}/analytics`); setAnalytics(response.data) }
+  const upload = async (event) => { const file = event.target.files?.[0]; if (!file) return; const response = await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/imports/preview`, { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: file }); setPreview(response.data) }
+  const confirmImport = async () => { if (!window.confirm(`Confirmar a importação de ${preview.valid_rows.toLocaleString('pt-BR')} boletos no valor total de ${fmtCurrency(preview.total_amount_cents)}?`)) return; await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/imports/${preview.import_id}/confirm`, { method: 'POST' }); setPreview(null); await reload(); setSelected({ ...selected, status: 'READY' }) }
+  const issue = async () => { const count = analytics?.waiting || 0; const amount = analytics?.by_status?.find((row) => row.id === 'CREATED')?.amount_cents || 0; if (!window.confirm(`Você está prestes a emitir ${count.toLocaleString('pt-BR')} boletos no valor total de ${fmtCurrency(amount)}. Confirmar emissão?`)) return; await call(`/api/v1/tenants/${tenantId}/campaigns/${selected.id}/issuance`, { method: 'POST' }); await reload(); setSelected({ ...selected, status: 'PROCESSING' }) }
+  return <>
+    {canManage && <FormPanel title="Nova campanha" onSubmit={create}><label>Nome<input required maxLength={160} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label>Descrição<textarea maxLength={2000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label><button>Salvar</button></FormPanel>}
+    <DataTable columns={['Campanha', 'Status', 'Criada em', 'Ações']} rows={rows.map((campaign) => [campaign.name, campaign.status, fmtDate(campaign.created_at), <button key={campaign.id} type="button" onClick={() => open(campaign)}>Detalhes</button>])} />
+    {selected && <section className="panel campaignDetail"><div className="topbar"><div><h2>{selected.name}</h2><p>{selected.description || 'Sem descrição'} · {selected.status}</p></div><button type="button" onClick={() => setSelected(null)}>Fechar</button></div>
+      {canManage && selected.status === 'DRAFT' && <label>Importar CSV <small>Cabeçalho: email,cpf_cnpj,valor,vencimento,external_id</small><input type="file" accept=".csv,text/csv" onChange={upload} /></label>}
+      {preview && <div><Metrics items={[["Registros", preview.total_rows], ["Válidos", preview.valid_rows], ["Inválidos", preview.invalid_rows], ["Valor válido", fmtCurrency(preview.total_amount_cents)]]} /><DataTable columns={['Linha','Campo','Código','Mensagem']} rows={(preview.errors || []).map((error) => [error.row,error.field,error.code,error.message])} />{preview.invalid_rows > preview.errors.length && <p>Exibindo os primeiros {preview.error_limit} erros.</p>}<button disabled={!preview.valid_rows} type="button" onClick={confirmImport}>Confirmar importação</button></div>}
+      {canManage && selected.status === 'READY' && <button className="riskButton" type="button" onClick={issue}>Emitir boletos</button>}
+      {analytics && <CampaignAnalytics data={analytics} />}
+    </section>}
+  </>
+}
+
+function CampaignDashboard({ data, filters, setFilters, tenants, providers, reload }) {
+  return <><div className="toolbar"><label>De<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>Até<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label><label>Tenant<select value={filters.tenant_id} onChange={(e) => setFilters({ ...filters, tenant_id: e.target.value })}><option value="">Todos</option>{tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label><label>Provider<select value={filters.provider_id} onChange={(e) => setFilters({ ...filters, provider_id: e.target.value })}><option value="">Todos</option>{providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label>Status<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">Todos</option>{['DRAFT','READY','PROCESSING','COMPLETED','PARTIAL','FAILED','CANCELLED'].map((s) => <option key={s}>{s}</option>)}</select></label><button type="button" onClick={reload}>Aplicar</button></div><Metrics items={[["Campanhas",data?.campaigns],["Boletos emitidos",data?.issued],["Liquidados",data?.paid],["Valor emitido",fmtCurrency(data?.issued_amount_cents)],["Receita",fmtCurrency(data?.revenue_cents)],["Conversão",`${Number(data?.conversion || 0).toFixed(1)}%`],["Ticket médio",fmtCurrency(data?.average_ticket_cents)]]} /><h2>Performance por campanha</h2><DataTable columns={['Campanha','Emitidos','Liquidados','Conversão','Receita','Ticket médio']} rows={(data?.performance || []).map((row) => [row.campaign_name,row.issued,row.paid,`${Number(row.conversion || 0).toFixed(1)}%`,fmtCurrency(row.revenue_cents),fmtCurrency(row.average_ticket_cents)])} /></>
+}
+
+function CampaignAnalytics({ data }) {
+  return <div><Metrics items={[["Emitidos", data.issued], ["Liquidados", data.paid], ["Receita", fmtCurrency(data.paid_amount_cents)], ["Conversão", `${Number(data.conversion || 0).toFixed(1)}%`], ["Ticket médio", fmtCurrency(data.average_ticket_cents)], ["Valor emitido", fmtCurrency(data.issued_amount_cents)]]} /><div className="threeCols"><SimpleBars title="Boletos por status" rows={data.by_status || []} /><div><h2>Por vencimento</h2><DataTable columns={['Vencimento','Emitidos','Receita']} rows={(data.by_due_date || []).map((row) => [row.label,row.count,fmtCurrency(row.amount_cents)])} /></div><div><h2>Por valor</h2><DataTable columns={['Valor','Emitidos','Receita']} rows={(data.by_amount || []).map((row) => [fmtCurrency(row.label),row.count,fmtCurrency(row.amount_cents)])} /></div></div></div>
 }
 
 function Dashboard({ dashboard, filters, setFilters }) {

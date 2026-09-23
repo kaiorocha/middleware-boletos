@@ -23,17 +23,17 @@ func (r *ProviderRepo) Create(p *domain.Provider) error {
 	if p.TenantID != "" {
 		tenantID = p.TenantID
 	}
-	_, err := r.db.Exec(`INSERT INTO providers (id,tenant_id,name,type,status,external_id,config,metadata,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),now())`, p.ID, tenantID, p.Name, p.Type, p.Status, p.ExternalID, p.Config, p.Metadata)
+	_, err := r.db.Exec(`INSERT INTO providers (id,tenant_id,name,type,status,external_id,config,metadata,webhook_token_hash,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now())`, p.ID, tenantID, p.Name, p.Type, p.Status, p.ExternalID, p.Config, p.Metadata, nullableString(p.WebhookTokenHash))
 	return translatePostgresError(err)
 }
 
 func (r *ProviderRepo) FindByID(id string) (*domain.Provider, error) {
-	row := r.db.QueryRow(`SELECT id,tenant_id,name,type,status,external_id,config,metadata,created_at,updated_at,deleted_at FROM providers WHERE id = $1 AND deleted_at IS NULL`, id)
+	row := r.db.QueryRow(`SELECT id,tenant_id,name,type,status,external_id,config,metadata,webhook_token_hash,created_at,updated_at,deleted_at FROM providers WHERE id = $1 AND deleted_at IS NULL`, id)
 	return scanProvider(row)
 }
 
 func (r *ProviderRepo) ListCatalog() ([]domain.Provider, error) {
-	rows, err := r.db.Query(`SELECT id,tenant_id,name,type,status,external_id,NULL::text AS config,metadata,created_at,updated_at,deleted_at FROM providers WHERE tenant_id IS NULL AND deleted_at IS NULL ORDER BY name ASC`)
+	rows, err := r.db.Query(`SELECT id,tenant_id,name,type,status,external_id,NULL::text AS config,metadata,NULL::text AS webhook_token_hash,created_at,updated_at,deleted_at FROM providers WHERE tenant_id IS NULL AND deleted_at IS NULL ORDER BY name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (r *ProviderRepo) ListCatalog() ([]domain.Provider, error) {
 func (r *ProviderRepo) FindTenantProvider(tenantID, providerID string) (*domain.TenantProviderConfig, error) {
 	row := r.db.QueryRow(`
 		SELECT
-			p.id,p.tenant_id,p.name,p.type,p.status,p.external_id,p.config,p.metadata,p.created_at,p.updated_at,p.deleted_at,
+			p.id,p.tenant_id,p.name,p.type,p.status,p.external_id,p.config,p.metadata,p.webhook_token_hash,p.created_at,p.updated_at,p.deleted_at,
 			tp.id,tp.tenant_id,tp.provider_id,tp.active,tp.config,tp.created_at,tp.updated_at,tp.deleted_at
 		FROM providers p
 		JOIN tenant_providers tp ON tp.provider_id = p.id
@@ -67,6 +67,7 @@ func (r *ProviderRepo) ListByTenant(tenantID string) ([]domain.Provider, error) 
 			p.external_id,
 			NULL::text AS config,
 			p.metadata,
+			NULL::text AS webhook_token_hash,
 			COALESCE(tp.created_at, p.created_at) AS created_at,
 			COALESCE(tp.updated_at, p.updated_at) AS updated_at,
 			p.deleted_at
@@ -91,6 +92,18 @@ func (r *ProviderRepo) Update(p *domain.Provider) error {
 func (r *ProviderRepo) SetStatus(id, status string) error {
 	_, err := r.db.Exec(`UPDATE providers SET status = $1, updated_at = now() WHERE id = $2 AND tenant_id IS NULL AND deleted_at IS NULL`, status, id)
 	return translatePostgresError(err)
+}
+
+func (r *ProviderRepo) SetWebhookTokenHash(id, hash string) error {
+	result, err := r.db.Exec(`UPDATE providers SET webhook_token_hash=$1, updated_at=now() WHERE id=$2 AND tenant_id IS NULL AND deleted_at IS NULL`, hash, id)
+	if err != nil {
+		return translatePostgresError(err)
+	}
+	affected, err := result.RowsAffected()
+	if err == nil && affected == 0 {
+		return sql.ErrNoRows
+	}
+	return err
 }
 
 func (r *ProviderRepo) Delete(id string, tenantID string) error {
@@ -154,11 +167,12 @@ func scanProviderAndTenantProvider(scanner interface{ Scan(dest ...any) error })
 	var providerExternalID sql.NullString
 	var providerConfig sql.NullString
 	var providerMetadata sql.NullString
+	var webhookTokenHash sql.NullString
 	var providerDeleted *time.Time
 	var tenantProviderConfig sql.NullString
 	var tenantProviderDeleted *time.Time
 	if err := scanner.Scan(
-		&p.ID, &providerTenantID, &p.Name, &providerType, &p.Status, &providerExternalID, &providerConfig, &providerMetadata, &p.CreatedAt, &p.UpdatedAt, &providerDeleted,
+		&p.ID, &providerTenantID, &p.Name, &providerType, &p.Status, &providerExternalID, &providerConfig, &providerMetadata, &webhookTokenHash, &p.CreatedAt, &p.UpdatedAt, &providerDeleted,
 		&tp.ID, &tp.TenantID, &tp.ProviderID, &tp.Active, &tenantProviderConfig, &tp.CreatedAt, &tp.UpdatedAt, &tenantProviderDeleted,
 	); err != nil {
 		return nil, nil, err
@@ -181,6 +195,9 @@ func scanProviderAndTenantProvider(scanner interface{ Scan(dest ...any) error })
 		v := providerMetadata.String
 		p.Metadata = &v
 	}
+	if webhookTokenHash.Valid {
+		p.WebhookTokenHash = webhookTokenHash.String
+	}
 	if providerDeleted != nil {
 		p.DeletedAt = providerDeleted
 	}
@@ -201,8 +218,9 @@ func scanProvider(scanner interface{ Scan(dest ...any) error }) (*domain.Provide
 	var externalID sql.NullString
 	var config sql.NullString
 	var metadata sql.NullString
+	var webhookTokenHash sql.NullString
 	var deleted *time.Time
-	if err := scanner.Scan(&p.ID, &tenantID, &p.Name, &providerType, &p.Status, &externalID, &config, &metadata, &p.CreatedAt, &p.UpdatedAt, &deleted); err != nil {
+	if err := scanner.Scan(&p.ID, &tenantID, &p.Name, &providerType, &p.Status, &externalID, &config, &metadata, &webhookTokenHash, &p.CreatedAt, &p.UpdatedAt, &deleted); err != nil {
 		return nil, err
 	}
 	if tenantID.Valid {
@@ -222,6 +240,9 @@ func scanProvider(scanner interface{ Scan(dest ...any) error }) (*domain.Provide
 	if metadata.Valid {
 		v := metadata.String
 		p.Metadata = &v
+	}
+	if webhookTokenHash.Valid {
+		p.WebhookTokenHash = webhookTokenHash.String
 	}
 	if deleted != nil {
 		p.DeletedAt = deleted

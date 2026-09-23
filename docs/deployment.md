@@ -29,3 +29,7 @@ Notes:
 Develop/HML deploys include environment startup after the immutable image is pushed and before the candidate task definition and migration are run. The reusable control script starts a stopped RDS instance, waits up to roughly 20 minutes for `available`, restores API and web ECS autoscaling minimum and desired count to 1, and only then allows deployment to continue. Backend smoke tests require both `/health` and `/ready` to return HTTP 200; frontend smoke tests require the public static endpoint `/web-health` to return HTTP 200.
 
 Production does not execute this startup step and has no shutdown scheduler; it remains continuously active. The environment guard in the control script rejects any value other than `develop` before issuing AWS mutation calls.
+
+Production enables HTTPS by default. Before the first apply with `enable_https=true`, create the ACM validation CNAMEs reported by the Terraform output and wait for the certificate to reach `ISSUED`. HTTP is then redirected permanently to HTTPS.
+
+Moncalieri callbacks must send the one-time token returned when the provider catalog entry is created in the `X-Webhook-Token` header. Existing providers must rotate a token with `POST /api/v1/admin/providers/:id/webhook-token` before callbacks are enabled. Only the SHA-256 hash is stored.

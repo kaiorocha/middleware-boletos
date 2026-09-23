@@ -166,9 +166,10 @@ func (r *duplicateProviderRepo) ListCatalog() ([]domain.Provider, error) {
 func (r *duplicateProviderRepo) FindTenantProvider(string, string) (*domain.TenantProviderConfig, error) {
 	return nil, service.ErrProviderNotAllowed
 }
-func (r *duplicateProviderRepo) Update(*domain.Provider) error  { return nil }
-func (r *duplicateProviderRepo) Delete(string, string) error    { return nil }
-func (r *duplicateProviderRepo) SetStatus(string, string) error { return nil }
+func (r *duplicateProviderRepo) Update(*domain.Provider) error            { return nil }
+func (r *duplicateProviderRepo) Delete(string, string) error              { return nil }
+func (r *duplicateProviderRepo) SetStatus(string, string) error           { return nil }
+func (r *duplicateProviderRepo) SetWebhookTokenHash(string, string) error { return nil }
 func (r *duplicateProviderRepo) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, nil
 }
@@ -207,9 +208,10 @@ func (r *apiProviderRepo) FindTenantProvider(tenantID, providerID string) (*doma
 		TenantProvider: domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: true},
 	}, nil
 }
-func (r *apiProviderRepo) Update(*domain.Provider) error  { return nil }
-func (r *apiProviderRepo) Delete(string, string) error    { return nil }
-func (r *apiProviderRepo) SetStatus(string, string) error { return nil }
+func (r *apiProviderRepo) Update(*domain.Provider) error            { return nil }
+func (r *apiProviderRepo) Delete(string, string) error              { return nil }
+func (r *apiProviderRepo) SetStatus(string, string) error           { return nil }
+func (r *apiProviderRepo) SetWebhookTokenHash(string, string) error { return nil }
 func (r *apiProviderRepo) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, nil
 }

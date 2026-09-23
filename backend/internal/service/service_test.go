@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,6 +147,13 @@ func (m *providerRepoMock) FindTenantProvider(tenantID, providerID string) (*dom
 func (m *providerRepoMock) Update(p *domain.Provider) error { m.last = p; return m.err }
 func (m *providerRepoMock) Delete(string, string) error     { return nil }
 func (m *providerRepoMock) SetStatus(string, string) error  { return m.err }
+func (m *providerRepoMock) SetWebhookTokenHash(_ string, hash string) error {
+	if m.last == nil {
+		m.last = &domain.Provider{}
+	}
+	m.last.WebhookTokenHash = hash
+	return m.err
+}
 func (m *providerRepoMock) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, m.err
 }
@@ -653,6 +661,35 @@ func TestProviderServicePropagatesDuplicateError(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDuplicateResource) {
 		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestProviderServiceCreatesOneTimeWebhookToken(t *testing.T) {
+	repo := &providerRepoMock{}
+	provider := &domain.Provider{Name: "Moncalieri", Type: "MONCALIERI"}
+	if err := NewProviderService(repo).CreateCatalog(provider); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(provider.WebhookToken, "giga_wh_") {
+		t.Fatalf("unexpected webhook token prefix: %q", provider.WebhookToken)
+	}
+	if provider.WebhookTokenHash == "" || provider.WebhookTokenHash != HashWebhookToken(provider.WebhookToken) {
+		t.Fatal("webhook token hash was not persisted correctly")
+	}
+	if provider.WebhookTokenHash == provider.WebhookToken {
+		t.Fatal("plain webhook token must not be persisted")
+	}
+}
+
+func TestProviderServiceRotatesWebhookToken(t *testing.T) {
+	providerID := "550e8400-e29b-41d4-a716-446655440002"
+	repo := &providerRepoMock{found: &domain.Provider{ID: providerID, Name: "Moncalieri"}}
+	token, err := NewProviderService(repo).RotateWebhookToken(providerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" || repo.last.WebhookTokenHash != HashWebhookToken(token) {
+		t.Fatal("rotated webhook token was not stored as a hash")
 	}
 }
 
