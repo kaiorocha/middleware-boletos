@@ -1370,6 +1370,7 @@ func tenantDashboardResponse(dashboard *domain.AdminDashboard) map[string]any {
 		"ticket_medio":             totals.AverageTicketCents,
 		"by_status":                dashboard.ByStatus,
 		"timeline":                 dashboard.Timeline,
+		"settlement":               dashboard.Settlement,
 	}
 }
 

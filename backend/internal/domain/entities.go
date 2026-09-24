@@ -253,11 +253,22 @@ type BoletoFilters struct {
 
 // AdminDashboard aggregates boleto operations across tenants.
 type AdminDashboard struct {
+	Settlement SettlementDashboard  `json:"settlement"`
 	Totals     AdminDashboardTotals `json:"totals"`
 	ByTenant   []MetricRow          `json:"by_tenant"`
 	ByProvider []MetricRow          `json:"by_provider"`
 	ByStatus   []MetricRow          `json:"by_status"`
 	Timeline   []TimelineRow        `json:"timeline"`
+}
+
+// SettlementDashboard uses the same creation-date cohort as the dashboard totals.
+type SettlementDashboard struct {
+	Issued           int           `json:"issued"`
+	Paid             int           `json:"paid"`
+	PaidAmountCents  int64         `json:"paid_amount_cents"`
+	UnknownDateCount int           `json:"unknown_date_count"`
+	Timeline         []TimelineRow `json:"timeline"`
+	ByAmount         []MetricRow   `json:"by_amount"`
 }
 
 type AdminDashboardTotals struct {

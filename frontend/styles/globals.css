@@ -172,3 +172,7 @@
   .passwordResetRow button { @apply w-full; }
   .campaignHeader > div:last-child { @apply items-stretch justify-between; }
 }
+
+.settlementSection { margin: 24px 0; }
+.settlementNote { color: #64748b; font-size: 13px; line-height: 1.6; margin: 12px 0 18px; }
+.settlementAmounts { max-height: 320px; overflow: auto; }

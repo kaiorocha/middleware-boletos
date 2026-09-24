@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 
 const API_CONFIGURED = process.env.NEXT_PUBLIC_API_URL || ''
 const SESSION_KEY = 'middleware-boletos-session'
@@ -469,6 +469,7 @@ function AdminDashboard({ dashboard, filters, setFilters, tenants, providers, re
       ['Ticket médio', fmtCurrency(totals.average_ticket_cents)],
       ['Cancelados', totals.cancelled],
     ]} />
+    <SettlementDashboard data={dashboard?.settlement} />
     <div className="dashboardCharts">
       <TimelineChart title="Volume de transações" rows={dashboard?.timeline || []} />
       <DonutChart title="Distribuição por status" rows={dashboard?.by_status || []} />
@@ -478,6 +479,43 @@ function AdminDashboard({ dashboard, filters, setFilters, tenants, providers, re
       <SimpleBars title="Emissões por provider" rows={dashboard?.by_provider || []} />
     </div>
   </>
+}
+
+function SettlementDashboard({ data }) {
+  if (!data) return null
+  const issued = Number(data.issued || 0)
+  const paid = Number(data.paid || 0)
+  const rate = issued ? paid / issued * 100 : 0
+  const source = data.timeline || []
+  // Include zero-payment days so a gap does not look like continuous activity.
+  const byDate = new Map(source.map((row) => [row.date, row]))
+  const daily = []
+  if (source.length) {
+    const end = new Date(`${source[source.length - 1].date}T00:00:00Z`)
+    for (let day = new Date(`${source[0].date}T00:00:00Z`); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+      const date = day.toISOString().slice(0, 10)
+      daily.push(byDate.get(date) || { date, count: 0, amount_cents: 0 })
+    }
+  }
+  return <section className="settlementSection" aria-label="Emissão e liquidação">
+    <h2>Emissão e liquidação</h2>
+    <p className="settlementNote">Os filtros selecionam boletos pela data de criação. Emitidos inclui os já liquidados, vencidos e cancelados. A evolução mostra a primeira confirmação de pagamento desses boletos, no horário de Brasília.</p>
+    <Metrics items={[
+      ['Total emitido', issued], ['Liquidados', paid],
+      ['Taxa de liquidação', `${rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`],
+      ['Valor liquidado', fmtCurrency(data.paid_amount_cents)],
+      ['Ticket médio liquidado', fmtCurrency(paid ? Math.round(data.paid_amount_cents / paid) : 0)],
+    ]} />
+    <div className="twoCols dashboardSecondary">
+      <SimpleBars title="Emitidos x liquidados" rows={[{ id: 'issued', label: 'Emitidos (total)', count: issued }, { id: 'paid', label: 'Liquidados', count: paid }]} />
+      <TimelineChart title="Liquidados por dia" rows={daily} />
+    </div>
+    {data.unknown_date_count > 0 && <p className="settlementNote" role="status">{data.unknown_date_count.toLocaleString('pt-BR')} liquidados sem data de confirmação conhecida: incluídos nos totais e na distribuição por valor, mas fora dos gráficos diários.</p>}
+    <div className="twoCols dashboardSecondary">
+      <TimelineChart title="Valor liquidado por dia" rows={daily} monetary />
+      <section className="panel chartPanel"><h2>Liquidados por valor do boleto</h2>{data.by_amount?.length ? <div className="settlementAmounts"><DataTable columns={['Valor do boleto', 'Liquidados', 'Total liquidado']} rows={data.by_amount.map((row) => [fmtCurrency(Number(row.id)), row.count, fmtCurrency(row.amount_cents)])} /></div> : <EmptyChart />}</section>
+    </div>
+  </section>
 }
 
 function AdminTransactions({ rows, filters, setFilters, tenants, providers, reload, total, limit, offset, setOffset, onSync }) {
@@ -512,15 +550,17 @@ function Pagination({ limit, offset, total, shown, setOffset }) {
 
 function SimpleBars({ title, rows }) {
   const max = Math.max(1, ...rows.map((r) => r.count || 0))
-  return <section className="panel"><h2>{title}</h2><div className="bars">{rows.map((r) => <div key={`${r.id}-${r.label}`}><span>{r.label}</span><div><i style={{ width: `${Math.max(4, ((r.count || 0) / max) * 100)}%` }} /></div><strong>{r.count}</strong></div>)}</div></section>
+  return <section className="panel"><h2>{title}</h2><div className="bars">{rows.map((r) => <div key={`${r.id}-${r.label}`}><span>{r.label}</span><div><i style={{ width: `${((r.count || 0) / max) * 100}%` }} /></div><strong>{r.count}</strong></div>)}</div></section>
 }
 
 function EmptyChart() {
   return <div className="emptyChart"><span>Sem dados no período</span></div>
 }
 
-function TimelineChart({ title, rows }) {
-  const values = (rows || []).map((row) => Number(row.count || 0))
+function TimelineChart({ title, rows, monetary = false }) {
+  const gradientId = useId()
+  const format = (value) => monetary ? fmtCurrency(value) : value.toLocaleString('pt-BR')
+  const values = (rows || []).map((row) => Number((monetary ? row.amount_cents : row.count) || 0))
   const width = 720
   const height = 220
   const pad = 18
@@ -531,7 +571,7 @@ function TimelineChart({ title, rows }) {
     return `${x},${y}`
   }).join(' ')
   const area = points ? `${pad},${height - pad} ${points} ${width - pad},${height - pad}` : ''
-  return <section className="panel chartPanel"><div className="chartHeader"><div><span>Visão temporal</span><h2>{title}</h2></div><strong>{values.reduce((sum, value) => sum + value, 0).toLocaleString('pt-BR')}</strong></div>{rows?.length ? <><svg className="timelineChart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title} ao longo do tempo`}><defs><linearGradient id="timeline-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#15a37d" stopOpacity=".28"/><stop offset="100%" stopColor="#15a37d" stopOpacity="0"/></linearGradient></defs><polygon points={area} fill="url(#timeline-fill)"/><polyline points={points} fill="none" stroke="#0d8969" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/>{values.map((value, index) => { const [x, y] = points.split(' ')[index].split(','); return <circle key={`${x}-${y}`} cx={x} cy={y} r="5" fill="white" stroke="#0d8969" strokeWidth="4"><title>{`${fmtChartDate(rows[index].date)}: ${value}`}</title></circle> })}</svg><div className="chartAxis"><span>{fmtChartDate(rows[0]?.date)}</span><span>{fmtChartDate(rows[rows.length - 1]?.date)}</span></div></> : <EmptyChart />}</section>
+  return <section className="panel chartPanel"><div className="chartHeader"><div><span>Visão temporal</span><h2>{title}</h2></div><strong>{format(values.reduce((sum, value) => sum + value, 0))}</strong></div>{rows?.length ? <><svg className="timelineChart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title} ao longo do tempo`}><defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#15a37d" stopOpacity=".28"/><stop offset="100%" stopColor="#15a37d" stopOpacity="0"/></linearGradient></defs><polygon points={area} fill={`url(#${gradientId})`}/><polyline points={points} fill="none" stroke="#0d8969" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"/>{values.map((value, index) => { const [x, y] = points.split(' ')[index].split(','); return <circle key={`${x}-${y}`} cx={x} cy={y} r="5" fill="white" stroke="#0d8969" strokeWidth="4"><title>{`${fmtChartDate(rows[index].date)}: ${format(value)}`}</title></circle> })}</svg><div className="chartAxis"><span>{fmtChartDate(rows[0]?.date)}</span><span>{fmtChartDate(rows[rows.length - 1]?.date)}</span></div></> : <EmptyChart />}</section>
 }
 
 function DonutChart({ title, rows }) {
@@ -681,6 +721,7 @@ function Dashboard({ dashboard, filters, setFilters }) {
   return <>
     <div className="toolbar"><label>De<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>Até<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label></div>
     <Metrics items={[['Total de boletos', dashboard?.total_boletos], ['Emitidos', dashboard?.boletos_emitidos], ['Processando', dashboard?.boletos_em_processamento], ['Pagos', dashboard?.boletos_pagos], ['Vencidos', dashboard?.boletos_vencidos], ['Cancelados', dashboard?.boletos_cancelados], ['Falhas', dashboard?.boletos_com_falha], ['Valor emitido', fmtCurrency(dashboard?.valor_total_emitido)], ['Taxa de sucesso', `${Math.round((dashboard?.taxa_sucesso || 0) * 100)}%`], ['Taxa de falha', `${Math.round((dashboard?.taxa_falha || 0) * 100)}%`], ['Ticket médio', fmtCurrency(dashboard?.ticket_medio)]]} />
+    <SettlementDashboard data={dashboard?.settlement} />
     <div className="dashboardCharts"><TimelineChart title="Boletos criados" rows={dashboard?.timeline || []} /><DonutChart title="Distribuição por status" rows={dashboard?.by_status || []} /></div>
   </>
 }

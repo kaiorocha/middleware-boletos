@@ -275,6 +275,21 @@ func (r *BoletoRepo) AdminDashboard(filters domain.BoletoFilters) (*domain.Admin
 	if dash.Timeline, err = r.timelineRows(`SELECT to_char(date_trunc('day', b.created_at), 'YYYY-MM-DD'), COUNT(b.id), COALESCE(SUM(b.amount_cents) FILTER (WHERE b.status IN ('ISSUED','PAID','EXPIRED','CANCELLED')),0) FROM boletos b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `+where+` GROUP BY date_trunc('day', b.created_at) ORDER BY date_trunc('day', b.created_at) ASC`, args...); err != nil {
 		return nil, err
 	}
+	dash.Settlement.Issued = successful
+	dash.Settlement.Paid = dash.Totals.Paid
+	joins := ` FROM boletos b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN providers p ON p.id = b.provider_id LEFT JOIN tenants t ON t.id = b.tenant_id `
+	paidWhere := where + ` AND b.status = 'PAID'`
+	if err = r.db.QueryRow(`SELECT COALESCE(SUM(b.amount_cents),0), COUNT(*) FILTER (WHERE b.paid_at IS NULL)`+joins+paidWhere, args...).Scan(&dash.Settlement.PaidAmountCents, &dash.Settlement.UnknownDateCount); err != nil {
+		return nil, err
+	}
+	// paid_at records first confirmation, never the boleto creation or last update.
+	day := `date_trunc('day', b.paid_at AT TIME ZONE 'America/Sao_Paulo')`
+	if dash.Settlement.Timeline, err = r.timelineRows(`SELECT to_char(`+day+`, 'YYYY-MM-DD'), COUNT(*), COALESCE(SUM(b.amount_cents),0)`+joins+paidWhere+` AND b.paid_at IS NOT NULL GROUP BY `+day+` ORDER BY `+day, args...); err != nil {
+		return nil, err
+	}
+	if dash.Settlement.ByAmount, err = r.metricRows(`SELECT b.amount_cents::text, b.amount_cents::text, COUNT(*), SUM(b.amount_cents)`+joins+paidWhere+` GROUP BY b.amount_cents ORDER BY b.amount_cents`, args...); err != nil {
+		return nil, err
+	}
 	return &dash, nil
 }
 
