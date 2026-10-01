@@ -27,7 +27,7 @@ func mapIssueRequest(cfg Config, req types.IssueRequest) (envelope[gerarBoletoDa
 		instructions = strings.TrimSpace(cfg.Instrucoes)
 	}
 	if instructions == "" {
-		instructions = "Nao receber apos o vencimento."
+		instructions = "Nao receber após o vencimento."
 	}
 
 	return envelope[gerarBoletoData]{
@@ -89,10 +89,16 @@ func mapSacado(payer types.Payer) (sacadoData, error) {
 
 func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.IssueResponse, error) {
 	if err := responseError(resp.ResultCode, resp.Message, resp.ValidationData); err != nil {
+		if perr, ok := err.(*providererrors.ProviderError); ok {
+			perr.ResponseBody = sanitizeProviderResponse(resp.rawBody)
+		}
 		return types.IssueResponse{}, err
 	}
-	if resp.Data.NossoNumero == "" || resp.Data.LinhaDigitavel == "" || resp.Data.CodigoBarras == "" || resp.Data.Base64 == "" {
-		return types.IssueResponse{}, providererrors.New(errProviderUnexpected, "provider response is missing boleto fields", providerName, false)
+	base64Value := strings.TrimSpace(resp.Data.boletoBase64())
+	if strings.TrimSpace(resp.Data.NossoNumero) == "" {
+		perr := providererrors.New(errProviderUnexpected, "provider response is missing required field: NossoNumero", providerName, false)
+		perr.ResponseBody = sanitizeProviderResponse(resp.rawBody)
+		return types.IssueResponse{}, perr
 	}
 	externalID := strings.TrimSpace(req.ExternalID)
 	if externalID == "" {
@@ -106,9 +112,10 @@ func mapIssueResponse(req types.IssueRequest, resp gerarBoletoResponse) (types.I
 		Barcode:       resp.Data.CodigoBarras,
 		DigitableLine: resp.Data.LinhaDigitavel,
 		OurNumber:     resp.Data.NossoNumero,
-		Base64:        resp.Data.Base64,
-		Status:        types.StatusIssued,
-		IssuedAt:      time.Now().UTC(),
+		Base64:        base64Value,
+		// The synchronous response only acknowledges the request. Registration
+		// is confirmed asynchronously by the REGISTRO webhook.
+		Status: types.StatusProcessing,
 	}, nil
 }
 
@@ -121,6 +128,7 @@ func mapBoletoSummary(data consultarBoletoResponseData) types.BoletoSummary {
 		DueDate:       parseProviderDate(data.DataVencimento),
 		Barcode:       data.CodigoBarras,
 		DigitableLine: data.LinhaDigitavel,
+		Base64:        data.boletoBase64(),
 	}
 }
 

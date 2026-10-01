@@ -1,0 +1,9 @@
+name: Deploy Frontend Develop
+on:
+  workflow_dispatch: {}
+permissions: { id-token: write, contents: read }
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy-frontend.yml
+    with: { environment: develop }
+    permissions: { id-token: write, contents: read }

@@ -26,6 +26,7 @@ jobs:
             echo "ECR_URL=$(terraform -chdir="$TF_DIR" output -raw ecr_repository_url)"
             echo "CLUSTER=$(terraform -chdir="$TF_DIR" output -raw ecs_cluster_name)"
             echo "SERVICE=$(terraform -chdir="$TF_DIR" output -raw ecs_service_name)"
+            echo "WEB_SERVICE=$(terraform -chdir="$TF_DIR" output -raw web_ecs_service_name)"
             echo "TASK_DEFINITION=$(terraform -chdir="$TF_DIR" output -raw ecs_task_definition_arn)"
             echo "SUBNETS=$(terraform -chdir="$TF_DIR" output -json public_subnet_ids | jq -r 'join(",")')"
             echo "SECURITY_GROUP=$(terraform -chdir="$TF_DIR" output -raw api_security_group_id)"

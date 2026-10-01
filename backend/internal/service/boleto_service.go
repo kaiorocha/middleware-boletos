@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/base"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/contracts"
+	providererrors "github.com/kaiorocha/middleware-boletos/backend/internal/providers/errors"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/providers/types"
 )
 
@@ -38,6 +40,9 @@ type BoletoService struct {
 	factory      contracts.ProviderFactory
 	payerBuilder base.PayerBuilder
 	logger       *slog.Logger
+	webhooks     interface {
+		NotifyBoletoUpdated(context.Context, *domain.Boleto) (bool, error)
+	}
 }
 
 type adminBoletoReader interface {
@@ -94,32 +99,52 @@ func (s *BoletoService) WithLogger(logger *slog.Logger) *BoletoService {
 	return s
 }
 
+func (s *BoletoService) WithWebhookNotifier(notifier interface {
+	NotifyBoletoUpdated(context.Context, *domain.Boleto) (bool, error)
+}) *BoletoService {
+	s.webhooks = notifier
+	return s
+}
+
+func (s *BoletoService) notifyBoletoUpdated(ctx context.Context, boleto *domain.Boleto) {
+	if s.webhooks == nil {
+		return
+	}
+	if _, err := s.webhooks.NotifyBoletoUpdated(ctx, boleto); err != nil {
+		s.logger.Error("failed to enqueue tenant boleto webhook", "boleto_id", boleto.ID, "error", err)
+	}
+}
+
 func (s *BoletoService) Create(b *domain.Boleto) error {
 	b.ExternalID = NormalizeOptionalString(b.ExternalID)
 	b.OurNumber = NormalizeOptionalString(b.OurNumber)
+	b.PayerName = strings.TrimSpace(b.PayerName)
+	b.PayerDocument = normalizeDocumentValue(b.PayerDocument)
 
 	if !IsValidUUID(b.TenantID) {
 		return ErrValidation
 	}
 
 	// CustomerID is now optional (for proposal boletos)
-	// Either CustomerID or RecipientEmail must be provided
+	// A boleto can reference a registered customer, an email-only recipient, or
+	// an identified payer (name + CPF/CNPJ).
 	if b.CustomerID != nil && !IsValidUUID(*b.CustomerID) {
 		return ErrValidation
 	}
 
 	// Normalize and validate RecipientEmail
 	b.RecipientEmail = NormalizeEmail(b.RecipientEmail)
-	if b.RecipientEmail == "" && b.CustomerID == nil {
+	hasPayerIdentity := b.PayerName != "" && b.PayerDocument != ""
+	if (b.PayerName == "") != (b.PayerDocument == "") {
 		return ErrValidation
 	}
 	if b.RecipientEmail != "" && !IsValidEmail(b.RecipientEmail) {
 		return ErrValidation
 	}
-
-	// If only RecipientEmail is provided (no CustomerID), it must be valid
-	// If both are provided, validate both
-	if b.CustomerID == nil && b.RecipientEmail == "" {
+	if b.PayerDocument != "" && len(b.PayerDocument) != 11 && len(b.PayerDocument) != 14 {
+		return ErrValidation
+	}
+	if b.CustomerID == nil && b.RecipientEmail == "" && !hasPayerIdentity {
 		return ErrValidation
 	}
 
@@ -197,7 +222,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return nil, ErrValidation
 	}
 
-	if boleto.Status == string(types.StatusIssued) && boleto.ExternalID != nil && boleto.OurNumber != nil {
+	if (boleto.Status == string(types.StatusIssued) || boleto.Status == string(types.StatusProcessing)) && boleto.OurNumber != nil && strings.TrimSpace(*boleto.OurNumber) != "" {
 		s.logger.Info("boleto emission idempotent hit",
 			"tenant", tenantID,
 			"provider", *boleto.ProviderID,
@@ -209,7 +234,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 		return boleto, nil
 	}
 
-	if !base.CanTransition(types.BoletoStatus(boleto.Status), types.StatusProcessing) {
+	if boleto.Status != string(types.StatusProcessing) && !base.CanTransition(types.BoletoStatus(boleto.Status), types.StatusProcessing) {
 		return nil, ErrValidation
 	}
 
@@ -263,31 +288,34 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			return nil, err
 		}
 
-	} else if boleto.RecipientEmail != "" {
-		// Case B: Proposal boleto with recipient email only
+	} else if boleto.RecipientEmail != "" || (boleto.PayerName != "" && boleto.PayerDocument != "") {
+		// Case B: Proposal boleto with email and/or an identified payer.
 		email := NormalizeEmail(boleto.RecipientEmail)
-		if !IsValidEmail(email) {
+		if email != "" && !IsValidEmail(email) {
 			return nil, ErrValidation
 		}
 
-		// Check compliance - blocked by email
-		entry, blocked, err := s.blacklist.IsBlockedByEmail(tenantID, email)
-		if err != nil {
-			return nil, err
+		if email != "" {
+			entry, blocked, err := s.blacklist.IsBlockedByEmail(tenantID, email)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+				return nil, NewRecipientBlocked("Este destinatário está bloqueado para novas emissões.")
+			}
 		}
-		if blocked {
-			s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
-			s.logger.Info("boleto emission blocked by compliance (recipient)",
-				"tenant", tenantID,
-				"request_id", requestID(ctx),
-				"boleto_id", boleto.ID,
-				"recipient_email", email,
-				"latency_ms", time.Since(start).Milliseconds(),
-				"result", "blocked",
-			)
-			return nil, NewRecipientBlocked("Este destinatário está bloqueado para novas emissões.")
+		if boleto.PayerDocument != "" {
+			entry, blocked, err := s.blacklist.IsBlockedByDocument(tenantID, boleto.PayerDocument)
+			if err != nil {
+				return nil, err
+			}
+			if blocked {
+				s.blacklist.RecordBlockedEmissionAttempt(tenantID, entry, boleto)
+				return nil, NewCustomerBlocked("Este pagador está bloqueado para novas emissões.")
+			}
 		}
-		fallbackPayer = &types.Payer{Email: email}
+		fallbackPayer = &types.Payer{Email: email, Name: boleto.PayerName, Document: boleto.PayerDocument}
 
 	} else {
 		// Neither CustomerID nor RecipientEmail provided
@@ -306,6 +334,12 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			State: tenant.State, CountryCode: tenant.CountryCode, AreaCode: tenant.AreaCode,
 			PhoneNumber: tenant.PhoneNumber, Email: NormalizeEmail(boleto.RecipientEmail),
 		}
+		if boleto.PayerName != "" {
+			payer.Name = boleto.PayerName
+		}
+		if boleto.PayerDocument != "" {
+			payer.Document = boleto.PayerDocument
+		}
 	}
 
 	providerConfig, err := s.providerConfigForTenant(tenantID, *boleto.ProviderID)
@@ -321,6 +355,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if err := s.repo.Update(boleto); err != nil {
 		return nil, err
 	}
+	s.notifyBoletoUpdated(ctx, boleto)
 
 	response, err := adapter.IssueBoleto(ctx, types.IssueRequest{
 		TenantID:       boleto.TenantID,
@@ -334,8 +369,10 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	})
 	if err != nil {
 		boleto.Status = string(types.StatusFailed)
-		_ = s.repo.Update(boleto)
-		s.logger.Error("boleto emission failed",
+		if updateErr := s.repo.Update(boleto); updateErr == nil {
+			s.notifyBoletoUpdated(ctx, boleto)
+		}
+		logAttributes := []any{
 			"tenant", tenantID,
 			"provider", providerConfig.Name,
 			"request_id", requestID(ctx),
@@ -343,7 +380,19 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 			"latency_ms", time.Since(start).Milliseconds(),
 			"result", "failed",
 			"error", err.Error(),
-		)
+		}
+		var providerErr *providererrors.ProviderError
+		if errors.As(err, &providerErr) {
+			logAttributes = append(logAttributes,
+				"provider_error_code", providerErr.Code,
+				"provider_http_status", providerErr.HTTPStatus,
+				"provider_retryable", providerErr.Retryable,
+			)
+			if providerErr.ResponseBody != "" {
+				logAttributes = append(logAttributes, "provider_response", providerErr.ResponseBody)
+			}
+		}
+		s.logger.Error("boleto emission failed", logAttributes...)
 		return nil, err
 	}
 	if !base.CanTransition(types.StatusProcessing, response.Status) {
@@ -362,6 +411,7 @@ func (s *BoletoService) Emit(ctx context.Context, tenantID, boletoID string) (*d
 	if err := s.repo.Update(boleto); err != nil {
 		return nil, err
 	}
+	s.notifyBoletoUpdated(ctx, boleto)
 
 	s.logger.Info("boleto emission completed",
 		"tenant", tenantID,

@@ -89,9 +89,9 @@ func runVersionedMigrations(db *sql.DB) error {
 func getMigrationsDir() string {
 	// Try multiple paths in order of priority
 	paths := []string{
-		"/app/migrations",                   // Container production path
-		"internal/storage/migrations",       // Local development path
-		"./internal/storage/migrations",     // Relative path from any working directory
+		"/app/migrations",               // Container production path
+		"internal/storage/migrations",   // Local development path
+		"./internal/storage/migrations", // Relative path from any working directory
 	}
 
 	for _, path := range paths {

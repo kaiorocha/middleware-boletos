@@ -8,6 +8,10 @@ variable "image_retention_count" {
   type    = number
   default = 25
 }
+variable "component" {
+  type    = string
+  default = "api"
+}
 
 resource "aws_ecr_repository" "this" {
   name                 = var.repository_name
@@ -19,7 +23,7 @@ resource "aws_ecr_repository" "this" {
     scan_on_push = true
   }
   tags = merge(var.tags, {
-    Component = "api"
+    Component = var.component
   })
 }
 

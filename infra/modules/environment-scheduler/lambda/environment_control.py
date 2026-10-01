@@ -17,23 +17,32 @@ def _configuration():
     return {
         "environment": os.environ.get("ALLOWED_ENVIRONMENT", "develop"),
         "cluster": os.environ["ECS_CLUSTER"],
-        "service": os.environ["ECS_SERVICE"],
-        "resource_id": os.environ["SCALABLE_RESOURCE_ID"],
+        "services": [os.environ["ECS_SERVICE"], os.environ["WEB_ECS_SERVICE"]],
+        "resource_ids": [os.environ["SCALABLE_RESOURCE_ID"], os.environ["WEB_SCALABLE_RESOURCE_ID"]],
         "db_id": os.environ["RDS_INSTANCE_ID"],
     }
 
 
 def _status(ecs, scaling, rds, cfg):
-    service = ecs.describe_services(cluster=cfg["cluster"], services=[cfg["service"]])["services"][0]
-    target = scaling.describe_scalable_targets(
-        ServiceNamespace="ecs", ResourceIds=[cfg["resource_id"]],
+    services = ecs.describe_services(cluster=cfg["cluster"], services=cfg["services"])["services"]
+    targets = scaling.describe_scalable_targets(
+        ServiceNamespace="ecs", ResourceIds=cfg["resource_ids"],
         ScalableDimension="ecs:service:DesiredCount",
-    )["ScalableTargets"][0]
+    )["ScalableTargets"]
     database = rds.describe_db_instances(DBInstanceIdentifier=cfg["db_id"])["DBInstances"][0]
+    target_by_id = {target["ResourceId"]: target for target in targets}
+    service_by_name = {service["serviceName"]: service for service in services}
     return {
         "environment": cfg["environment"], "rds_status": database["DBInstanceStatus"],
-        "ecs_desired": service["desiredCount"], "ecs_running": service["runningCount"],
-        "autoscaling_min": target["MinCapacity"], "autoscaling_max": target["MaxCapacity"],
+        "services": {
+            name: {
+                "ecs_desired": service_by_name[name]["desiredCount"],
+                "ecs_running": service_by_name[name]["runningCount"],
+                "autoscaling_min": target_by_id[resource_id]["MinCapacity"],
+                "autoscaling_max": target_by_id[resource_id]["MaxCapacity"],
+            }
+            for name, resource_id in zip(cfg["services"], cfg["resource_ids"])
+        },
     }
 
 
@@ -49,18 +58,19 @@ def _wait_for_rds(rds, db_id, terminal, transitional, timeout=840):
     raise TimeoutError(f"RDS did not reach {terminal} before timeout")
 
 
-def _set_min(scaling, cfg, minimum, maximum):
+def _set_min(scaling, resource_id, minimum, maximum):
     scaling.register_scalable_target(
-        ServiceNamespace="ecs", ResourceId=cfg["resource_id"],
+        ServiceNamespace="ecs", ResourceId=resource_id,
         ScalableDimension="ecs:service:DesiredCount", MinCapacity=minimum, MaxCapacity=maximum,
     )
 
 
 def _stop(ecs, scaling, rds, cfg, before):
-    _set_min(scaling, cfg, 0, before["autoscaling_max"])
-    ecs.update_service(cluster=cfg["cluster"], service=cfg["service"], desiredCount=0)
+    for service, resource_id in zip(cfg["services"], cfg["resource_ids"]):
+        _set_min(scaling, resource_id, 0, before["services"][service]["autoscaling_max"])
+        ecs.update_service(cluster=cfg["cluster"], service=service, desiredCount=0)
     ecs.get_waiter("services_stable").wait(
-        cluster=cfg["cluster"], services=[cfg["service"]],
+        cluster=cfg["cluster"], services=cfg["services"],
         WaiterConfig={"Delay": 15, "MaxAttempts": 40},
     )
     state = _wait_for_rds(rds, cfg["db_id"], {"available", "stopped"}, {"starting", "stopping", "backing-up", "modifying"})
@@ -77,8 +87,9 @@ def _start(ecs, scaling, rds, cfg, before):
         _wait_for_rds(rds, cfg["db_id"], {"available"}, {"starting", "backing-up", "modifying"})
     elif state != "available":
         raise RuntimeError(f"RDS cannot be started safely from state {state}")
-    _set_min(scaling, cfg, 1, before["autoscaling_max"])
-    ecs.update_service(cluster=cfg["cluster"], service=cfg["service"], desiredCount=1)
+    for service, resource_id in zip(cfg["services"], cfg["resource_ids"]):
+        _set_min(scaling, resource_id, 1, before["services"][service]["autoscaling_max"])
+        ecs.update_service(cluster=cfg["cluster"], service=service, desiredCount=1)
 
 
 def handler(event, _context):

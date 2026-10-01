@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,18 +58,29 @@ func (m *onboardingRepoMock) CreateTenantOnboarding(input domain.OnboardingInput
 }
 
 type userRepoMock struct {
-	created bool
-	err     error
-	last    *domain.User
+	created      bool
+	err          error
+	last         *domain.User
+	found        *domain.User
+	passwordHash string
 }
 
-func (m *userRepoMock) Create(u *domain.User) error                { m.created = true; m.last = u; return m.err }
-func (m *userRepoMock) FindByID(string) (*domain.User, error)      { return &domain.User{}, nil }
+func (m *userRepoMock) Create(u *domain.User) error { m.created = true; m.last = u; return m.err }
+func (m *userRepoMock) FindByID(string) (*domain.User, error) {
+	if m.found != nil {
+		return m.found, m.err
+	}
+	return &domain.User{}, m.err
+}
 func (m *userRepoMock) FindByEmail(string) (*domain.User, error)   { return &domain.User{}, nil }
 func (m *userRepoMock) HasRole(string) (bool, error)               { return false, nil }
 func (m *userRepoMock) ListByTenant(string) ([]domain.User, error) { return nil, nil }
-func (m *userRepoMock) Update(*domain.User) error                  { return nil }
-func (m *userRepoMock) Delete(string, string) error                { return nil }
+func (m *userRepoMock) UpdatePassword(_, _ string, hash string) error {
+	m.passwordHash = hash
+	return m.err
+}
+func (m *userRepoMock) Update(*domain.User) error   { return nil }
+func (m *userRepoMock) Delete(string, string) error { return nil }
 
 type customerRepoMock struct {
 	created bool
@@ -135,6 +147,13 @@ func (m *providerRepoMock) FindTenantProvider(tenantID, providerID string) (*dom
 func (m *providerRepoMock) Update(p *domain.Provider) error { m.last = p; return m.err }
 func (m *providerRepoMock) Delete(string, string) error     { return nil }
 func (m *providerRepoMock) SetStatus(string, string) error  { return m.err }
+func (m *providerRepoMock) SetWebhookTokenHash(_ string, hash string) error {
+	if m.last == nil {
+		m.last = &domain.Provider{}
+	}
+	m.last.WebhookTokenHash = hash
+	return m.err
+}
 func (m *providerRepoMock) AssignToTenant(tenantID, providerID string, active bool, config *string) (*domain.TenantProvider, error) {
 	return &domain.TenantProvider{TenantID: tenantID, ProviderID: providerID, Active: active, Config: config}, m.err
 }
@@ -273,6 +292,15 @@ func (f *providerFactorySpy) Build(cfg types.ProviderConfig) (contracts.Provider
 
 type providerAdapterSpy struct {
 	issues int
+}
+
+type boletoWebhookNotifierSpy struct {
+	statuses []string
+}
+
+func (s *boletoWebhookNotifierSpy) NotifyBoletoUpdated(_ context.Context, boleto *domain.Boleto) (bool, error) {
+	s.statuses = append(s.statuses, boleto.Status)
+	return true, nil
 }
 
 func (a *providerAdapterSpy) IssueBoleto(context.Context, types.IssueRequest) (types.IssueResponse, error) {
@@ -414,6 +442,30 @@ func TestUserServicePropagatesDuplicateError(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDuplicateResource) {
 		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestUserServiceSetPasswordHash(t *testing.T) {
+	userID := "550e8400-e29b-41d4-a716-446655440001"
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &userRepoMock{found: &domain.User{ID: userID, TenantID: tenantID}}
+	svc := NewUserService(repo)
+
+	if err := svc.SetPasswordHash(userID, tenantID, "generated-password-hash"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.passwordHash != "generated-password-hash" {
+		t.Fatalf("expected password hash to be persisted, got %q", repo.passwordHash)
+	}
+}
+
+func TestUserServiceSetPasswordHashRejectsDifferentTenant(t *testing.T) {
+	userID := "550e8400-e29b-41d4-a716-446655440001"
+	tenantID := "550e8400-e29b-41d4-a716-446655440000"
+	repo := &userRepoMock{found: &domain.User{ID: userID, TenantID: "550e8400-e29b-41d4-a716-446655440002"}}
+
+	if err := NewUserService(repo).SetPasswordHash(userID, tenantID, "generated-password-hash"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found error, got %v", err)
 	}
 }
 
@@ -612,6 +664,35 @@ func TestProviderServicePropagatesDuplicateError(t *testing.T) {
 	}
 }
 
+func TestProviderServiceCreatesOneTimeWebhookToken(t *testing.T) {
+	repo := &providerRepoMock{}
+	provider := &domain.Provider{Name: "Moncalieri", Type: "MONCALIERI"}
+	if err := NewProviderService(repo).CreateCatalog(provider); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(provider.WebhookToken, "giga_wh_") {
+		t.Fatalf("unexpected webhook token prefix: %q", provider.WebhookToken)
+	}
+	if provider.WebhookTokenHash == "" || provider.WebhookTokenHash != HashWebhookToken(provider.WebhookToken) {
+		t.Fatal("webhook token hash was not persisted correctly")
+	}
+	if provider.WebhookTokenHash == provider.WebhookToken {
+		t.Fatal("plain webhook token must not be persisted")
+	}
+}
+
+func TestProviderServiceRotatesWebhookToken(t *testing.T) {
+	providerID := "550e8400-e29b-41d4-a716-446655440002"
+	repo := &providerRepoMock{found: &domain.Provider{ID: providerID, Name: "Moncalieri"}}
+	token, err := NewProviderService(repo).RotateWebhookToken(providerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" || repo.last.WebhookTokenHash != HashWebhookToken(token) {
+		t.Fatal("rotated webhook token was not stored as a hash")
+	}
+}
+
 // ========== BoletoService Tests ==========
 
 func TestBoletoServiceRejectInvalidTenantID(t *testing.T) {
@@ -739,6 +820,38 @@ func TestBoletoServiceRejectInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestBoletoServiceCreatesProposalWithPayerIdentityWithoutEmail(t *testing.T) {
+	repo := &boletoRepoMock{}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:      "550e8400-e29b-41d4-a716-446655440000",
+		PayerName:     "  Empresa Cliente Ltda.  ",
+		PayerDocument: "12.345.678/0001-90",
+		AmountCents:   15990,
+		DueDate:       time.Now().AddDate(0, 0, 7),
+	})
+	if err != nil {
+		t.Fatalf("expected payer identity to be accepted without email, got %v", err)
+	}
+	if repo.last.PayerName != "Empresa Cliente Ltda." || repo.last.PayerDocument != "12345678000190" {
+		t.Fatalf("payer identity was not normalized: %+v", repo.last)
+	}
+}
+
+func TestBoletoServiceRejectsIncompletePayerIdentityWithoutEmail(t *testing.T) {
+	repo := &boletoRepoMock{}
+	svc := NewBoletoService(repo)
+	err := svc.Create(&domain.Boleto{
+		TenantID:    "550e8400-e29b-41d4-a716-446655440000",
+		PayerName:   "Empresa Cliente Ltda.",
+		AmountCents: 15990,
+		DueDate:     time.Now().AddDate(0, 0, 7),
+	})
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("expected validation error for incomplete payer identity, got %v", err)
+	}
+}
+
 func TestBoletoServiceCreateValidWithCREATED(t *testing.T) {
 	validTenantUUID := "550e8400-e29b-41d4-a716-446655440000"
 	validCustomerUUID := "550e8400-e29b-41d4-a716-446655440001"
@@ -803,12 +916,14 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 		Name:     providerName,
 		Status:   "ACTIVE",
 	}}
+	notifier := &boletoWebhookNotifierSpy{}
 
 	svc := NewBoletoService(boletoRepo).
 		WithCustomerRepository(&customerRepoMock{found: completeCustomer(validTenantUUID)}).
 		WithProviderRepository(providerRepo).
 		WithBlacklistService(&blacklistComplianceMock{}).
-		WithProviderFactory(factory.NewProviderFactory())
+		WithProviderFactory(factory.NewProviderFactory()).
+		WithWebhookNotifier(notifier)
 
 	got, err := svc.Emit(context.Background(), validTenantUUID, boletoID)
 	if err != nil {
@@ -822,6 +937,9 @@ func TestBoletoServiceEmitUsesProviderAdapter(t *testing.T) {
 	}
 	if boletoRepo.updates != 2 {
 		t.Fatalf("expected processing and issued updates, got %d", boletoRepo.updates)
+	}
+	if len(notifier.statuses) != 2 || notifier.statuses[0] != "PROCESSING" || notifier.statuses[1] != "ISSUED" {
+		t.Fatalf("expected webhook notifications for processing and issued updates, got %v", notifier.statuses)
 	}
 }
 
@@ -1216,7 +1334,7 @@ func TestBoletoServiceEmitMoncalieriWithCompleteCustomer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got.Status != "ISSUED" || got.OurNumber == nil || *got.OurNumber != "NN123" || got.Base64 == nil || *got.Base64 != "JVBERi0xLjQ=" {
+	if got.Status != "PROCESSING" || got.OurNumber == nil || *got.OurNumber != "NN123" || got.IssuedAt != nil {
 		t.Fatalf("unexpected boleto: %+v", got)
 	}
 }

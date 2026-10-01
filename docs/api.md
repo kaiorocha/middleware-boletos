@@ -148,6 +148,7 @@ Rotas globais:
 | `PUT /api/v1/admin/providers/:id` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/providers/:id/activate` | `PLATFORM_ADMIN` |
 | `POST /api/v1/admin/providers/:id/deactivate` | `PLATFORM_ADMIN` |
+| `POST /api/v1/admin/providers/:id/webhook-token` | `PLATFORM_ADMIN` |
 | `GET /api/v1/me/tenants` | JWT autenticado; retorna somente tenants das claims |
 | `POST /api/v1/users` | JWT autenticado e tenant do body autorizado |
 | `GET /api/v1/users/:id` | JWT autenticado e tenant do usuário autorizado |
@@ -779,6 +780,14 @@ Reativa um bloqueio.
 ### POST /api/v1/tenants/:tenantId/blacklist/:id/unblock
 
 Desativa um bloqueio sem excluir o registro.
+
+## Webhooks de atualização de boletos
+
+Atualizações relevantes do boleto geram uma tentativa imediata de `POST` para o `webhook_url` do tenant. São considerados entregues somente retornos HTTP entre `200` e `299`.
+
+Falhas de rede, timeout ou respostas fora da faixa 2XX permanecem na fila e são tentadas novamente a cada ciclo de sincronização. O intervalo padrão é de 300 segundos (5 minutos), configurável por `PROVIDER_SYNC_INTERVAL_SECONDS`, com mínimo de 30 segundos. Não há limite de tentativas; o evento permanece pendente até ser entregue com 2XX.
+
+O header `X-Giga-Event-ID` identifica o evento e deve ser usado pelo destino para garantir idempotência.
 
 ## Validações implementadas
 

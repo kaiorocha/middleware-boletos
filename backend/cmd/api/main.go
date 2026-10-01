@@ -86,9 +86,11 @@ func main() {
 	custRepo := repository.NewCustomerRepo(db)
 	providerRepo := repository.NewProviderRepo(db)
 	boletoRepo := repository.NewBoletoRepo(db)
+	campaignRepo := repository.NewCampaignRepo(db)
 	blacklistRepo := repository.NewBlacklistRepo(db)
 	auditRepo := repository.NewAuditLogRepo(db)
 	onboardingRepo := repository.NewOnboardingRepo(db)
+	apiTokenRepo := repository.NewTenantAPITokenRepo(db)
 
 	// services
 	tenantSvc := service.NewTenantService(tenantRepo)
@@ -96,14 +98,20 @@ func main() {
 	customerSvc := service.NewCustomerService(custRepo)
 	providerSvc := service.NewProviderService(providerRepo)
 	onboardingSvc := service.NewOnboardingService(onboardingRepo)
+	apiTokenSvc := service.NewTenantAPITokenService(apiTokenRepo, cfg.JWTSecret)
 	blacklistSvc := service.NewBlacklistService(blacklistRepo).WithAuditRepository(auditRepo)
 	providerFactory := factory.NewProviderFactory()
+	moncalieriWebhookSvc := service.NewMoncalieriWebhookService(db, boletoRepo, tenantRepo, providerRepo, providerFactory)
+	providerSyncSvc := service.NewProviderSyncService(db, boletoRepo, tenantRepo, providerRepo, providerFactory)
 	boletoSvc := service.NewBoletoService(boletoRepo).
 		WithTenantRepository(tenantRepo).
 		WithCustomerRepository(custRepo).
 		WithProviderRepository(providerRepo).
 		WithBlacklistService(blacklistSvc).
-		WithProviderFactory(providerFactory)
+		WithProviderFactory(providerFactory).
+		WithWebhookNotifier(providerSyncSvc)
+	campaignSvc := service.NewCampaignService(campaignRepo).WithAuditRepository(auditRepo)
+	campaignIssuer := service.NewCampaignIssuer(campaignRepo, boletoSvc)
 
 	if err := bootstrapPlatformAdmin(cfg, userSvc); err != nil {
 		logger.Error("bootstrap_platform_admin_failed", "error", err)
@@ -111,22 +119,58 @@ func main() {
 	}
 
 	app := &App{
-		DB:            db,
-		TenantSvc:     tenantSvc,
-		UserSvc:       userSvc,
-		CustomerSvc:   customerSvc,
-		ProviderSvc:   providerSvc,
-		BoletoSvc:     boletoSvc,
-		BlacklistSvc:  blacklistSvc,
-		OnboardingSvc: onboardingSvc,
-		Factory:       providerFactory,
-		Authorizer:    NewIdentityTenantAuthorizer(),
-		Authenticator: NewRequestAuthenticator(cfg.Env, jwtValidator),
-		TokenIssuer:   jwtIssuer,
-		CORSOrigins:   cfg.CORSAllowedOrigins,
+		DB:                db,
+		TenantSvc:         tenantSvc,
+		UserSvc:           userSvc,
+		CustomerSvc:       customerSvc,
+		ProviderSvc:       providerSvc,
+		BoletoSvc:         boletoSvc,
+		CampaignSvc:       campaignSvc,
+		BlacklistSvc:      blacklistSvc,
+		OnboardingSvc:     onboardingSvc,
+		APITokenSvc:       apiTokenSvc,
+		Factory:           providerFactory,
+		Authorizer:        NewIdentityTenantAuthorizer(),
+		Authenticator:     NewRequestAuthenticator(cfg.Env, jwtValidator).WithTenantAPITokens(apiTokenSvc),
+		TokenIssuer:       jwtIssuer,
+		CORSOrigins:       cfg.CORSAllowedOrigins,
+		Environment:       cfg.Env,
+		MoncalieriWebhook: moncalieriWebhookSvc,
+		ProviderSync:      providerSyncSvc,
 	}
 
 	h := app.routes()
+	syncContext, stopSync := context.WithCancel(context.Background())
+	defer stopSync()
+	syncInterval := time.Duration(cfg.ProviderSyncIntervalSeconds) * time.Second
+	if syncInterval < 30*time.Second {
+		syncInterval = 30 * time.Second
+	}
+	go func() {
+		run := func() {
+			if updated, err := providerSyncSvc.SyncPending(syncContext, 100); err != nil {
+				logger.Error("periodic_provider_sync_failed", "error", err)
+			} else if updated > 0 {
+				logger.Info("periodic_provider_sync_completed", "updated", updated)
+			}
+		}
+		if processed, err := campaignIssuer.ProcessPending(syncContext, 100); err != nil {
+			logger.Error("campaign_issuance_failed", "error", err)
+		} else if processed > 0 {
+			logger.Info("campaign_issuance_batch_completed", "processed", processed)
+		}
+		run()
+		ticker := time.NewTicker(syncInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-syncContext.Done():
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
 
 	// configured HTTP server with timeouts
 	srv := &http.Server{
@@ -155,6 +199,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
+	stopSync()
 	logger.Info("application_shutdown_started", "signal", sig.String())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

@@ -16,7 +16,10 @@ fi
 : "${CLUSTER:?CLUSTER is required}"
 : "${SERVICE:?SERVICE is required}"
 : "${RDS_INSTANCE_ID:?RDS_INSTANCE_ID is required}"
-resource_id="service/${CLUSTER}/${SERVICE}"
+services=("$SERVICE")
+if [[ -n "${WEB_SERVICE:-}" && "$WEB_SERVICE" != "$SERVICE" ]]; then
+  services+=("$WEB_SERVICE")
+fi
 
 rds_status() {
   aws rds describe-db-instances --db-instance-identifier "$RDS_INSTANCE_ID" \
@@ -24,33 +27,62 @@ rds_status() {
 }
 
 scaling_values() {
+  local service="$1" resource_id="service/${CLUSTER}/$1"
   aws application-autoscaling describe-scalable-targets --service-namespace ecs \
     --resource-ids "$resource_id" --scalable-dimension ecs:service:DesiredCount \
     --query 'ScalableTargets[0].[MinCapacity,MaxCapacity]' --output text
 }
 
 show_status() {
-  local rds ecs_values scaling
+  local rds service ecs_values scaling
   rds="$(rds_status)"
-  ecs_values="$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
-    --query 'services[0].[desiredCount,runningCount]' --output text)"
-  scaling="$(scaling_values)"
-  printf 'environment=develop rds_status=%s ecs_desired=%s ecs_running=%s autoscaling_min=%s autoscaling_max=%s\n' \
-    "$rds" "$(awk '{print $1}' <<<"$ecs_values")" "$(awk '{print $2}' <<<"$ecs_values")" \
-    "$(awk '{print $1}' <<<"$scaling")" "$(awk '{print $2}' <<<"$scaling")"
+  for service in "${services[@]}"; do
+    ecs_values="$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+      --query 'services[0].[desiredCount,runningCount]' --output text)"
+    scaling="$(scaling_values "$service")"
+    printf 'environment=develop service=%s rds_status=%s ecs_desired=%s ecs_running=%s autoscaling_min=%s autoscaling_max=%s\n' \
+      "$service" "$rds" "$(awk '{print $1}' <<<"$ecs_values")" "$(awk '{print $2}' <<<"$ecs_values")" \
+      "$(awk '{print $1}' <<<"$scaling")" "$(awk '{print $2}' <<<"$scaling")"
+  done
 }
 
 wait_rds_stable() {
-  local state
-  for _ in {1..60}; do
+  local state attempt
+  for attempt in {1..60}; do
     state="$(rds_status)"
+    printf 'Waiting for RDS transition: status=%s attempt=%s/60\n' "$state" "$attempt" >&2
     case "$state" in
       available|stopped) printf '%s\n' "$state"; return 0 ;;
-      starting|stopping|backing-up|modifying) sleep 20 ;;
-      *) echo "RDS is in unsupported state: $state" >&2; return 1 ;;
+      failed|inaccessible-encryption-credentials|inaccessible-encryption-credentials-recoverable|incompatible-network|incompatible-option-group|incompatible-parameters|incompatible-restore|storage-full)
+        echo "RDS entered a terminal state: $state" >&2
+        return 1
+        ;;
+      *) sleep 20 ;;
     esac
   done
   echo "Timed out waiting for RDS transition" >&2
+  return 1
+}
+
+wait_rds_available() {
+  local state attempt
+  # RDS can take longer than the default AWS CLI waiter window after being
+  # stopped for several days. Keep this wait bounded and observable.
+  for attempt in {1..160}; do
+    state="$(rds_status)"
+    printf 'Waiting for RDS availability: status=%s attempt=%s/160\n' "$state" "$attempt" >&2
+    case "$state" in
+      available) return 0 ;;
+      stopped|stopping|failed|inaccessible-encryption-credentials|inaccessible-encryption-credentials-recoverable|incompatible-network|incompatible-option-group|incompatible-parameters|incompatible-restore|storage-full)
+        echo "RDS entered a terminal state while starting: $state" >&2
+        return 1
+        ;;
+      # AWS can pass through states such as configuring-enhanced-monitoring,
+      # configuring-log-exports and storage-optimization before availability.
+      *) sleep 15 ;;
+    esac
+  done
+  echo "Timed out waiting 40 minutes for RDS to become available" >&2
   return 1
 }
 
@@ -59,13 +91,15 @@ if [[ "$action" == "status" ]]; then
   exit 0
 fi
 
-read -r min_capacity max_capacity <<<"$(scaling_values)"
 if [[ "$action" == "stop" ]]; then
-  aws application-autoscaling register-scalable-target --service-namespace ecs \
-    --resource-id "$resource_id" --scalable-dimension ecs:service:DesiredCount \
-    --min-capacity 0 --max-capacity "$max_capacity" >/dev/null
-  aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --desired-count 0 >/dev/null
-  aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+  for service in "${services[@]}"; do
+    read -r _ max_capacity <<<"$(scaling_values "$service")"
+    aws application-autoscaling register-scalable-target --service-namespace ecs \
+      --resource-id "service/${CLUSTER}/${service}" --scalable-dimension ecs:service:DesiredCount \
+      --min-capacity 0 --max-capacity "$max_capacity" >/dev/null
+    aws ecs update-service --cluster "$CLUSTER" --service "$service" --desired-count 0 >/dev/null
+  done
+  aws ecs wait services-stable --cluster "$CLUSTER" --services "${services[@]}"
   state="$(wait_rds_stable)"
   if [[ "$state" == "available" ]]; then
     aws rds stop-db-instance --db-instance-identifier "$RDS_INSTANCE_ID" >/dev/null
@@ -74,12 +108,15 @@ else
   state="$(wait_rds_stable)"
   if [[ "$state" == "stopped" ]]; then
     aws rds start-db-instance --db-instance-identifier "$RDS_INSTANCE_ID" >/dev/null
-    aws rds wait db-instance-available --db-instance-identifier "$RDS_INSTANCE_ID"
+    wait_rds_available
   fi
-  aws application-autoscaling register-scalable-target --service-namespace ecs \
-    --resource-id "$resource_id" --scalable-dimension ecs:service:DesiredCount \
-    --min-capacity 1 --max-capacity "$max_capacity" >/dev/null
-  aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --desired-count 1 >/dev/null
+  for service in "${services[@]}"; do
+    read -r _ max_capacity <<<"$(scaling_values "$service")"
+    aws application-autoscaling register-scalable-target --service-namespace ecs \
+      --resource-id "service/${CLUSTER}/${service}" --scalable-dimension ecs:service:DesiredCount \
+      --min-capacity 1 --max-capacity "$max_capacity" >/dev/null
+    aws ecs update-service --cluster "$CLUSTER" --service "$service" --desired-count 1 >/dev/null
+  done
 fi
 
 show_status

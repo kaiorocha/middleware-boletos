@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	authn "github.com/kaiorocha/middleware-boletos/backend/internal/auth"
+	"github.com/kaiorocha/middleware-boletos/backend/internal/domain"
 	"github.com/kaiorocha/middleware-boletos/backend/internal/service"
 )
 
@@ -29,12 +30,18 @@ func (a *IdentityTenantAuthorizer) AuthorizeTenant(r *http.Request, tenantID str
 	if !ok || identity.UserID == "" {
 		return AuthDecision{Authenticated: false, Allowed: false}
 	}
+	if identity.HasRole(authn.RolePlatformAdmin) {
+		return AuthDecision{Authenticated: true, Allowed: true}
+	}
 	return AuthDecision{Authenticated: true, Allowed: identity.HasTenant(tenantID)}
 }
 
 type RequestAuthenticator struct {
 	env       string
 	validator authn.TokenValidator
+	apiTokens interface {
+		Authenticate(string) (*domain.TenantAPIToken, error)
+	}
 }
 
 func NewRequestAuthenticator(env string, validator authn.TokenValidator) *RequestAuthenticator {
@@ -43,6 +50,13 @@ func NewRequestAuthenticator(env string, validator authn.TokenValidator) *Reques
 		env = "production"
 	}
 	return &RequestAuthenticator{env: env, validator: validator}
+}
+
+func (a *RequestAuthenticator) WithTenantAPITokens(tokens interface {
+	Authenticate(string) (*domain.TenantAPIToken, error)
+}) *RequestAuthenticator {
+	a.apiTokens = tokens
+	return a
 }
 
 func (a *RequestAuthenticator) Authenticate(r *http.Request) (authn.Identity, bool) {
@@ -57,14 +71,28 @@ func (a *RequestAuthenticator) Authenticate(r *http.Request) (authn.Identity, bo
 		return authn.Identity{}, false
 	}
 	token, ok := bearerToken(authorization)
-	if !ok || a == nil || a.validator == nil {
+	if !ok || a == nil {
 		return authn.Identity{}, false
 	}
-	identity, err := a.validator.Validate(r.Context(), token)
-	if err != nil {
-		return authn.Identity{}, false
+	if a.validator != nil {
+		if identity, err := a.validator.Validate(r.Context(), token); err == nil {
+			return identity, true
+		}
 	}
-	return identity, true
+	if a.apiTokens != nil {
+		apiToken, err := a.apiTokens.Authenticate(token)
+		if err == nil && apiToken != nil && tokenEnvironmentAllowed(a.env, apiToken.Environment) {
+			return authn.Identity{UserID: apiToken.ID, TenantIDs: []string{apiToken.TenantID}, Roles: []string{authn.RoleTenantAdmin, authn.RoleTenantAPI}}, true
+		}
+	}
+	return authn.Identity{}, false
+}
+
+func tokenEnvironmentAllowed(appEnv, tokenEnv string) bool {
+	if strings.EqualFold(strings.TrimSpace(appEnv), "production") {
+		return tokenEnv == "PRODUCTION"
+	}
+	return tokenEnv == "HML"
 }
 
 func identityFromDevelopmentHeaders(r *http.Request) (authn.Identity, bool) {
@@ -96,8 +124,16 @@ func (a *App) authenticationMiddleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 			return
 		}
+		if identity.HasRole(authn.RoleTenantAPI) && !isTenantPublicAPIRoute(r.URL.Path) {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "route not available for tenant API token")
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(authn.WithIdentity(r.Context(), identity)))
 	})
+}
+
+func isTenantPublicAPIRoute(path string) bool {
+	return path == "/api/v1/boletos" || strings.HasPrefix(path, "/api/v1/boletos/") || path == "/api/v1/transactions" || path == "/api/v1/blocked-emails" || strings.HasPrefix(path, "/api/v1/blocked-emails/")
 }
 
 func (a *App) requestAuthenticator() *RequestAuthenticator {
@@ -109,6 +145,9 @@ func (a *App) requestAuthenticator() *RequestAuthenticator {
 
 func isPublicRoute(r *http.Request) bool {
 	if r.Method == http.MethodGet && (r.URL.Path == "/health" || r.URL.Path == "/ready") {
+		return true
+	}
+	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/webhooks/moncalieri/") {
 		return true
 	}
 	return r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login"

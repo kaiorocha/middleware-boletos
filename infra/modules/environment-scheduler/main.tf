@@ -13,6 +13,9 @@ variable "ecs_cluster_name" { type = string }
 variable "ecs_service_name" { type = string }
 variable "ecs_service_arn" { type = string }
 variable "scalable_resource_id" { type = string }
+variable "web_ecs_service_name" { type = string }
+variable "web_ecs_service_arn" { type = string }
+variable "web_scalable_resource_id" { type = string }
 variable "rds_instance_arn" { type = string }
 variable "rds_instance_id" { type = string }
 variable "log_retention_days" { type = number }
@@ -52,7 +55,7 @@ data "aws_iam_policy_document" "lambda" {
   statement {
     sid       = "DevelopEcsServiceOnly"
     actions   = ["ecs:DescribeServices", "ecs:UpdateService"]
-    resources = [var.ecs_service_arn]
+    resources = [var.ecs_service_arn, var.web_ecs_service_arn]
   }
   # Application Auto Scaling does not support resource-level permissions for
   # these API calls. The Lambda also validates the exact develop resource ID.
@@ -96,11 +99,13 @@ resource "aws_lambda_function" "control" {
   memory_size      = 128
   environment {
     variables = {
-      ALLOWED_ENVIRONMENT  = "develop"
-      ECS_CLUSTER          = var.ecs_cluster_name
-      ECS_SERVICE          = var.ecs_service_name
-      SCALABLE_RESOURCE_ID = var.scalable_resource_id
-      RDS_INSTANCE_ID      = var.rds_instance_id
+      ALLOWED_ENVIRONMENT      = "develop"
+      ECS_CLUSTER              = var.ecs_cluster_name
+      ECS_SERVICE              = var.ecs_service_name
+      SCALABLE_RESOURCE_ID     = var.scalable_resource_id
+      WEB_ECS_SERVICE          = var.web_ecs_service_name
+      WEB_SCALABLE_RESOURCE_ID = var.web_scalable_resource_id
+      RDS_INSTANCE_ID          = var.rds_instance_id
     }
   }
   depends_on = [aws_cloudwatch_log_group.lambda, aws_iam_role_policy.lambda]

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func TestIssueBoletoSuccess(t *testing.T) {
 	if gotPayload.Data.Valor != 123.45 {
 		t.Fatalf("expected amount 123.45, got %v", gotPayload.Data.Valor)
 	}
-	if resp.Status != types.StatusIssued || resp.OurNumber != "NN123" || resp.Barcode == "" || resp.DigitableLine == "" || resp.Base64 != "JVBERi0xLjQ=" || resp.IssuedAt.IsZero() {
+	if resp.Status != types.StatusProcessing || resp.OurNumber != "NN123" || resp.Barcode == "" || resp.DigitableLine == "" || resp.Base64 != "JVBERi0xLjQ=" || !resp.IssuedAt.IsZero() {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
@@ -84,10 +85,77 @@ func TestIssueBoletoRequiresPayerData(t *testing.T) {
 	assertProviderErrorCode(t, err, errInvalidRequest)
 }
 
+func TestMapIssueResponseAcceptsProviderBase64Aliases(t *testing.T) {
+	tests := []struct {
+		name string
+		data gerarBoletoResponseData
+	}{
+		{name: "Base64", data: gerarBoletoResponseData{Base64: "pdf"}},
+		{name: "BoletoBase64", data: gerarBoletoResponseData{BoletoBase64: "pdf"}},
+		{name: "ArquivoBase64", data: gerarBoletoResponseData{ArquivoBase64: "pdf"}},
+		{name: "PdfBase64", data: gerarBoletoResponseData{PdfBase64: "pdf"}},
+		{name: "DocumentoBase64", data: gerarBoletoResponseData{DocumentoBase64: "pdf"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.data.NossoNumero = "NN123"
+			tt.data.LinhaDigitavel = "linha"
+			tt.data.CodigoBarras = "barra"
+			got, err := mapIssueResponse(validIssueRequest(), gerarBoletoResponse{Data: tt.data})
+			if err != nil {
+				t.Fatalf("expected alias to be accepted, got %v", err)
+			}
+			if got.Base64 != "pdf" {
+				t.Fatalf("expected normalized base64, got %q", got.Base64)
+			}
+		})
+	}
+}
+
+func TestIssueBoletoAcceptsSuccessfulResponseWithOnlyOurNumber(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Data":{"NossoNumero":"NN123","LinhaDigitavel":"","CodigoBarras":"","Base64":""}}`))
+	}))
+	defer server.Close()
+
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	got, err := provider.IssueBoleto(context.Background(), validIssueRequest())
+	if err != nil {
+		t.Fatalf("expected successful issuance, got %v", err)
+	}
+	if got.OurNumber != "NN123" || got.DigitableLine != "" || got.Barcode != "" || got.Base64 != "" {
+		t.Fatalf("unexpected normalized response: %+v", got)
+	}
+}
+
+func TestIssueBoletoReportsMissingOurNumberAndSanitizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Data":{"LinhaDigitavel":"","CodigoBarras":"","Base64":""}}`))
+	}))
+	defer server.Close()
+
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	_, err := provider.IssueBoleto(context.Background(), validIssueRequest())
+	assertProviderErrorCode(t, err, errProviderUnexpected)
+	perr := err.(*providererrors.ProviderError)
+	if perr.Message != "provider response is missing required field: NossoNumero" {
+		t.Fatalf("unexpected error message: %s", perr.Message)
+	}
+	if perr.ResponseBody == "" {
+		t.Fatal("expected sanitized provider response")
+	}
+}
+
 func TestGetBoletoSuccess(t *testing.T) {
+	var request envelope[consultarBoletoData]
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/CashIn/ConsultarBoleto" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("failed to decode consultation request: %v", err)
 		}
 		_ = json.NewEncoder(w).Encode(consultarBoletoResponse{
 			Data: consultarBoletoResponseData{
@@ -98,6 +166,7 @@ func TestGetBoletoSuccess(t *testing.T) {
 				LinhaDigitavel:       "linha",
 				CodigoBarras:         "barra",
 				IdentificadorCliente: "boleto-1",
+				Base64:               "JVBERi0xLjQ=",
 			},
 		})
 	}))
@@ -108,11 +177,40 @@ func TestGetBoletoSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got.Status != types.StatusPaid || got.OurNumber != "NN123" || got.AmountCents != 12345 {
+	if got.Status != types.StatusPaid || got.OurNumber != "NN123" || got.AmountCents != 12345 || got.Base64 != "JVBERi0xLjQ=" {
 		t.Fatalf("unexpected boleto summary: %+v", got)
+	}
+	if !request.Data.RetornarBase64 {
+		t.Fatal("expected consultation to request boleto base64")
 	}
 	if got.DueDate.Format("2006-01-02") != "2026-07-30" {
 		t.Fatalf("unexpected due date: %s", got.DueDate)
+	}
+}
+
+func TestGetBoletoAcceptsArrayAndStringValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"Data":[{"Status":"Registrado","Valor":"12345","ValorPago":null,"DataVencimento":20260730,"NossoNumero":123,"LinhaDigitavel":"linha","CodigoBarras":"barra"}],"ResultCode":"0","Message":null}`))
+	}))
+	defer server.Close()
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	got, err := provider.GetBoleto(context.Background(), types.GetRequest{OurNumber: "123"})
+	if err != nil {
+		t.Fatalf("expected tolerant response, got %v", err)
+	}
+	if got.Status != types.StatusIssued || got.OurNumber != "123" || got.AmountCents != 12345 || got.DigitableLine != "linha" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestGetBoletoAcceptsDoubleEncodedJSON(t *testing.T) {
+	encoded, _ := json.Marshal(`{"Data":{"Status":"Registrado","NossoNumero":"123","LinhaDigitavel":"linha"},"ResultCode":0}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(encoded) }))
+	defer server.Close()
+	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
+	got, err := provider.GetBoleto(context.Background(), types.GetRequest{OurNumber: "123"})
+	if err != nil || got.OurNumber != "123" {
+		t.Fatalf("unexpected response: %+v %v", got, err)
 	}
 }
 
@@ -137,13 +235,33 @@ func TestCancelBoletoSuccess(t *testing.T) {
 
 func TestProviderHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"Message":"api-key inválida","api_key":"must-not-leak","ValidationData":{"Errors":[{"FieldName":"CodigoCliente","ErrorMessage":"cliente não autorizado"}]}}`))
 	}))
 	defer server.Close()
 
 	provider := New(types.ProviderConfig{Name: "Moncalieri", Config: validConfig(server.URL)})
 	_, err := provider.GetBoleto(context.Background(), types.GetRequest{OurNumber: "NN123"})
 	assertProviderErrorCode(t, err, errProviderHTTP)
+	perr := err.(*providererrors.ProviderError)
+	if perr.HTTPStatus != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", perr.HTTPStatus)
+	}
+	if perr.ResponseBody != `{"Message":"api-key inválida","ValidationData":{"Errors":[{"ErrorMessage":"cliente não autorizado","FieldName":"CodigoCliente"}]},"api_key":"[REDACTED]"}` {
+		t.Fatalf("unexpected sanitized provider response: %s", perr.ResponseBody)
+	}
+}
+
+func TestProviderHTTPErrorResponseIsTruncated(t *testing.T) {
+	body := make([]byte, maxLoggedProviderResponseBytes+100)
+	for index := range body {
+		body[index] = 'x'
+	}
+	got := sanitizeProviderResponse(body)
+	if len(got) != maxLoggedProviderResponseBytes+len("...[truncated]") || !strings.HasSuffix(got, "...[truncated]") {
+		t.Fatalf("expected bounded response, got length %d", len(got))
+	}
 }
 
 func TestMapStatus(t *testing.T) {

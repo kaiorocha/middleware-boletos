@@ -24,6 +24,10 @@ variable "container_port" {
   type    = number
   default = 8080
 }
+variable "web_container_port" {
+  type    = number
+  default = 3000
+}
 variable "initial_image_tag" {
   type        = string
   default     = "bootstrap"
@@ -55,6 +59,26 @@ variable "ecs_min_capacity" {
 }
 variable "ecs_max_capacity" {
   type = number
+}
+variable "web_ecs_cpu" {
+  type    = number
+  default = 256
+}
+variable "web_ecs_memory" {
+  type    = number
+  default = 512
+}
+variable "web_ecs_desired_count" {
+  type    = number
+  default = 1
+}
+variable "web_ecs_min_capacity" {
+  type    = number
+  default = 1
+}
+variable "web_ecs_max_capacity" {
+  type    = number
+  default = 2
 }
 variable "rds_instance_class" {
   type    = string
@@ -166,6 +190,24 @@ variable "app_subdomain" {
 variable "route53_zone_id" {
   type    = string
   default = ""
+}
+variable "manage_route53_records" {
+  type        = bool
+  default     = false
+  description = "Create DNS records in Route53. Keep false when DNS is hosted externally."
+  validation {
+    condition     = !var.manage_route53_records || length(trimspace(var.route53_zone_id)) > 0
+    error_message = "route53_zone_id is required when manage_route53_records is true."
+  }
+}
+variable "enable_https" {
+  type        = bool
+  default     = false
+  description = "Enable the ALB HTTPS listener after the ACM validation CNAMEs have been created."
+  validation {
+    condition     = !var.enable_https || var.enable_custom_domain
+    error_message = "enable_custom_domain must be true when enable_https is true."
+  }
 }
 variable "enable_amplify" {
   type        = bool

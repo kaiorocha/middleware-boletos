@@ -10,22 +10,23 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	Port                     string
-	DatabaseURL              string
-	RedisURL                 string
-	Env                      string
-	JWTSecret                string
-	JWTIssuer                string
-	JWTAudience              string
-	EnableAdminBootstrap     bool
-	BootstrapAdminEmail      string
-	BootstrapAdminPassword   string
-	BootstrapAdminName       string
-	CORSAllowedOrigins       []string
-	DBMaxOpenConns           int
-	DBMaxIdleConns           int
-	DBConnMaxLifetimeSeconds int
-	DBConnMaxIdleTimeSeconds int
+	Port                        string
+	DatabaseURL                 string
+	RedisURL                    string
+	Env                         string
+	JWTSecret                   string
+	JWTIssuer                   string
+	JWTAudience                 string
+	EnableAdminBootstrap        bool
+	BootstrapAdminEmail         string
+	BootstrapAdminPassword      string
+	BootstrapAdminName          string
+	CORSAllowedOrigins          []string
+	DBMaxOpenConns              int
+	DBMaxIdleConns              int
+	DBConnMaxLifetimeSeconds    int
+	DBConnMaxIdleTimeSeconds    int
+	ProviderSyncIntervalSeconds int
 }
 
 const MinJWTSecretLength = 32
@@ -33,22 +34,23 @@ const MinJWTSecretLength = 32
 // Load reads configuration from environment with sensible defaults
 func Load() *Config {
 	cfg := &Config{
-		Port:                     getEnv("PORT", "8080"),
-		DatabaseURL:              getEnv("DATABASE_URL", ""),
-		RedisURL:                 getEnv("REDIS_URL", "redis://redis:6379/0"),
-		Env:                      getEnv("APP_ENV", getEnv("BACKEND_ENV", "production")),
-		JWTSecret:                getEnv("JWT_SECRET", ""),
-		JWTIssuer:                getEnv("JWT_ISSUER", ""),
-		JWTAudience:              getEnv("JWT_AUDIENCE", ""),
-		EnableAdminBootstrap:     parseBool(getEnv("ENABLE_ADMIN_BOOTSTRAP", "false")),
-		BootstrapAdminEmail:      getEnv("BOOTSTRAP_ADMIN_EMAIL", ""),
-		BootstrapAdminPassword:   getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
-		BootstrapAdminName:       getEnv("BOOTSTRAP_ADMIN_NAME", ""),
-		CORSAllowedOrigins:       splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "")),
-		DBMaxOpenConns:           getEnvInt("DB_MAX_OPEN_CONNS", 25),
-		DBMaxIdleConns:           getEnvInt("DB_MAX_IDLE_CONNS", 5),
-		DBConnMaxLifetimeSeconds: getEnvInt("DB_CONN_MAX_LIFETIME", 1800),
-		DBConnMaxIdleTimeSeconds: getEnvInt("DB_CONN_MAX_IDLE_TIME", 300),
+		Port:                        getEnv("PORT", "8080"),
+		DatabaseURL:                 getEnv("DATABASE_URL", ""),
+		RedisURL:                    getEnv("REDIS_URL", "redis://redis:6379/0"),
+		Env:                         getEnv("APP_ENV", getEnv("BACKEND_ENV", "production")),
+		JWTSecret:                   getEnv("JWT_SECRET", ""),
+		JWTIssuer:                   getEnv("JWT_ISSUER", ""),
+		JWTAudience:                 getEnv("JWT_AUDIENCE", ""),
+		EnableAdminBootstrap:        parseBool(getEnv("ENABLE_ADMIN_BOOTSTRAP", "false")),
+		BootstrapAdminEmail:         getEnv("BOOTSTRAP_ADMIN_EMAIL", ""),
+		BootstrapAdminPassword:      getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""),
+		BootstrapAdminName:          getEnv("BOOTSTRAP_ADMIN_NAME", ""),
+		CORSAllowedOrigins:          splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "")),
+		DBMaxOpenConns:              getEnvInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:              getEnvInt("DB_MAX_IDLE_CONNS", 5),
+		DBConnMaxLifetimeSeconds:    getEnvInt("DB_CONN_MAX_LIFETIME", 1800),
+		DBConnMaxIdleTimeSeconds:    getEnvInt("DB_CONN_MAX_IDLE_TIME", 300),
+		ProviderSyncIntervalSeconds: getEnvInt("PROVIDER_SYNC_INTERVAL_SECONDS", 300),
 	}
 	return cfg
 }

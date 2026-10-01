@@ -16,6 +16,7 @@ const (
 	RolePlatformAdmin = "PLATFORM_ADMIN"
 	RoleTenantAdmin   = "TENANT_ADMIN"
 	RoleTenantUser    = "TENANT_USER"
+	RoleTenantAPI     = "TENANT_API"
 )
 
 type Identity struct {

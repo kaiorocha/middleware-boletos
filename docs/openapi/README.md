@@ -1,6 +1,6 @@
 # OpenAPI
 
-Esta pasta contém dois contratos OpenAPI do `middleware-boletos`, com finalidades distintas.
+Esta pasta contém a especificação OpenAPI publicável da API de boletos da Giga Pagamentos.
 
 Contratos:
 

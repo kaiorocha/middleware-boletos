@@ -1,9 +1,6 @@
 name: Deploy Backend Develop
 on:
   workflow_dispatch: {}
-  push:
-    branches: [develop]
-    paths: ['backend/**']
 permissions: { id-token: write, contents: read }
 jobs:
   deploy:

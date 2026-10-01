@@ -3,12 +3,13 @@ package service
 import "errors"
 
 var (
-	ErrValidation         = errors.New("validation error")
-	ErrNotFound           = errors.New("not found")
-	ErrDuplicateResource  = errors.New("duplicate resource")
-	ErrCustomerBlocked    = errors.New("customer blocked")
-	ErrRecipientBlocked   = errors.New("recipient blocked")
-	ErrProviderNotAllowed = errors.New("provider not allowed for tenant")
+	ErrValidation          = errors.New("validation error")
+	ErrNotFound            = errors.New("not found")
+	ErrDuplicateResource   = errors.New("duplicate resource")
+	ErrCustomerBlocked     = errors.New("customer blocked")
+	ErrRecipientBlocked    = errors.New("recipient blocked")
+	ErrProviderNotAllowed  = errors.New("provider not allowed for tenant")
+	ErrInvalidWebhookToken = errors.New("invalid webhook token")
 )
 
 type DuplicateResourceError struct {
