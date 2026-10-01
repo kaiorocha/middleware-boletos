@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Documentação pública da API Middleware Boletos" />
+    <title>Middleware Boletos — API pública</title>
+    <link rel="stylesheet" href="/assets/portal.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <p class="eyebrow">Developer Portal</p>
+      <h1>Middleware Boletos API</h1>
+      <p>Integre boletos proposta com emissão, consulta e Compliance por e-mail.</p>
+      <span class="version">API v<span id="api-version">carregando…</span></span>
+    </header>
+    <main>
+      <section class="getting-started" aria-labelledby="getting-started-title">
+        <div>
+          <p class="eyebrow">Getting Started</p>
+          <h2 id="getting-started-title">Sua primeira emissão</h2>
+          <ol>
+            <li>Autentique-se e use o token Bearer nas chamadas seguintes.</li>
+            <li>Consulte seu tenant e os providers habilitados.</li>
+            <li>Crie o boleto proposta com e-mail, valor e vencimento.</li>
+            <li>Emita pelo provider escolhido e consulte o boleto pelo ID.</li>
+            <li>Trate erros; <code>RECIPIENT_BLOCKED</code> indica opt-out do e-mail.</li>
+          </ol>
+        </div>
+        <pre><code>POST /api/v1/tenants/{tenantId}/boletos
+{
+  "email": "cliente@empresa.com",
+  "amount_cents": 10000,
+  "due_date": "2026-09-01",
+  "provider_id": "00000000-0000-4000-8000-000000000001",
+  "external_id": "pedido-123"
+}</code></pre>
+      </section>
+      <section aria-labelledby="reference-title">
+        <div class="reference-heading">
+          <div><p class="eyebrow">API Reference</p><h2 id="reference-title">Contrato público</h2></div>
+          <div class="reference-links"><a href="/openapi.json">Baixar OpenAPI</a><a href="https://github.com/kaiorocha/middleware-boletos/blob/main/docs/changelog.md">Changelog</a></div>
+        </div>
+        <div id="api-reference"></div>
+      </section>
+    </main>
+    <footer>Autenticação, erros e exemplos estão descritos no contrato OpenAPI.</footer>
+    <script type="module" src="/assets/portal.js"></script>
+    <script>
+      fetch('/openapi.json').then(r => r.json()).then(s => {
+        document.getElementById('api-version').textContent = s.info.version
+      }).catch(() => { document.getElementById('api-version').textContent = 'indisponível' })
+    </script>
+  </body>
+</html>
